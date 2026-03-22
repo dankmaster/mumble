@@ -9,6 +9,9 @@
 #include "ChannelLinkTable.h"
 #include "ChannelListenerTable.h"
 #include "ChannelPropertyTable.h"
+#include "ChatMessageTable.h"
+#include "ChatReadStateTable.h"
+#include "ChatThreadTable.h"
 #include "ChannelTable.h"
 #include "ConfigTable.h"
 #include "GroupMemberTable.h"
@@ -39,6 +42,9 @@ namespace server {
 				ChannelTable,
 				ChannelPropertyTable,
 				UserTable,
+				ChatThreadTable,
+				ChatMessageTable,
+				ChatReadStateTable,
 				UserPropertyTable,
 				GroupTable,
 				GroupMemberTable,
@@ -90,6 +96,16 @@ namespace server {
 			id = addTable(std::make_unique< UserTable >(m_sql, m_backend, getServerTable(), getChannelTable()));
 			assert(id == TableIndex::UserTable);
 
+			id = addTable(std::make_unique< ChatThreadTable >(m_sql, m_backend, getServerTable(), getUserTable()));
+			assert(id == TableIndex::ChatThreadTable);
+
+			id = addTable(std::make_unique< ChatMessageTable >(m_sql, m_backend, getChatThreadTable(), getUserTable()));
+			assert(id == TableIndex::ChatMessageTable);
+
+			id = addTable(
+				std::make_unique< ChatReadStateTable >(m_sql, m_backend, getChatThreadTable(), getUserTable()));
+			assert(id == TableIndex::ChatReadStateTable);
+
 			id = addTable(std::make_unique< UserPropertyTable >(m_sql, m_backend, getUserTable()));
 			assert(id == TableIndex::UserPropertyTable);
 
@@ -138,6 +154,9 @@ namespace server {
 		GET_TABLE_IMPL(ChannelTable)
 		GET_TABLE_IMPL(ChannelPropertyTable)
 		GET_TABLE_IMPL(UserTable)
+		GET_TABLE_IMPL(ChatThreadTable)
+		GET_TABLE_IMPL(ChatMessageTable)
+		GET_TABLE_IMPL(ChatReadStateTable)
 		GET_TABLE_IMPL(UserPropertyTable)
 		GET_TABLE_IMPL(GroupTable)
 		GET_TABLE_IMPL(GroupMemberTable)
