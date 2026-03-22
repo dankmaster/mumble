@@ -7,6 +7,7 @@
 
 #include "MainWindow.h"
 #include "OSInfo.h"
+#include "Version.h"
 #include "Global.h"
 
 #include <QSignalBlocker>
@@ -28,6 +29,10 @@ static ConfigRegistrar registrarNetworkConfig(1300, NetworkConfigNew);
 
 NetworkConfig::NetworkConfig(Settings &st) : ConfigWidget(st) {
 	setupUi(this);
+
+	qleAdvertisedRelease->setPlaceholderText(Version::getRelease());
+	qleAdvertisedOS->setPlaceholderText(OSInfo::getOS());
+	qleAdvertisedOSVersion->setPlaceholderText(OSInfo::getOSDisplayableVersion());
 }
 
 QString NetworkConfig::title() const {
@@ -64,6 +69,9 @@ void NetworkConfig::load(const Settings &r) {
 	qlePassword->setText(r.qsProxyPassword);
 
 	loadCheckBox(qcbHideOS, s.bHideOS);
+	qleAdvertisedRelease->setText(r.qsAdvertisedReleaseOverride);
+	qleAdvertisedOS->setText(r.qsAdvertisedOSOverride);
+	qleAdvertisedOSVersion->setText(r.qsAdvertisedOSVersionOverride);
 
 	const QSignalBlocker blocker(qcbAutoUpdate);
 	loadCheckBox(qcbAutoUpdate, r.bUpdateCheck);
@@ -80,6 +88,9 @@ void NetworkConfig::save() const {
 	s.bDisablePublicList = qcbDisablePublicList->isChecked();
 	s.bSuppressIdentity  = qcbSuppressIdentity->isChecked();
 	s.bHideOS            = qcbHideOS->isChecked();
+	s.qsAdvertisedReleaseOverride   = qleAdvertisedRelease->text().trimmed();
+	s.qsAdvertisedOSOverride        = qleAdvertisedOS->text().trimmed();
+	s.qsAdvertisedOSVersionOverride = qleAdvertisedOSVersion->text().trimmed();
 
 	s.ptProxyType     = static_cast< Settings::ProxyType >(qcbType->currentIndex());
 	s.qsProxyHost     = qleHostname->text();

@@ -8,6 +8,7 @@
 
 #include <QtCore/QPointer>
 #include <QtCore/QtGlobal>
+#include <QtCore/QHash>
 #include <QtNetwork/QAbstractSocket>
 #include <QtWidgets/QMainWindow>
 
@@ -167,6 +168,16 @@ public:
 		QString statusMessage;
 	};
 
+	struct PersistentChatPreview {
+		QString canonicalUrl;
+		QString title;
+		QString subtitle;
+		QString thumbnailHtml;
+		bool metadataFinished = false;
+		bool thumbnailFinished = false;
+		bool failed           = false;
+	};
+
 	void loadState(bool minimalView);
 	void storeState(bool minimalView);
 
@@ -176,6 +187,10 @@ public:
 	void setPersistentChatWelcomeText(const QString &message);
 	void updatePersistentChatWelcome();
 	void clearPersistentChatView(const QString &message);
+	std::optional< QString > persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const;
+	void ensurePersistentChatPreview(const QString &previewKey);
+	QString persistentChatPreviewHtml(const QString &previewKey) const;
+	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
 	void showLogContextMenu(LogTextBrowser *browser, const QPoint &position);
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
 	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
@@ -243,6 +258,7 @@ protected:
 	LogTextBrowser *m_persistentChatHistory = nullptr;
 	QString m_persistentChatWelcomeText;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
+	QHash< QString, PersistentChatPreview > m_persistentChatPreviews;
 	std::optional< MumbleProto::ChatScope > m_visiblePersistentChatScope;
 	unsigned int m_visiblePersistentChatScopeID = 0;
 	unsigned int m_visiblePersistentChatLastReadMessageID = 0;

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>576</width>
-    <height>584</height>
+    <height>760</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -322,6 +322,85 @@ Prevents the client from sending potentially identifying information about the o
         </property>
         <property name="text">
          <string>Do not send OS information to Mumble servers and web servers</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="qgbAnnouncedIdentity">
+     <property name="title">
+      <string>Announced identity</string>
+     </property>
+     <layout class="QGridLayout" name="gridLayout_announcedIdentity">
+      <item row="0" column="0" colspan="2">
+       <widget class="QLabel" name="qlAnnouncedIdentityHint">
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="text">
+         <string>Override the release and OS strings announced to servers. Leave fields blank to send the real values. This does not change the numeric protocol version.</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="qlAdvertisedRelease">
+        <property name="text">
+         <string>Release string</string>
+        </property>
+        <property name="buddy">
+         <cstring>qleAdvertisedRelease</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="qleAdvertisedRelease">
+        <property name="toolTip">
+         <string>Optional release string to announce to servers</string>
+        </property>
+        <property name="clearButtonEnabled">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="qlAdvertisedOS">
+        <property name="text">
+         <string>OS name</string>
+        </property>
+        <property name="buddy">
+         <cstring>qleAdvertisedOS</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="qleAdvertisedOS">
+        <property name="toolTip">
+         <string>Optional OS name to announce to servers</string>
+        </property>
+        <property name="clearButtonEnabled">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="qlAdvertisedOSVersion">
+        <property name="text">
+         <string>OS version</string>
+        </property>
+        <property name="buddy">
+         <cstring>qleAdvertisedOSVersion</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="qleAdvertisedOSVersion">
+        <property name="toolTip">
+         <string>Optional OS version string to announce to servers</string>
+        </property>
+        <property name="clearButtonEnabled">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
