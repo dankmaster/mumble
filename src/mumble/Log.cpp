@@ -612,6 +612,8 @@ QString Log::imageToImg(const QByteArray &format, const QByteArray &image) {
 QString Log::imageToImg(QImage img, int maxSize) {
 	constexpr int MAX_WIDTH  = 1600;
 	constexpr int MAX_HEIGHT = 1000;
+	constexpr int INLINE_PREVIEW_WIDTH  = 640;
+	constexpr int INLINE_PREVIEW_HEIGHT = 420;
 
 	if ((img.width() > MAX_WIDTH) || (img.height() > MAX_HEIGHT)) {
 		img = img.scaled(MAX_WIDTH, MAX_HEIGHT, Qt::KeepAspectRatio, Qt::SmoothTransformation);
@@ -632,6 +634,13 @@ QString Log::imageToImg(QImage img, int maxSize) {
 		imgwrite.write(img);
 		result = imageToImg(format, qba);
 		if (result.length() < maxSize || maxSize == 0) {
+			const QSize previewSize =
+				img.size().scaled(INLINE_PREVIEW_WIDTH, INLINE_PREVIEW_HEIGHT, Qt::KeepAspectRatio);
+			result.replace(QString::fromLatin1("<img "),
+						   QString::fromLatin1("<img width=\"%1\" height=\"%2\" alt=\"Image attachment\" "
+											   "title=\"Double-click to preview\" ")
+							   .arg(previewSize.width())
+							   .arg(previewSize.height()));
 			return result;
 		}
 		quality -= 10;

@@ -43,6 +43,7 @@ class UserInformation;
 class VoiceRecorderDialog;
 class PositionalAudioViewer;
 class PTTButtonWidget;
+class QFrame;
 
 namespace Search {
 class SearchDialog;
@@ -137,6 +138,7 @@ public:
 	/// Contains the cursor whose position is immediately before the image to
 	/// save when activating the "Save Image As..." context menu item.
 	QTextCursor qtcSaveImageCursor;
+	QPointer< LogTextBrowser > m_imageSourceBrowser;
 
 	QPointer< Channel > cContextChannel;
 	QPointer< ClientUser > cuContextUser;
@@ -171,7 +173,12 @@ public:
 	PersistentChatTarget currentPersistentChatTarget() const;
 	void refreshPersistentChatView(bool forceReload = false);
 	void requestOlderPersistentChatHistory();
+	void setPersistentChatWelcomeText(const QString &message);
+	void updatePersistentChatWelcome();
 	void clearPersistentChatView(const QString &message);
+	void showLogContextMenu(LogTextBrowser *browser, const QPoint &position);
+	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
+	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
 	void renderPersistentChatView(const QString &statusMessage = QString(), bool scrollToBottom = true,
 								  bool preserveScrollPosition = false);
 	bool canMarkPersistentChatRead() const;
@@ -231,7 +238,10 @@ protected:
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
 	QWidget *m_persistentChatContainer = nullptr;
 	MUComboBox *m_persistentChatScopeSelector = nullptr;
+	LogTextBrowser *m_persistentChatWelcome = nullptr;
+	QFrame *m_persistentChatDivider = nullptr;
 	LogTextBrowser *m_persistentChatHistory = nullptr;
+	QString m_persistentChatWelcomeText;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
 	std::optional< MumbleProto::ChatScope > m_visiblePersistentChatScope;
 	unsigned int m_visiblePersistentChatScopeID = 0;

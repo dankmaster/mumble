@@ -11,6 +11,8 @@
 #include <QtWidgets/QTextBrowser>
 #include <QtWidgets/QTextEdit>
 
+class QMouseEvent;
+
 class LogTextBrowser : public QTextBrowser {
 private:
 	Q_OBJECT
@@ -22,6 +24,13 @@ public:
 	int getLogScroll();
 	void setLogScroll(int scroll_pos);
 	bool isScrolledToBottom();
+	QTextCursor imageCursorAt(const QPoint &position) const;
+
+signals:
+	void imageActivated(const QTextCursor &cursor);
+
+protected:
+	void mouseDoubleClickEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 };
 
 class ChatbarTextEdit : public QTextEdit {

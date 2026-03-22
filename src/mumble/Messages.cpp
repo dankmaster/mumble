@@ -133,9 +133,7 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 	Global::get().l->clearIgnore();
 	if (msg.has_welcome_text()) {
 		QString str = u8(msg.welcome_text());
-		if (!str.isEmpty()) {
-			Global::get().l->log(Log::Information, tr("Welcome message: %1").arg(str));
-		}
+		setPersistentChatWelcomeText(str);
 	}
 	pmModel->ensureSelfVisible();
 	pmModel->recheckLinks();
@@ -201,9 +199,7 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 	bool persistentGlobalChanged = false;
 	if (msg.has_welcome_text()) {
 		QString str = u8(msg.welcome_text());
-		if (!str.isEmpty()) {
-			Global::get().l->log(Log::Information, tr("Welcome message: %1").arg(str));
-		}
+		setPersistentChatWelcomeText(str);
 	}
 	if (msg.has_max_bandwidth())
 		AudioInput::setMaxBandwidth(static_cast< int >(msg.max_bandwidth()));

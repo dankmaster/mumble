@@ -17,7 +17,9 @@ class ResponsiveImageDialog : public QDialog {
 
 private:
 	QLabel *m_label;
+	QScrollArea *m_scrollArea;
 	QPixmap m_pixmap;
+	void updatePixmap();
 
 public:
 	explicit ResponsiveImageDialog(const QPixmap &pixmap, QWidget *parent = nullptr);

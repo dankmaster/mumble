@@ -79,9 +79,11 @@
 #include <QtGui/QWindow>
 #include <QtGui/QTextCursor>
 #include <QtWidgets/QFileDialog>
+#include <QtWidgets/QFrame>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QScrollBar>
+#include <QtWidgets/QSizePolicy>
 #include <QtWidgets/QToolTip>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWidgets/QWhatsThis>
@@ -549,6 +551,9 @@ void MainWindow::setupGui() {
 
 	LogDocument *ld = new LogDocument(qteLog);
 	qteLog->setDocument(ld);
+	connect(qteLog, &LogTextBrowser::imageActivated, this, [this](const QTextCursor &cursor) {
+		openImageDialog(qteLog, cursor);
+	});
 
 	qteLog->document()->setMaximumBlockCount(Global::get().s.iMaxLogBlocks);
 	qteLog->document()->setDefaultStyleSheet(qApp->styleSheet());
@@ -675,24 +680,57 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatScopeSelector->addItem(tr("All chats"), static_cast< int >(PersistentChatMode::Aggregate));
 	m_persistentChatScopeSelector->setAccessibleName(tr("Persistent chat scope"));
 
+	m_persistentChatWelcome = new LogTextBrowser(m_persistentChatContainer);
+	m_persistentChatWelcome->setObjectName(QLatin1String("qtePersistentChatWelcome"));
+	m_persistentChatWelcome->setAccessibleName(tr("Server welcome message"));
+	m_persistentChatWelcome->setFrameShape(QFrame::NoFrame);
+	m_persistentChatWelcome->setReadOnly(true);
+	m_persistentChatWelcome->setOpenLinks(false);
+	m_persistentChatWelcome->setFocusPolicy(Qt::NoFocus);
+	m_persistentChatWelcome->setContextMenuPolicy(Qt::CustomContextMenu);
+	m_persistentChatWelcome->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	m_persistentChatWelcome->setMaximumHeight(180);
+	m_persistentChatWelcome->document()->setDefaultStyleSheet(qApp->styleSheet());
+	m_persistentChatWelcome->hide();
+
+	m_persistentChatDivider = new QFrame(m_persistentChatContainer);
+	m_persistentChatDivider->setObjectName(QLatin1String("qfPersistentChatDivider"));
+	m_persistentChatDivider->setFrameShape(QFrame::HLine);
+	m_persistentChatDivider->setFrameShadow(QFrame::Sunken);
+	m_persistentChatDivider->hide();
+
 	m_persistentChatHistory = new LogTextBrowser(m_persistentChatContainer);
 	m_persistentChatHistory->setObjectName(QLatin1String("qtePersistentChatHistory"));
 	m_persistentChatHistory->setAccessibleName(tr("Persistent chat history"));
 	m_persistentChatHistory->setFrameShape(QFrame::NoFrame);
 	m_persistentChatHistory->setReadOnly(true);
 	m_persistentChatHistory->setOpenLinks(false);
+	m_persistentChatHistory->setContextMenuPolicy(Qt::CustomContextMenu);
 	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
 
 	layout->addWidget(m_persistentChatScopeSelector);
+	layout->addWidget(m_persistentChatWelcome);
+	layout->addWidget(m_persistentChatDivider);
 	layout->addWidget(m_persistentChatHistory, 1);
 	layout->addWidget(qteChat);
 
 	qdwChat->setWidget(m_persistentChatContainer);
 
 	connect(m_persistentChatScopeSelector, SIGNAL(currentIndexChanged(int)), this, SLOT(on_persistentChatScopeChanged(int)));
+	connect(m_persistentChatWelcome, &LogTextBrowser::anchorClicked, this, &MainWindow::on_qteLog_anchorClicked);
+	connect(m_persistentChatWelcome, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
+			&MainWindow::on_qteLog_highlighted);
+	connect(m_persistentChatWelcome, &LogTextBrowser::customContextMenuRequested, this,
+			&MainWindow::on_qteLog_customContextMenuRequested);
+	connect(m_persistentChatWelcome, &LogTextBrowser::imageActivated, this,
+			[this](const QTextCursor &cursor) { openImageDialog(m_persistentChatWelcome, cursor); });
 	connect(m_persistentChatHistory, &LogTextBrowser::anchorClicked, this, &MainWindow::on_qteLog_anchorClicked);
 	connect(m_persistentChatHistory, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
 			&MainWindow::on_qteLog_highlighted);
+	connect(m_persistentChatHistory, &LogTextBrowser::customContextMenuRequested, this,
+			&MainWindow::on_qteLog_customContextMenuRequested);
+	connect(m_persistentChatHistory, &LogTextBrowser::imageActivated, this,
+			[this](const QTextCursor &cursor) { openImageDialog(m_persistentChatHistory, cursor); });
 	connect(m_persistentChatHistory->verticalScrollBar(), &QScrollBar::valueChanged, this,
 			[this](int) { markPersistentChatRead(); });
 	connect(qdwChat, &QDockWidget::visibilityChanged, this, [this](bool visible) {
@@ -703,6 +741,33 @@ void MainWindow::setupPersistentChatDock() {
 	connect(this, &MainWindow::windowActivated, this, [this]() { markPersistentChatRead(); });
 
 	clearPersistentChatView(tr("Connect to a server to load persistent chat history."));
+}
+
+void MainWindow::setPersistentChatWelcomeText(const QString &message) {
+	m_persistentChatWelcomeText = message;
+	updatePersistentChatWelcome();
+}
+
+void MainWindow::updatePersistentChatWelcome() {
+	if (!m_persistentChatWelcome || !m_persistentChatDivider) {
+		return;
+	}
+
+	m_persistentChatWelcome->clear();
+
+	const bool hasWelcome = !m_persistentChatWelcomeText.trimmed().isEmpty();
+	m_persistentChatWelcome->setVisible(hasWelcome);
+	m_persistentChatDivider->setVisible(hasWelcome);
+
+	if (!hasWelcome) {
+		return;
+	}
+
+	QTextCursor cursor(m_persistentChatWelcome->document());
+	cursor.movePosition(QTextCursor::End);
+	cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>").arg(tr("Welcome").toHtmlEscaped()));
+	Log::validHtml(m_persistentChatWelcomeText, &cursor);
+	m_persistentChatWelcome->moveCursor(QTextCursor::Start);
 }
 
 MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const {
@@ -785,6 +850,7 @@ void MainWindow::clearPersistentChatView(const QString &message) {
 
 	m_persistentChatHistory->clear();
 	QTextCursor cursor(m_persistentChatHistory->document());
+	cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>").arg(tr("Chat").toHtmlEscaped()));
 	cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(message.toHtmlEscaped()));
 	m_persistentChatHistory->moveCursor(QTextCursor::End);
 }
@@ -804,6 +870,12 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 
 	const PersistentChatTarget target = currentPersistentChatTarget();
 
+	cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>").arg(target.label.toHtmlEscaped()));
+	if (target.scope == MumbleProto::Aggregate) {
+		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
+							  .arg(tr("Merged feed across conversations you can currently read.").toHtmlEscaped()));
+	}
+
 	if (!statusMessage.isEmpty()) {
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(statusMessage.toHtmlEscaped()));
 	}
@@ -816,9 +888,11 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 							  .arg(tr("Load older messages").toHtmlEscaped()));
 	}
 
+	if (target.readOnly && !target.statusMessage.isEmpty()) {
+		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(target.statusMessage.toHtmlEscaped()));
+	}
+
 	if (target.scope == MumbleProto::Aggregate) {
-		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
-							  .arg(tr("All chats only shows conversations you can currently read.").toHtmlEscaped()));
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
 							  .arg(tr("Read tracking is not available in All chats.").toHtmlEscaped()));
 	}
@@ -1529,37 +1603,28 @@ void MainWindow::on_qtvUsers_customContextMenuRequested(const QPoint &mpos, bool
 	qpContextPosition = QPoint();
 }
 
-void MainWindow::on_qteLog_customContextMenuRequested(const QPoint &mpos) {
-	QString link = qteLog->anchorAt(mpos);
+void MainWindow::showLogContextMenu(LogTextBrowser *browser, const QPoint &mpos) {
+	if (!browser) {
+		return;
+	}
+
+	QString link = browser->anchorAt(mpos);
 	if (!link.isEmpty()) {
 		QUrl l(link);
 
-		if (handleSpecialContextMenu(l, qteLog->mapToGlobal(mpos)))
+		if (handleSpecialContextMenu(l, browser->mapToGlobal(mpos)))
 			return;
 	}
 
 	QPoint contentPosition =
 		QPoint(QApplication::isRightToLeft()
-				   ? (qteLog->horizontalScrollBar()->maximum() - qteLog->horizontalScrollBar()->value())
-				   : qteLog->horizontalScrollBar()->value(),
-			   qteLog->verticalScrollBar()->value());
-	QMenu *menu = qteLog->createStandardContextMenu(mpos + contentPosition);
+				   ? (browser->horizontalScrollBar()->maximum() - browser->horizontalScrollBar()->value())
+				   : browser->horizontalScrollBar()->value(),
+			   browser->verticalScrollBar()->value());
+	QMenu *menu = browser->createStandardContextMenu(mpos + contentPosition);
 
-	QTextCursor cursor  = qteLog->cursorForPosition(mpos);
-	QTextCharFormat fmt = cursor.charFormat();
-
-	// Work around imprecise cursor image identification
-	// Apparently, the cursor is shifted half the characters width to the right on the image
-	// element. This is in contrast to hyperlinks for example, which have correct edge detection.
-	// For the image, we get the right half (plus the left half of the next character) for the
-	// image, and have to move the cursor forward to also detect on the left half of the image
-	// (plus the right half of the previous character).
-	// It is unclear why we have to use NextCharacter instead of PreviousCharacter.
-	if (fmt.objectType() == QTextFormat::NoObject) {
-		cursor.movePosition(QTextCursor::NextCharacter);
-		fmt = cursor.charFormat();
-	}
-	if (cursor.charFormat().isImageFormat()) {
+	QTextCursor cursor = browser->imageCursorAt(mpos);
+	if (!cursor.isNull()) {
 		menu->addSeparator();
 		menu->addAction(tr("Save Image As..."), this, SLOT(saveImageAs(void)));
 
@@ -1567,12 +1632,49 @@ void MainWindow::on_qteLog_customContextMenuRequested(const QPoint &mpos) {
 		connect(testItem, &QAction::triggered, this, &MainWindow::showImageDialog);
 
 		qtcSaveImageCursor = cursor;
+		m_imageSourceBrowser = browser;
 	}
 
-	menu->addSeparator();
-	menu->addAction(tr("Clear"), qteLog, SLOT(clear(void)));
-	menu->exec(qteLog->mapToGlobal(mpos));
+	if (browser == qteLog) {
+		menu->addSeparator();
+		menu->addAction(tr("Clear"), browser, SLOT(clear(void)));
+	}
+	menu->exec(browser->mapToGlobal(mpos));
 	delete menu;
+}
+
+void MainWindow::on_qteLog_customContextMenuRequested(const QPoint &mpos) {
+	LogTextBrowser *browser = qobject_cast< LogTextBrowser * >(sender());
+	if (!browser) {
+		browser = qteLog;
+	}
+
+	showLogContextMenu(browser, mpos);
+}
+
+QImage MainWindow::imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const {
+	if (!browser || cursor.isNull() || !cursor.charFormat().isImageFormat()) {
+		return QImage();
+	}
+
+	const QString resourceName = cursor.charFormat().toImageFormat().name();
+	const QVariant resource    = browser->document()->resource(QTextDocument::ImageResource, resourceName);
+	return resource.value< QImage >();
+}
+
+void MainWindow::openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor) {
+	m_imageSourceBrowser = browser;
+	qtcSaveImageCursor   = cursor;
+
+	const QImage image = imageFromLogBrowser(browser, cursor);
+	if (image.isNull()) {
+		QMessageBox::warning(this, tr("Error"), tr("Failed to decode image."));
+		return;
+	}
+
+	const QPixmap pixmap = QPixmap::fromImage(image);
+	ResponsiveImageDialog dialog(pixmap, this);
+	dialog.exec();
 }
 
 void MainWindow::saveImageAs() {
@@ -1586,10 +1688,12 @@ void MainWindow::saveImageAs() {
 		return;
 	}
 
-	QString resName = qtcSaveImageCursor.charFormat().toImageFormat().name();
-	QVariant res    = qteLog->document()->resource(QTextDocument::ImageResource, resName);
-	QImage img      = res.value< QImage >();
-	bool ok         = img.save(fname);
+	QImage img = imageFromLogBrowser(m_imageSourceBrowser ? m_imageSourceBrowser.data() : qteLog, qtcSaveImageCursor);
+	if (img.isNull()) {
+		QMessageBox::warning(this, tr("Error"), tr("Failed to decode image."));
+		return;
+	}
+	bool ok = img.save(fname);
 	if (!ok) {
 		// In case fname did not contain a file extension, try saving with an
 		// explicit format.
@@ -2719,14 +2823,6 @@ void MainWindow::sendChatbarMessage(QString qsMessage) {
 	}
 
 	Global::get().sh->sendChatMessage(target.scope, target.scopeID, qsMessage);
-
-	if (target.scope == MumbleProto::ServerGlobal) {
-		Global::get().l->log(Log::TextMessage, tr("To global chat: %1").arg(qsMessage), tr("Message to global chat"),
-							 true);
-	} else if (target.channel) {
-		Global::get().l->log(Log::TextMessage, tr("To %1: %2").arg(Log::formatChannel(target.channel), qsMessage),
-							 tr("Message to channel %1").arg(target.channel->qsName), true);
-	}
 }
 
 /// Handles Backtab/Shift-Tab for qteChat, which allows
@@ -4046,6 +4142,7 @@ void MainWindow::serverConnected() {
 	Global::get().uiMessageLength = 5000;
 	Global::get().uiImageLength   = 131072;
 	Global::get().uiMaxUsers      = 0;
+	setPersistentChatWelcomeText(QString());
 
 	enableRecording(true);
 
@@ -4085,6 +4182,7 @@ void MainWindow::serverDisconnected(QAbstractSocket::SocketError err, QString re
 	qaServerBanList->setEnabled(false);
 	qtvUsers->setCurrentIndex(QModelIndex());
 	qteChat->setEnabled(false);
+	setPersistentChatWelcomeText(QString());
 	clearPersistentChatView(tr("Disconnected from server."));
 
 #ifdef Q_OS_MAC
@@ -4447,7 +4545,8 @@ void MainWindow::on_qteLog_highlighted(const QUrl &url) {
 		QToolTip::hideText();
 	else {
 		if (isActiveWindow()) {
-			QToolTip::showText(QCursor::pos(), url.toString(), qteLog, QRect());
+			LogTextBrowser *browser = qobject_cast< LogTextBrowser * >(sender());
+			QToolTip::showText(QCursor::pos(), url.toString(), browser ? browser : qteLog, QRect());
 		}
 	}
 }
@@ -4830,19 +4929,5 @@ void MainWindow::on_muteCuePopup_triggered() {
 }
 
 void MainWindow::showImageDialog() {
-	if (!qtcSaveImageCursor.isNull() && qtcSaveImageCursor.charFormat().isImageFormat()) {
-		QTextImageFormat imgFmt = qtcSaveImageCursor.charFormat().toImageFormat();
-		QString resName         = imgFmt.name();
-		QVariant res            = qteLog->document()->resource(QTextDocument::ImageResource, resName);
-		QImage img              = res.value< QImage >();
-
-		if (!img.isNull()) {
-			QPixmap pixmap             = QPixmap::fromImage(img);
-			ResponsiveImageDialog *dlg = new ResponsiveImageDialog(pixmap, this);
-			dlg->exec();
-			delete dlg;
-		} else {
-			QMessageBox::warning(this, tr("Error"), tr("Failed to decode image."));
-		}
-	}
+	openImageDialog(m_imageSourceBrowser ? m_imageSourceBrowser.data() : qteLog, qtcSaveImageCursor);
 }

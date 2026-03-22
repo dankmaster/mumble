@@ -18,6 +18,7 @@
 #include <QtGui/QClipboard>
 #include <QtGui/QContextMenuEvent>
 #include <QtGui/QKeyEvent>
+#include <QtGui/QMouseEvent>
 #include <QtWidgets/QScrollBar>
 
 LogTextBrowser::LogTextBrowser(QWidget *p) : QTextBrowser(p) {
@@ -34,6 +35,33 @@ void LogTextBrowser::setLogScroll(int scroll_pos) {
 bool LogTextBrowser::isScrolledToBottom() {
 	const QScrollBar *scrollBar = verticalScrollBar();
 	return scrollBar->value() == scrollBar->maximum();
+}
+
+QTextCursor LogTextBrowser::imageCursorAt(const QPoint &position) const {
+	QTextCursor cursor  = cursorForPosition(position);
+	QTextCharFormat fmt = cursor.charFormat();
+
+	if (fmt.objectType() == QTextFormat::NoObject) {
+		cursor.movePosition(QTextCursor::NextCharacter);
+		fmt = cursor.charFormat();
+	}
+
+	if (fmt.isImageFormat()) {
+		return cursor;
+	}
+
+	return QTextCursor();
+}
+
+void LogTextBrowser::mouseDoubleClickEvent(QMouseEvent *event) {
+	const QTextCursor imageCursor = imageCursorAt(event->pos());
+	if (!imageCursor.isNull()) {
+		emit imageActivated(imageCursor);
+		event->accept();
+		return;
+	}
+
+	QTextBrowser::mouseDoubleClickEvent(event);
 }
 
 
