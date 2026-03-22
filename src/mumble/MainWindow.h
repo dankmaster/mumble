@@ -173,6 +173,8 @@ public:
 	void clearPersistentChatView(const QString &message);
 	void renderPersistentChatView(const QString &statusMessage = QString(), bool scrollToBottom = true,
 								  bool preserveScrollPosition = false);
+	bool canMarkPersistentChatRead() const;
+	std::size_t persistentChatUnreadCount() const;
 	void handlePersistentChatMessage(const MumbleProto::ChatMessage &msg);
 	void handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg);
 	void handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg);

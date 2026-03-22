@@ -691,6 +691,14 @@ void MainWindow::setupPersistentChatDock() {
 	connect(m_persistentChatHistory, &LogTextBrowser::anchorClicked, this, &MainWindow::on_qteLog_anchorClicked);
 	connect(m_persistentChatHistory, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
 			&MainWindow::on_qteLog_highlighted);
+	connect(m_persistentChatHistory->verticalScrollBar(), &QScrollBar::valueChanged, this,
+			[this](int) { markPersistentChatRead(); });
+	connect(qdwChat, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+		if (visible) {
+			markPersistentChatRead();
+		}
+	});
+	connect(this, &MainWindow::windowActivated, this, [this]() { markPersistentChatRead(); });
 
 	clearPersistentChatView(tr("Connect to a server to load persistent chat history."));
 }
@@ -802,6 +810,11 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 							  .arg(tr("Load older messages").toHtmlEscaped()));
 	}
 
+	if (target.scope == MumbleProto::Aggregate) {
+		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
+							  .arg(tr("Read tracking is not available in All chats.").toHtmlEscaped()));
+	}
+
 	if (m_persistentChatMessages.empty()) {
 		const QString emptyMessage =
 			target.readOnly ? tr("No accessible messages yet.") : tr("No messages in %1 yet.").arg(target.label);
@@ -812,7 +825,24 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		return;
 	}
 
+	const std::size_t unreadCount = persistentChatUnreadCount();
+	std::optional< std::size_t > firstUnreadIndex;
+	if (unreadCount > 0 && target.scope != MumbleProto::Aggregate) {
+		for (std::size_t i = 0; i < m_persistentChatMessages.size(); ++i) {
+			if (m_persistentChatMessages[i].message_id() > m_visiblePersistentChatLastReadMessageID) {
+				firstUnreadIndex = i;
+				break;
+			}
+		}
+	}
+
+	std::size_t messageIndex = 0;
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
+		if (firstUnreadIndex && *firstUnreadIndex == messageIndex) {
+			cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>")
+								  .arg(tr("Unread messages (%1)").arg(unreadCount).toHtmlEscaped()));
+		}
+
 		const QDateTime createdAt =
 			QDateTime::fromSecsSinceEpoch(static_cast< qint64 >(message.has_created_at() ? message.created_at() : 0));
 		const QString timeString = createdAt.isValid() ? createdAt.time().toString(QLatin1String("HH:mm:ss"))
@@ -840,6 +870,7 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		}
 
 		cursor.insertHtml(QString::fromLatin1("<br/>"));
+		++messageIndex;
 	}
 
 	if (preserveScrollPosition) {
@@ -850,9 +881,30 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 	}
 }
 
+bool MainWindow::canMarkPersistentChatRead() const {
+	return m_visiblePersistentChatScope && *m_visiblePersistentChatScope != MumbleProto::Aggregate
+		   && !m_persistentChatMessages.empty() && Global::get().sh && Global::get().sh->isRunning()
+		   && isActiveWindow() && qdwChat->isVisible() && m_persistentChatHistory
+		   && m_persistentChatHistory->isScrolledToBottom();
+}
+
+std::size_t MainWindow::persistentChatUnreadCount() const {
+	if (!m_visiblePersistentChatScope || *m_visiblePersistentChatScope == MumbleProto::Aggregate) {
+		return 0;
+	}
+
+	std::size_t unreadCount = 0;
+	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
+		if (message.message_id() > m_visiblePersistentChatLastReadMessageID) {
+			++unreadCount;
+		}
+	}
+
+	return unreadCount;
+}
+
 void MainWindow::markPersistentChatRead() {
-	if (!m_visiblePersistentChatScope || *m_visiblePersistentChatScope == MumbleProto::Aggregate
-		|| m_persistentChatMessages.empty() || !Global::get().sh || !Global::get().sh->isRunning()) {
+	if (!canMarkPersistentChatRead()) {
 		return;
 	}
 
@@ -862,6 +914,7 @@ void MainWindow::markPersistentChatRead() {
 	}
 
 	m_visiblePersistentChatLastReadMessageID = lastVisibleMessageID;
+	renderPersistentChatView(QString(), true, false);
 	Global::get().sh->updateChatReadState(*m_visiblePersistentChatScope, m_visiblePersistentChatScopeID,
 										   lastVisibleMessageID);
 }
@@ -941,10 +994,7 @@ void MainWindow::handlePersistentChatMessage(const MumbleProto::ChatMessage &msg
 	const bool wasAtBottom = m_persistentChatHistory ? m_persistentChatHistory->isScrolledToBottom() : true;
 	std::sort(m_persistentChatMessages.begin(), m_persistentChatMessages.end(), chatMessageLessThan);
 	renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
-
-	if (isActiveWindow() && qdwChat->isVisible()) {
-		markPersistentChatRead();
-	}
+	markPersistentChatRead();
 }
 
 void MainWindow::handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg) {
@@ -988,10 +1038,7 @@ void MainWindow::handlePersistentChatHistory(const MumbleProto::ChatHistoryRespo
 
 	std::sort(m_persistentChatMessages.begin(), m_persistentChatMessages.end(), chatMessageLessThan);
 	renderPersistentChatView(QString(), startOffset == 0, startOffset > 0);
-
-	if (isActiveWindow() && qdwChat->isVisible()) {
-		markPersistentChatRead();
-	}
+	markPersistentChatRead();
 }
 
 void MainWindow::handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg) {
@@ -1005,8 +1052,10 @@ void MainWindow::handlePersistentChatReadState(const MumbleProto::ChatReadStateU
 		return;
 	}
 
+	const bool wasAtBottom = m_persistentChatHistory ? m_persistentChatHistory->isScrolledToBottom() : true;
 	m_visiblePersistentChatLastReadMessageID =
 		msg.has_last_read_message_id() ? msg.last_read_message_id() : m_visiblePersistentChatLastReadMessageID;
+	renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
 }
 
 void MainWindow::syncPersistentChatInputState(bool baseEnabled) {
