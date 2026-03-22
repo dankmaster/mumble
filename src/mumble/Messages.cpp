@@ -1328,6 +1328,10 @@ void MainWindow::msgChatReadStateUpdate(const MumbleProto::ChatReadStateUpdate &
 	handlePersistentChatReadState(msg);
 }
 
+void MainWindow::msgTextChannelSync(const MumbleProto::TextChannelSync &msg) {
+	handlePersistentTextChannelSync(msg);
+}
+
 #undef ACTOR_INIT
 #undef VICTIM_INIT
 #undef SELF_INIT

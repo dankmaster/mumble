@@ -174,27 +174,38 @@ namespace {
 				return "global";
 			case MumbleProto::Aggregate:
 				return {};
+			case MumbleProto::TextChannel:
+				return "text:" + std::to_string(scopeID);
 		}
 
 		return {};
 	}
 
-	std::optional< unsigned int > channelIDFromScopeKey(const std::string &scopeKey) {
+	std::optional< unsigned int > scopeIDFromPrefixedScopeKey(const std::string &scopeKey, const QString &prefix) {
 		const QString key = QString::fromStdString(scopeKey);
-		if (!key.startsWith(QStringLiteral("channel:"))) {
+		if (!key.startsWith(prefix)) {
 			return std::nullopt;
 		}
 
-		bool ok           = false;
-		const unsigned int channelID = key.mid(8).toUInt(&ok);
+		bool ok = false;
+		const unsigned int scopeID = key.mid(prefix.size()).toUInt(&ok);
 		if (!ok) {
 			return std::nullopt;
 		}
 
-		return channelID;
+		return scopeID;
+	}
+
+	std::optional< unsigned int > channelIDFromScopeKey(const std::string &scopeKey) {
+		return scopeIDFromPrefixedScopeKey(scopeKey, QStringLiteral("channel:"));
+	}
+
+	std::optional< unsigned int > textChannelIDFromScopeKey(const std::string &scopeKey) {
+		return scopeIDFromPrefixedScopeKey(scopeKey, QStringLiteral("text:"));
 	}
 
 	bool resolveStoredChatThread(const ::msdb::DBChatThread &thread, const QHash< unsigned int, Channel * > &channels,
+								 const QHash< unsigned int, ::msdb::DBTextChannel > &textChannels,
 								 MumbleProto::ChatScope &scope, unsigned int &scopeID, Channel *&permissionChannel) {
 		switch (thread.scope) {
 			case ::msdb::ChatThreadScope::Channel: {
@@ -215,6 +226,22 @@ namespace {
 				return permissionChannel != nullptr;
 			case ::msdb::ChatThreadScope::Private:
 				return false;
+			case ::msdb::ChatThreadScope::TextChannel: {
+				std::optional< unsigned int > textChannelID = textChannelIDFromScopeKey(thread.scopeKey);
+				if (!textChannelID) {
+					return false;
+				}
+
+				const auto it = textChannels.constFind(textChannelID.value());
+				if (it == textChannels.cend()) {
+					return false;
+				}
+
+				scope             = MumbleProto::TextChannel;
+				scopeID           = textChannelID.value();
+				permissionChannel = channels.value(it->aclChannelID);
+				return permissionChannel != nullptr;
+			}
 		}
 
 		return false;
@@ -335,6 +362,7 @@ namespace {
 				legacyMessage.add_tree_id(Mumble::ROOT_CHANNEL_ID);
 				break;
 			case MumbleProto::Aggregate:
+			case MumbleProto::TextChannel:
 				break;
 		}
 
@@ -349,6 +377,43 @@ void Server::sendPersistentChatUnsupported(ServerUser *uSource) {
 	denied.set_reason(u8(QStringLiteral(
 		"This client version does not support persistent chat. Upgrade the client to use persistent chat features.")));
 	sendMessage(uSource, denied);
+}
+
+void Server::sendTextChannelSync(ServerUser *uSource) {
+	if (!clientSupportsPersistentChat(uSource)) {
+		return;
+	}
+
+	QMutexLocker qml(&qmCache);
+
+	MumbleProto::TextChannelSync sync;
+	const std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+	bool defaultChannelSet                                 = false;
+
+	for (const ::msdb::DBTextChannel &currentTextChannel : textChannels) {
+		Channel *permissionChannel = qhChannels.value(currentTextChannel.aclChannelID);
+		if (!permissionChannel) {
+			continue;
+		}
+
+		if (!ChanACL::hasPermission(uSource, permissionChannel, ChanACL::TextMessage, &acCache)) {
+			continue;
+		}
+
+		MumbleProto::TextChannelInfo *protoChannel = sync.add_channels();
+		protoChannel->set_text_channel_id(currentTextChannel.textChannelID);
+		protoChannel->set_name(currentTextChannel.name);
+		protoChannel->set_description(currentTextChannel.description);
+		protoChannel->set_acl_channel_id(currentTextChannel.aclChannelID);
+		protoChannel->set_position(currentTextChannel.position);
+
+		if (!defaultChannelSet) {
+			sync.set_default_text_channel_id(currentTextChannel.textChannelID);
+			defaultChannelSet = true;
+		}
+	}
+
+	sendMessage(uSource, sync);
 }
 
 void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
@@ -444,6 +509,8 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 
 			sendMessage(uSource, mpcs);
 		}
+
+		sendTextChannelSync(uSource);
 	}
 	MSG_SETUP(ServerUser::Connected);
 
@@ -852,6 +919,8 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 	mpsc.set_recording_allowed(allowRecording);
 	mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
 	sendMessage(uSource, mpsc);
+
+	sendTextChannelSync(uSource);
 
 	MumbleProto::SuggestConfig mpsug;
 	if (m_suggestVersion != Version::UNKNOWN) {
@@ -2068,6 +2137,16 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 			break;
 		case MumbleProto::Aggregate:
 			return;
+		case MumbleProto::TextChannel: {
+			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			if (!textChannel) {
+				return;
+			}
+
+			permissionChannel = qhChannels.value(textChannel->aclChannelID);
+			dbScope           = ::msdb::ChatThreadScope::TextChannel;
+			break;
+		}
 		default:
 			return;
 	}
@@ -2136,6 +2215,16 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 			break;
 		case MumbleProto::Aggregate:
 			break;
+		case MumbleProto::TextChannel: {
+			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			if (!textChannel) {
+				return;
+			}
+
+			permissionChannel = qhChannels.value(textChannel->aclChannelID);
+			dbScope           = ::msdb::ChatThreadScope::TextChannel;
+			break;
+		}
 		default:
 			return;
 	}
@@ -2161,13 +2250,18 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	}
 
 	if (scope == MumbleProto::Aggregate) {
+		QHash< unsigned int, ::msdb::DBTextChannel > textChannelsByID;
+		for (const ::msdb::DBTextChannel &currentTextChannel : m_dbWrapper.getTextChannels(iServerNum)) {
+			textChannelsByID.insert(currentTextChannel.textChannelID, currentTextChannel);
+		}
+
 		std::vector< AggregateChatEntry > entries;
 		for (const ::msdb::DBChatThread &currentThread : m_dbWrapper.getChatThreads(iServerNum)) {
 			MumbleProto::ChatScope messageScope = MumbleProto::Channel;
 			unsigned int messageScopeID         = 0;
 			Channel *messagePermissionChannel   = nullptr;
 
-			if (!resolveStoredChatThread(currentThread, qhChannels, messageScope, messageScopeID,
+			if (!resolveStoredChatThread(currentThread, qhChannels, textChannelsByID, messageScope, messageScopeID,
 										 messagePermissionChannel)) {
 				continue;
 			}
@@ -2292,6 +2386,16 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 			break;
 		case MumbleProto::Aggregate:
 			return;
+		case MumbleProto::TextChannel: {
+			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			if (!textChannel) {
+				return;
+			}
+
+			permissionChannel = qhChannels.value(textChannel->aclChannelID);
+			dbScope           = ::msdb::ChatThreadScope::TextChannel;
+			break;
+		}
 		default:
 			return;
 	}
@@ -2334,6 +2438,9 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 	if (persistedReadState) {
 		sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
 	}
+}
+
+void Server::msgTextChannelSync(ServerUser *, MumbleProto::TextChannelSync &) {
 }
 
 /// Helper function to log the groups of the given channel.

@@ -646,6 +646,7 @@ enum ChatScope {
 	Channel = 0;
 	ServerGlobal = 1;
 	Aggregate = 2;
+	TextChannel = 3;
 }
 
 // Sent by the client to submit a persistent chat message to the server.
@@ -696,4 +697,17 @@ message ChatReadStateUpdate {
 	optional uint32 user_id = 4;
 	optional uint32 last_read_message_id = 5;
 	optional uint64 updated_at = 6;
+}
+
+message TextChannelInfo {
+	required uint32 text_channel_id = 1;
+	required string name = 2;
+	optional string description = 3;
+	optional uint32 acl_channel_id = 4 [default = 0];
+	optional uint32 position = 5 [default = 0];
+}
+
+message TextChannelSync {
+	repeated TextChannelInfo channels = 1;
+	optional uint32 default_text_channel_id = 2;
 }

@@ -18,6 +18,7 @@ namespace server {
 			Channel      = 0,
 			ServerGlobal = 1,
 			Private      = 2,
+			TextChannel  = 3,
 		};
 
 		struct DBChatThread {

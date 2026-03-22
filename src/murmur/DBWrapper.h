@@ -11,6 +11,7 @@
 #include "murmur/database/DBChatMessage.h"
 #include "murmur/database/DBChatReadState.h"
 #include "murmur/database/DBChatThread.h"
+#include "murmur/database/DBTextChannel.h"
 #include "murmur/database/DBLogEntry.h"
 #include "murmur/database/DBUserData.h"
 #include "murmur/database/ServerDatabase.h"
@@ -101,6 +102,9 @@ public:
 		getChatThreadByScope(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey);
 	std::vector< ::mumble::server::db::DBChatThread > getChatThreads(unsigned int serverID, unsigned int startOffset = 0,
 																	 int amount = -1);
+	void ensureDefaultTextChannels(unsigned int serverID);
+	std::optional< ::mumble::server::db::DBTextChannel > getTextChannel(unsigned int serverID, unsigned int textChannelID);
+	std::vector< ::mumble::server::db::DBTextChannel > getTextChannels(unsigned int serverID);
 	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
 													 std::optional< unsigned int > authorUserID = std::nullopt,
 													 std::optional< unsigned int > authorSession = std::nullopt);

@@ -17,6 +17,7 @@ add_library(mumble_server_database STATIC
 	"DBChatThread.cpp"
 	"DBChatMessage.cpp"
 	"DBChatReadState.cpp"
+	"DBTextChannel.cpp"
 	"ACLCompat.cpp"
 
 	# Table implementations
@@ -36,6 +37,7 @@ add_library(mumble_server_database STATIC
 	"ChatThreadTable.cpp"
 	"ChatMessageTable.cpp"
 	"ChatReadStateTable.cpp"
+	"TextChannelTable.cpp"
 )
 
 set_property(TARGET mumble_server_database PROPERTY INTERPROCEDURAL_OPTIMIZATION ${lto})

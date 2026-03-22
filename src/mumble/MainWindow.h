@@ -45,6 +45,8 @@ class VoiceRecorderDialog;
 class PositionalAudioViewer;
 class PTTButtonWidget;
 class QFrame;
+class QListWidget;
+class QListWidgetItem;
 
 namespace Search {
 class SearchDialog;
@@ -165,7 +167,16 @@ public:
 		MumbleProto::ChatScope scope = MumbleProto::Channel;
 		unsigned int scopeID = 0;
 		QString label;
+		QString description;
 		QString statusMessage;
+	};
+
+	struct PersistentTextChannel {
+		unsigned int textChannelID = 0;
+		unsigned int aclChannelID  = 0;
+		unsigned int position      = 0;
+		QString name;
+		QString description;
 	};
 
 	struct PersistentChatPreview {
@@ -190,9 +201,12 @@ public:
 	void updatePersistentChatWelcome();
 	void clearPersistentChatView(const QString &message);
 	std::optional< QString > persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const;
+	QString persistentChatScopeLabel(MumbleProto::ChatScope scope, unsigned int scopeID) const;
 	void ensurePersistentChatPreview(const QString &previewKey);
 	QString persistentChatPreviewHtml(const QString &previewKey) const;
 	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
+	void rebuildPersistentChatChannelList();
+	void handlePersistentTextChannelSync(const MumbleProto::TextChannelSync &msg);
 	void updatePersistentChatScopeSelectorLabels();
 	std::size_t cachedPersistentChatUnreadCount(MumbleProto::ChatScope scope, unsigned int scopeID) const;
 	void setCachedPersistentChatUnreadCount(MumbleProto::ChatScope scope, unsigned int scopeID,
@@ -260,12 +274,14 @@ protected:
 	qt_unique_ptr< UserLocalVolumeSlider > m_userLocalVolumeSlider;
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
 	QWidget *m_persistentChatContainer = nullptr;
-	MUComboBox *m_persistentChatScopeSelector = nullptr;
+	QListWidget *m_persistentChatChannelList = nullptr;
 	LogTextBrowser *m_persistentChatWelcome = nullptr;
 	QFrame *m_persistentChatDivider = nullptr;
 	LogTextBrowser *m_persistentChatHistory = nullptr;
 	QString m_persistentChatWelcomeText;
 	bool m_persistentChatWelcomeCollapsed = false;
+	unsigned int m_defaultPersistentTextChannelID = 0;
+	QHash< unsigned int, PersistentTextChannel > m_persistentTextChannels;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
 	QHash< QString, PersistentChatPreview > m_persistentChatPreviews;
 	QHash< QString, unsigned int > m_persistentChatLastReadByScope;

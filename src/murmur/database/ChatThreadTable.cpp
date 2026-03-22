@@ -37,6 +37,8 @@ namespace server {
 						return ChatThreadScope::ServerGlobal;
 					case static_cast< unsigned int >(ChatThreadScope::Private):
 						return ChatThreadScope::Private;
+					case static_cast< unsigned int >(ChatThreadScope::TextChannel):
+						return ChatThreadScope::TextChannel;
 					default:
 						throw ::mdb::FormatException("Encountered invalid chat thread scope value "
 													 + std::to_string(scopeValue));

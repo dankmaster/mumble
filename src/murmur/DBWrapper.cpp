@@ -34,6 +34,7 @@
 #include "murmur/database/ChatMessageTable.h"
 #include "murmur/database/ChatReadStateTable.h"
 #include "murmur/database/ChatThreadTable.h"
+#include "murmur/database/TextChannelTable.h"
 #include "murmur/database/ChannelTable.h"
 #include "murmur/database/ChronoUtils.h"
 #include "murmur/database/ConfigTable.h"
@@ -43,6 +44,7 @@
 #include "murmur/database/DBChatMessage.h"
 #include "murmur/database/DBChatReadState.h"
 #include "murmur/database/DBChatThread.h"
+#include "murmur/database/DBTextChannel.h"
 #include "murmur/database/DBChannelLink.h"
 #include "murmur/database/DBChannelListener.h"
 #include "murmur/database/DBGroup.h"
@@ -60,6 +62,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <array>
 #include <cassert>
 #include <limits>
 #include <optional>
@@ -1006,6 +1009,61 @@ std::vector< ::msdb::DBChatThread > DBWrapper::getChatThreads(unsigned int serve
 
 	assert(amount >= 0);
 	return m_serverDB.getChatThreadTable().getThreads(serverID, static_cast< unsigned int >(amount), startOffset);
+
+	WRAPPER_END
+}
+
+void DBWrapper::ensureDefaultTextChannels(unsigned int serverID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+
+	if (!m_serverDB.getTextChannelTable().getTextChannels(serverID).empty()) {
+		return;
+	}
+
+	struct SeedTextChannel {
+		const char *name;
+		const char *description;
+	};
+
+	const std::array< SeedTextChannel, 3 > defaultChannels = { {
+		{ "general", "Server-wide chat for everyday conversation." },
+		{ "links", "Links, previews, and things worth sharing." },
+		{ "off-topic", "Everything else that doesn't belong in general." },
+	} };
+
+	for (std::size_t index = 0; index < defaultChannels.size(); ++index) {
+		::msdb::DBTextChannel textChannel(serverID, static_cast< unsigned int >(index));
+		textChannel.name         = defaultChannels[index].name;
+		textChannel.description  = defaultChannels[index].description;
+		textChannel.aclChannelID = Mumble::ROOT_CHANNEL_ID;
+		textChannel.position     = static_cast< unsigned int >(index);
+
+		m_serverDB.getTextChannelTable().addTextChannel(textChannel);
+	}
+
+	WRAPPER_END
+}
+
+std::optional< ::msdb::DBTextChannel > DBWrapper::getTextChannel(unsigned int serverID, unsigned int textChannelID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	ensureDefaultTextChannels(serverID);
+
+	return m_serverDB.getTextChannelTable().getTextChannel(serverID, textChannelID);
+
+	WRAPPER_END
+}
+
+std::vector< ::msdb::DBTextChannel > DBWrapper::getTextChannels(unsigned int serverID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	ensureDefaultTextChannels(serverID);
+
+	return m_serverDB.getTextChannelTable().getTextChannels(serverID);
 
 	WRAPPER_END
 }
