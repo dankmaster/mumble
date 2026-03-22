@@ -31,12 +31,18 @@
 #include "murmur/database/ChannelListenerTable.h"
 #include "murmur/database/ChannelProperty.h"
 #include "murmur/database/ChannelPropertyTable.h"
+#include "murmur/database/ChatMessageTable.h"
+#include "murmur/database/ChatReadStateTable.h"
+#include "murmur/database/ChatThreadTable.h"
 #include "murmur/database/ChannelTable.h"
 #include "murmur/database/ChronoUtils.h"
 #include "murmur/database/ConfigTable.h"
 #include "murmur/database/DBAcl.h"
 #include "murmur/database/DBBan.h"
 #include "murmur/database/DBChannel.h"
+#include "murmur/database/DBChatMessage.h"
+#include "murmur/database/DBChatReadState.h"
+#include "murmur/database/DBChatThread.h"
 #include "murmur/database/DBChannelLink.h"
 #include "murmur/database/DBChannelListener.h"
 #include "murmur/database/DBGroup.h"
@@ -943,6 +949,133 @@ std::size_t DBWrapper::getLogSize(unsigned int serverID) {
 	assertValidID(serverID);
 
 	return m_serverDB.getLogTable().getLogSize(serverID);
+
+	WRAPPER_END
+}
+
+::msdb::DBChatThread DBWrapper::ensureChatThread(unsigned int serverID, ::msdb::ChatThreadScope scope,
+												 const std::string &scopeKey, std::optional< unsigned int > createdByUserID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+
+	std::optional< ::msdb::DBChatThread > existing =
+		m_serverDB.getChatThreadTable().getThreadByScope(serverID, scope, scopeKey);
+	if (existing) {
+		return *existing;
+	}
+
+	::mdb::TransactionHolder transaction = m_serverDB.ensureTransaction();
+
+	::msdb::DBChatThread thread(serverID, m_serverDB.getChatThreadTable().getFreeThreadID(serverID));
+	thread.scope           = scope;
+	thread.scopeKey        = scopeKey;
+	thread.createdByUserID = createdByUserID;
+	thread.createdAt       = std::chrono::system_clock::now();
+	thread.updatedAt       = thread.createdAt;
+
+	m_serverDB.getChatThreadTable().addThread(thread);
+
+	transaction.commit();
+
+	return thread;
+
+	WRAPPER_END
+}
+
+std::optional< ::msdb::DBChatThread > DBWrapper::getChatThreadByScope(unsigned int serverID, ::msdb::ChatThreadScope scope,
+																	  const std::string &scopeKey) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+
+	return m_serverDB.getChatThreadTable().getThreadByScope(serverID, scope, scopeKey);
+
+	WRAPPER_END
+}
+
+std::vector< ::msdb::DBChatThread > DBWrapper::getChatThreads(unsigned int serverID, unsigned int startOffset, int amount) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+
+	if (amount < 0) {
+		return m_serverDB.getChatThreadTable().getThreads(serverID, std::numeric_limits< unsigned int >::max(),
+														  startOffset);
+	}
+
+	assert(amount >= 0);
+	return m_serverDB.getChatThreadTable().getThreads(serverID, static_cast< unsigned int >(amount), startOffset);
+
+	WRAPPER_END
+}
+
+::msdb::DBChatMessage DBWrapper::addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
+												 std::optional< unsigned int > authorUserID,
+												 std::optional< unsigned int > authorSession) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(threadID);
+
+	::mdb::TransactionHolder transaction = m_serverDB.ensureTransaction();
+
+	::msdb::DBChatMessage message(serverID, m_serverDB.getChatMessageTable().getFreeMessageID(serverID), threadID);
+	message.authorUserID  = authorUserID;
+	message.authorSession = authorSession;
+	message.body          = body;
+	message.createdAt     = std::chrono::system_clock::now();
+
+	m_serverDB.getChatMessageTable().addMessage(message);
+	m_serverDB.getChatThreadTable().touchThread(serverID, threadID, message.createdAt);
+
+	transaction.commit();
+
+	return message;
+
+	WRAPPER_END
+}
+
+std::vector< ::msdb::DBChatMessage > DBWrapper::getChatMessages(unsigned int serverID, unsigned int threadID,
+																 unsigned int startOffset, int amount) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(threadID);
+
+	if (amount < 0) {
+		return m_serverDB.getChatMessageTable().getMessages(serverID, threadID,
+															std::numeric_limits< unsigned int >::max(), startOffset);
+	}
+
+	assert(amount >= 0);
+	return m_serverDB.getChatMessageTable().getMessages(serverID, threadID, static_cast< unsigned int >(amount),
+														startOffset);
+
+	WRAPPER_END
+}
+
+void DBWrapper::setChatReadState(const ::msdb::DBChatReadState &readState) {
+	WRAPPER_BEGIN
+
+	assertValidID(readState.serverID);
+	assertValidID(readState.threadID);
+	assertRegisteredUserExists(readState.serverID, readState.userID);
+
+	m_serverDB.getChatReadStateTable().setReadState(readState);
+
+	WRAPPER_END
+}
+
+std::optional< ::msdb::DBChatReadState > DBWrapper::getChatReadState(unsigned int serverID, unsigned int threadID,
+																	 unsigned int userID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(threadID);
+	assertRegisteredUserExists(serverID, userID);
+
+	return m_serverDB.getChatReadStateTable().getReadState(serverID, threadID, userID);
 
 	WRAPPER_END
 }

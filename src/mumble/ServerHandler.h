@@ -188,6 +188,10 @@ public:
 	void banUser(unsigned int uiSession, const QString &reason, bool banCertificate, bool banIP);
 	void sendUserTextMessage(unsigned int uiSession, const QString &message_);
 	void sendChannelTextMessage(unsigned int channel, const QString &message_, bool tree);
+	void sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_);
+	void requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID = 0, unsigned int startOffset = 0,
+							unsigned int limit = 50);
+	void updateChatReadState(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int lastReadMessageID);
 	void setUserComment(unsigned int uiSession, const QString &comment);
 	void setUserTexture(unsigned int uiSession, const QByteArray &qba);
 	void setTokens(const QStringList &tokens);

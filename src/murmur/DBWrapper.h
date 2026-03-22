@@ -8,6 +8,9 @@
 
 #include "NonCopyable.h"
 #include "murmur/database/DBChannel.h"
+#include "murmur/database/DBChatMessage.h"
+#include "murmur/database/DBChatReadState.h"
+#include "murmur/database/DBChatThread.h"
 #include "murmur/database/DBLogEntry.h"
 #include "murmur/database/DBUserData.h"
 #include "murmur/database/ServerDatabase.h"
@@ -91,6 +94,21 @@ public:
 	std::vector< mumble::server::db::DBLogEntry > getLogs(unsigned int serverID, unsigned int startOffset = 0,
 														  int amount = -1);
 	std::size_t getLogSize(unsigned int serverID);
+	::mumble::server::db::DBChatThread
+		ensureChatThread(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey,
+						 std::optional< unsigned int > createdByUserID = std::nullopt);
+	std::optional< ::mumble::server::db::DBChatThread >
+		getChatThreadByScope(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey);
+	std::vector< ::mumble::server::db::DBChatThread > getChatThreads(unsigned int serverID, unsigned int startOffset = 0,
+																	 int amount = -1);
+	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
+													 std::optional< unsigned int > authorUserID = std::nullopt,
+													 std::optional< unsigned int > authorSession = std::nullopt);
+	std::vector< ::mumble::server::db::DBChatMessage > getChatMessages(unsigned int serverID, unsigned int threadID,
+																	   unsigned int startOffset = 0, int amount = -1);
+	void setChatReadState(const ::mumble::server::db::DBChatReadState &readState);
+	std::optional< ::mumble::server::db::DBChatReadState > getChatReadState(unsigned int serverID, unsigned int threadID,
+																			 unsigned int userID);
 
 	/**
 	 * Sets the last-disconnected status of the given user to the current time

@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <stack>
+#include <vector>
 
 #include "ui_MainWindow.h"
 
@@ -150,10 +151,36 @@ public:
 	void updateUserModel();
 	void focusNextMainWidget();
 	QPair< QByteArray, QImage > openImageFile();
+	void setupPersistentChatDock();
+
+	struct PersistentChatTarget {
+		bool valid          = false;
+		bool directMessage  = false;
+		bool readOnly       = false;
+		ClientUser *user    = nullptr;
+		Channel *channel    = nullptr;
+		MumbleProto::ChatScope scope = MumbleProto::Channel;
+		unsigned int scopeID = 0;
+		QString label;
+		QString statusMessage;
+	};
 
 	void loadState(bool minimalView);
 	void storeState(bool minimalView);
 
+	PersistentChatTarget currentPersistentChatTarget() const;
+	void refreshPersistentChatView(bool forceReload = false);
+	void requestOlderPersistentChatHistory();
+	void clearPersistentChatView(const QString &message);
+	void renderPersistentChatView(const QString &statusMessage = QString(), bool scrollToBottom = true,
+								  bool preserveScrollPosition = false);
+	bool canMarkPersistentChatRead() const;
+	std::size_t persistentChatUnreadCount() const;
+	void handlePersistentChatMessage(const MumbleProto::ChatMessage &msg);
+	void handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg);
+	void handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg);
+	void syncPersistentChatInputState(bool baseEnabled);
+	void markPersistentChatRead();
 	void updateChatBar();
 	void openTextMessageDialog(ClientUser *p);
 	void openUserLocalNicknameDialog(const ClientUser &p);
@@ -202,6 +229,15 @@ protected:
 	qt_unique_ptr< MenuLabel > m_localVolumeLabel;
 	qt_unique_ptr< UserLocalVolumeSlider > m_userLocalVolumeSlider;
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
+	QWidget *m_persistentChatContainer = nullptr;
+	MUComboBox *m_persistentChatScopeSelector = nullptr;
+	LogTextBrowser *m_persistentChatHistory = nullptr;
+	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
+	std::optional< MumbleProto::ChatScope > m_visiblePersistentChatScope;
+	unsigned int m_visiblePersistentChatScopeID = 0;
+	unsigned int m_visiblePersistentChatLastReadMessageID = 0;
+	bool m_visiblePersistentChatHasMore = false;
+	bool m_persistentChatLoadingOlder = false;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
@@ -310,6 +346,7 @@ public slots:
 	void on_qteChat_tabPressed();
 	void on_qteChat_backtabPressed();
 	void on_qteChat_ctrlSpacePressed();
+	void on_persistentChatScopeChanged(int index);
 	void on_qtvUsers_customContextMenuRequested(const QPoint &mpos, bool usePositionForGettingContext = true);
 	void on_qteLog_customContextMenuRequested(const QPoint &pos);
 	void on_qteLog_anchorClicked(const QUrl &);

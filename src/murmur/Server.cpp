@@ -416,6 +416,7 @@ void Server::readParams() {
 	m_dbWrapper.getConfigurationTo(iServerNum, "textmessagelength", iMaxTextMessageLength);
 	m_dbWrapper.getConfigurationTo(iServerNum, "imagemessagelength", iMaxImageMessageLength);
 	m_dbWrapper.getConfigurationTo(iServerNum, "allowhtml", bAllowHTML);
+	m_dbWrapper.getConfigurationTo(iServerNum, "persistentglobalchat", bPersistentGlobalChatEnabled);
 	m_dbWrapper.getConfigurationTo(iServerNum, "defaultchannel", iDefaultChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannel", bRememberChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannelduration", iRememberChanDuration);
@@ -546,6 +547,14 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 			bAllowHTML = allow;
 			MumbleProto::ServerConfig mpsc;
 			mpsc.set_allow_html(bAllowHTML);
+			sendAll(mpsc);
+		}
+	} else if (key == "persistentglobalchat") {
+		const bool enabled = !v.isNull() ? QVariant(v).toBool() : false;
+		if (enabled != bPersistentGlobalChatEnabled) {
+			bPersistentGlobalChatEnabled = enabled;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
 			sendAll(mpsc);
 		}
 	} else if (key == "defaultchannel")
@@ -1769,6 +1778,7 @@ void Server::message(Mumble::Protocol::TCPMessageType type, const QByteArray &qb
 			case Mumble::Protocol::TCPMessageType::PermissionQuery:
 			case Mumble::Protocol::TCPMessageType::UserStats:
 			case Mumble::Protocol::TCPMessageType::RequestBlob:
+			case Mumble::Protocol::TCPMessageType::ChatHistoryRequest:
 				break;
 			// In case the user is authenticated as a registered user, a DB update can occur, which is
 			// why we have to block connections from new clients in read-only mode.

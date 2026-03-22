@@ -19,10 +19,14 @@
 #include "Version.h"
 #include "crypto/CryptState.h"
 
+#include "murmur/database/DBChatMessage.h"
+#include "murmur/database/DBChatReadState.h"
+#include "murmur/database/ChronoUtils.h"
 #include "murmur/database/UserProperty.h"
 
 #include <algorithm>
 #include <cassert>
+#include <optional>
 #include <set>
 #include <unordered_map>
 
@@ -31,6 +35,8 @@
 #include <QtCore/QtEndian>
 
 #include <tracy/Tracy.hpp>
+
+namespace msdb = ::mumble::server::db;
 
 #define RATELIMIT(user)                   \
 	if (user->leakyBucket.ratelimit(1)) { \
@@ -150,6 +156,136 @@ public:
 		}
 	}
 };
+
+namespace {
+	std::optional< unsigned int > persistedUserID(const ServerUser *user) {
+		if (!user || user->iId < 0) {
+			return std::nullopt;
+		}
+
+		return static_cast< unsigned int >(user->iId);
+	}
+
+	std::string chatScopeKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
+		switch (scope) {
+			case MumbleProto::Channel:
+				return "channel:" + std::to_string(scopeID);
+			case MumbleProto::ServerGlobal:
+				return "global";
+			case MumbleProto::Aggregate:
+				return {};
+		}
+
+		return {};
+	}
+
+	std::optional< unsigned int > channelIDFromScopeKey(const std::string &scopeKey) {
+		const QString key = QString::fromStdString(scopeKey);
+		if (!key.startsWith(QStringLiteral("channel:"))) {
+			return std::nullopt;
+		}
+
+		bool ok           = false;
+		const unsigned int channelID = key.mid(8).toUInt(&ok);
+		if (!ok) {
+			return std::nullopt;
+		}
+
+		return channelID;
+	}
+
+	bool resolveStoredChatThread(const ::msdb::DBChatThread &thread, const QHash< unsigned int, Channel * > &channels,
+								 MumbleProto::ChatScope &scope, unsigned int &scopeID, Channel *&permissionChannel) {
+		switch (thread.scope) {
+			case ::msdb::ChatThreadScope::Channel: {
+				std::optional< unsigned int > channelID = channelIDFromScopeKey(thread.scopeKey);
+				if (!channelID) {
+					return false;
+				}
+
+				scope             = MumbleProto::Channel;
+				scopeID           = channelID.value();
+				permissionChannel = channels.value(scopeID);
+				return permissionChannel != nullptr;
+			}
+			case ::msdb::ChatThreadScope::ServerGlobal:
+				scope             = MumbleProto::ServerGlobal;
+				scopeID           = 0;
+				permissionChannel = channels.value(Mumble::ROOT_CHANNEL_ID);
+				return permissionChannel != nullptr;
+			case ::msdb::ChatThreadScope::Private:
+				return false;
+		}
+
+		return false;
+	}
+
+	QSet< ServerUser * > recipientsWithTextAccess(const QHash< unsigned int, ServerUser * > &connectedUsers,
+												  Channel *channel, ChanACL::ACLCache &cache) {
+		QSet< ServerUser * > recipients;
+
+		for (ServerUser *currentUser : connectedUsers) {
+			if (currentUser && ChanACL::hasPermission(currentUser, channel, ChanACL::TextMessage, &cache)) {
+				recipients.insert(currentUser);
+			}
+		}
+
+		return recipients;
+	}
+
+	struct AggregateChatEntry {
+		::msdb::DBChatMessage message;
+		MumbleProto::ChatScope scope = MumbleProto::Channel;
+		unsigned int scopeID         = 0;
+	};
+
+	bool newerAggregateEntry(const AggregateChatEntry &lhs, const AggregateChatEntry &rhs) {
+		const std::size_t lhsCreatedAt = ::msdb::toEpochSeconds(lhs.message.createdAt);
+		const std::size_t rhsCreatedAt = ::msdb::toEpochSeconds(rhs.message.createdAt);
+		if (lhsCreatedAt != rhsCreatedAt) {
+			return lhsCreatedAt > rhsCreatedAt;
+		}
+		if (lhs.message.messageID != rhs.message.messageID) {
+			return lhs.message.messageID > rhs.message.messageID;
+		}
+
+		return lhs.message.threadID > rhs.message.threadID;
+	}
+
+	MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
+													 unsigned int scopeID) {
+		MumbleProto::ChatMessage protoMessage;
+		protoMessage.set_scope(scope);
+		protoMessage.set_scope_id(scopeID);
+		protoMessage.set_thread_id(message.threadID);
+		protoMessage.set_message_id(message.messageID);
+		if (message.authorSession) {
+			protoMessage.set_actor(message.authorSession.value());
+		}
+		if (message.authorUserID) {
+			protoMessage.set_actor_user_id(message.authorUserID.value());
+		}
+		protoMessage.set_message(message.body);
+		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
+		protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
+		protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
+
+		return protoMessage;
+	}
+
+	MumbleProto::ChatReadStateUpdate protoReadStateFromDB(const ::msdb::DBChatReadState &readState,
+														   MumbleProto::ChatScope scope, unsigned int scopeID) {
+		MumbleProto::ChatReadStateUpdate protoUpdate;
+		protoUpdate.set_scope(scope);
+		protoUpdate.set_scope_id(scopeID);
+		protoUpdate.set_thread_id(readState.threadID);
+		protoUpdate.set_user_id(readState.userID);
+		protoUpdate.set_last_read_message_id(readState.lastReadMessageID);
+		protoUpdate.set_updated_at(::msdb::toEpochSeconds(readState.updatedAt));
+
+		return protoUpdate;
+	}
+} // namespace
 
 /// Checks whether the given channel has restrictions affecting the ENTER privilege
 ///
@@ -600,6 +736,7 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 	mpsc.set_image_message_length(static_cast< unsigned int >(iMaxImageMessageLength));
 	mpsc.set_max_users(static_cast< unsigned int >(iMaxUsers));
 	mpsc.set_recording_allowed(allowRecording);
+	mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
 	sendMessage(uSource, mpsc);
 
 	MumbleProto::SuggestConfig mpsug;
@@ -1760,6 +1897,327 @@ void Server::msgTextMessage(ServerUser *uSource, MumbleProto::TextMessage &msg) 
 
 	// Emit the signal for RPC consumers
 	emit userTextMessage(uSource, tm);
+}
+
+void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	RATELIMIT(uSource);
+
+	QString text = u8(msg.message());
+	bool changed = false;
+
+	if (!isTextAllowed(text, changed)) {
+		PERM_DENIED_TYPE(TextTooLong);
+		return;
+	}
+	if (text.isEmpty()) {
+		return;
+	}
+	if (changed) {
+		msg.set_message(u8(text));
+	}
+
+	MumbleProto::ChatScope scope =
+		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	unsigned int scopeID =
+		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
+	Channel *permissionChannel = nullptr;
+	::msdb::ChatThreadScope dbScope;
+
+	switch (scope) {
+		case MumbleProto::Channel:
+			permissionChannel = qhChannels.value(scopeID);
+			dbScope           = ::msdb::ChatThreadScope::Channel;
+			break;
+		case MumbleProto::ServerGlobal:
+			scopeID           = 0;
+			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
+			break;
+		case MumbleProto::Aggregate:
+			return;
+		default:
+			return;
+	}
+
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_permission(static_cast< unsigned int >(ChanACL::TextMessage));
+		denied.set_channel_id(Mumble::ROOT_CHANNEL_ID);
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Permission);
+		denied.set_reason(u8(QStringLiteral("Global chat is disabled by this server.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
+	if (!permissionChannel) {
+		return;
+	}
+
+	if (!ChanACL::hasPermission(uSource, permissionChannel, ChanACL::TextMessage, &acCache)) {
+		PERM_DENIED(uSource, permissionChannel, ChanACL::TextMessage);
+		return;
+	}
+
+	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
+	const std::string scopeKey                       = chatScopeKey(scope, scopeID);
+
+	::msdb::DBChatThread thread =
+		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
+	::msdb::DBChatMessage storedMessage =
+		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), authorUserID, uSource->uiSession);
+
+	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID);
+
+	QSet< ServerUser * > users = recipientsWithTextAccess(qhUsers, permissionChannel, acCache);
+
+	for (ServerUser *currentUser : users) {
+		sendMessage(currentUser, protoMessage);
+	}
+
+	if (authorUserID) {
+		::msdb::DBChatReadState readState(iServerNum, thread.threadID, authorUserID.value());
+		readState.lastReadMessageID = storedMessage.messageID;
+		readState.updatedAt         = std::chrono::system_clock::now();
+		m_dbWrapper.setChatReadState(readState);
+
+		std::optional< ::msdb::DBChatReadState > persistedReadState =
+			m_dbWrapper.getChatReadState(iServerNum, thread.threadID, authorUserID.value());
+		if (persistedReadState) {
+			sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
+		}
+	}
+}
+
+void Server::msgChatMessage(ServerUser *, MumbleProto::ChatMessage &) {
+}
+
+void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistoryRequest &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	RATELIMIT(uSource);
+
+	MumbleProto::ChatScope scope =
+		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	unsigned int scopeID =
+		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
+	Channel *permissionChannel = nullptr;
+	::msdb::ChatThreadScope dbScope;
+
+	switch (scope) {
+		case MumbleProto::Channel:
+			permissionChannel = qhChannels.value(scopeID);
+			dbScope           = ::msdb::ChatThreadScope::Channel;
+			break;
+		case MumbleProto::ServerGlobal:
+			scopeID           = 0;
+			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
+			break;
+		case MumbleProto::Aggregate:
+			break;
+		default:
+			return;
+	}
+
+	const unsigned int limit       = msg.has_limit() ? std::clamp(msg.limit(), 1U, 200U) : 50U;
+	const unsigned int startOffset = msg.has_start_offset() ? msg.start_offset() : 0;
+
+	MumbleProto::ChatHistoryResponse response;
+	response.set_scope(scope);
+	response.set_scope_id(scopeID);
+	response.set_start_offset(startOffset);
+	response.set_has_more(false);
+
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_permission(static_cast< unsigned int >(ChanACL::TextMessage));
+		denied.set_channel_id(Mumble::ROOT_CHANNEL_ID);
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Permission);
+		denied.set_reason(u8(QStringLiteral("Global chat is disabled by this server.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
+	if (scope == MumbleProto::Aggregate) {
+		std::vector< AggregateChatEntry > entries;
+		for (const ::msdb::DBChatThread &currentThread : m_dbWrapper.getChatThreads(iServerNum)) {
+			MumbleProto::ChatScope messageScope = MumbleProto::Channel;
+			unsigned int messageScopeID         = 0;
+			Channel *messagePermissionChannel   = nullptr;
+
+			if (!resolveStoredChatThread(currentThread, qhChannels, messageScope, messageScopeID,
+										 messagePermissionChannel)) {
+				continue;
+			}
+
+			if (messageScope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+				continue;
+			}
+
+			if (!ChanACL::hasPermission(uSource, messagePermissionChannel, ChanACL::TextMessage, &acCache)) {
+				continue;
+			}
+
+			for (const ::msdb::DBChatMessage &currentMessage :
+				 m_dbWrapper.getChatMessages(iServerNum, currentThread.threadID)) {
+				AggregateChatEntry entry;
+				entry.message = currentMessage;
+				entry.scope   = messageScope;
+				entry.scopeID = messageScopeID;
+				entries.push_back(std::move(entry));
+			}
+		}
+
+		std::sort(entries.begin(), entries.end(), newerAggregateEntry);
+
+		const std::size_t offset = startOffset;
+		const std::size_t pageEnd =
+			std::min< std::size_t >(entries.size(), static_cast< std::size_t >(startOffset) + limit);
+		response.set_has_more(entries.size() > static_cast< std::size_t >(startOffset) + limit);
+
+		if (offset < pageEnd) {
+			std::vector< AggregateChatEntry > page(entries.begin() + static_cast< std::ptrdiff_t >(offset),
+												   entries.begin() + static_cast< std::ptrdiff_t >(pageEnd));
+			std::reverse(page.begin(), page.end());
+
+			for (const AggregateChatEntry &entry : page) {
+				*response.add_messages() = protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID);
+			}
+		}
+
+		sendMessage(uSource, response);
+		return;
+	}
+
+	if (!permissionChannel) {
+		return;
+	}
+
+	if (!ChanACL::hasPermission(uSource, permissionChannel, ChanACL::TextMessage, &acCache)) {
+		PERM_DENIED(uSource, permissionChannel, ChanACL::TextMessage);
+		return;
+	}
+
+	const std::string scopeKey = chatScopeKey(scope, scopeID);
+	std::optional< ::msdb::DBChatThread > thread =
+		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	if (!thread) {
+		sendMessage(uSource, response);
+		return;
+	}
+
+	response.set_thread_id(thread->threadID);
+
+	std::vector< ::msdb::DBChatMessage > messages =
+		m_dbWrapper.getChatMessages(iServerNum, thread->threadID, startOffset, static_cast< int >(limit + 1));
+	if (messages.size() > limit) {
+		messages.erase(messages.begin());
+		response.set_has_more(true);
+	}
+
+	for (const ::msdb::DBChatMessage &currentMessage : messages) {
+		*response.add_messages() = protoChatMessageFromDB(currentMessage, scope, scopeID);
+	}
+
+	const std::optional< unsigned int > userID = persistedUserID(uSource);
+	if (userID) {
+		std::optional< ::msdb::DBChatReadState > readState =
+			m_dbWrapper.getChatReadState(iServerNum, thread->threadID, userID.value());
+		if (readState) {
+			response.set_last_read_message_id(readState->lastReadMessageID);
+		}
+	}
+
+	sendMessage(uSource, response);
+}
+
+void Server::msgChatHistoryResponse(ServerUser *, MumbleProto::ChatHistoryResponse &) {
+}
+
+void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadStateUpdate &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	RATELIMIT(uSource);
+
+	const std::optional< unsigned int > userID = persistedUserID(uSource);
+	if (!userID) {
+		return;
+	}
+
+	MumbleProto::ChatScope scope =
+		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	unsigned int scopeID =
+		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
+	Channel *permissionChannel = nullptr;
+	::msdb::ChatThreadScope dbScope;
+
+	switch (scope) {
+		case MumbleProto::Channel:
+			permissionChannel = qhChannels.value(scopeID);
+			dbScope           = ::msdb::ChatThreadScope::Channel;
+			break;
+		case MumbleProto::ServerGlobal:
+			scopeID           = 0;
+			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
+			break;
+		case MumbleProto::Aggregate:
+			return;
+		default:
+			return;
+	}
+
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_permission(static_cast< unsigned int >(ChanACL::TextMessage));
+		denied.set_channel_id(Mumble::ROOT_CHANNEL_ID);
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Permission);
+		denied.set_reason(u8(QStringLiteral("Global chat is disabled by this server.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
+	if (!permissionChannel) {
+		return;
+	}
+
+	if (!ChanACL::hasPermission(uSource, permissionChannel, ChanACL::TextMessage, &acCache)) {
+		PERM_DENIED(uSource, permissionChannel, ChanACL::TextMessage);
+		return;
+	}
+
+	const std::string scopeKey = chatScopeKey(scope, scopeID);
+	std::optional< ::msdb::DBChatThread > thread =
+		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	if (!thread) {
+		return;
+	}
+
+	::msdb::DBChatReadState readState(iServerNum, thread->threadID, userID.value());
+	readState.lastReadMessageID = msg.has_last_read_message_id() ? msg.last_read_message_id() : 0;
+	readState.updatedAt         = std::chrono::system_clock::now();
+
+	m_dbWrapper.setChatReadState(readState);
+
+	std::optional< ::msdb::DBChatReadState > persistedReadState =
+		m_dbWrapper.getChatReadState(iServerNum, thread->threadID, userID.value());
+	if (persistedReadState) {
+		sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
+	}
 }
 
 /// Helper function to log the groups of the given channel.

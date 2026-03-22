@@ -410,6 +410,7 @@ void MetaParams::read(QString fname) {
 					legacyPasswordHash ? QLatin1String("true") : QLatin1String("false"));
 	qmConfig.insert(QLatin1String("kdfiterations"), QString::number(kdfIterations));
 	qmConfig.insert(QLatin1String("allowhtml"), bAllowHTML ? QLatin1String("true") : QLatin1String("false"));
+	qmConfig.insert(QLatin1String("persistentglobalchat"), QLatin1String("false"));
 	qmConfig.insert(QLatin1String("bandwidth"), QString::number(iMaxBandwidth));
 	qmConfig.insert(QLatin1String("users"), QString::number(iMaxUsers));
 	qmConfig.insert(QLatin1String("defaultchannel"), QString::number(iDefaultChan));

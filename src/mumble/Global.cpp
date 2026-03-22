@@ -117,6 +117,7 @@ Global::Global(const QString &qsConfigPath) {
 	prioritySpeakerActiveOverride = false;
 
 	bAllowHTML       = true;
+	bPersistentGlobalChatEnabled = false;
 	uiMessageLength  = 5000;
 	uiImageLength    = 131072;
 	uiMaxUsers       = 0;
