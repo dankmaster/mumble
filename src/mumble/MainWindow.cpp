@@ -229,6 +229,19 @@ namespace {
 		return videoId;
 	}
 
+	bool isYouTubeHost(QString host) {
+		host = host.toLower();
+		if (host.startsWith(QLatin1String("www."))) {
+			host.remove(0, 4);
+		}
+		if (host.startsWith(QLatin1String("m."))) {
+			host.remove(0, 2);
+		}
+
+		return host == QLatin1String("youtube.com") || host == QLatin1String("youtube-nocookie.com")
+			   || host == QLatin1String("youtu.be");
+	}
+
 	bool isDirectImageUrl(const QUrl &url) {
 		if (!url.isValid()) {
 			return false;
@@ -1183,6 +1196,11 @@ std::optional< QString > MainWindow::persistentChatPreviewKey(const MumbleProto:
 		if (const std::optional< QString > videoId = extractYouTubeVideoId(url); videoId) {
 			return QString::fromLatin1("youtube:%1").arg(*videoId);
 		}
+		if (isYouTubeHost(url.host())) {
+			// Only create custom previews for actual videos. Generic previews for YouTube
+			// landing pages are noisy, expensive, and were unstable in Windows testing.
+			continue;
+		}
 
 		if (isDirectImageUrl(url)) {
 			return QString::fromLatin1("image:%1").arg(normalizedPreviewUrl(url));
@@ -1232,6 +1250,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		connect(oembedReply, &QNetworkReply::finished, this, [this, oembedReply, previewKey, renderIfVisible]() {
 			const QByteArray response = oembedReply->readAll();
 			const bool success        = oembedReply->error() == QNetworkReply::NoError;
+			const QString failureText = previewFailureText(oembedReply);
 			oembedReply->deleteLater();
 
 			auto it = m_persistentChatPreviews.find(previewKey);
@@ -1259,7 +1278,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 				it->title = tr("YouTube video");
 			}
 			if (it->subtitle.isEmpty() || it->subtitle == tr("Fetching title and thumbnail")) {
-				it->subtitle = previewFailureText(oembedReply);
+				it->subtitle = failureText;
 			}
 
 			if (it->thumbnailFinished && it->thumbnailHtml.isEmpty()) {
@@ -1277,6 +1296,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 				[this, thumbnailReply, previewKey, renderIfVisible]() {
 					const QByteArray data = thumbnailReply->readAll();
 					const bool success    = thumbnailReply->error() == QNetworkReply::NoError;
+					const QString failureText = previewFailureText(thumbnailReply);
 					thumbnailReply->deleteLater();
 
 					auto it = m_persistentChatPreviews.find(previewKey);
@@ -1301,7 +1321,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 						it->title = tr("YouTube video");
 					}
 					if (it->metadataFinished && it->subtitle.isEmpty()) {
-						it->subtitle = previewFailureText(thumbnailReply);
+						it->subtitle = failureText;
 					}
 					if (it->metadataFinished && it->thumbnailHtml.isEmpty()) {
 						it->failed = true;
@@ -1346,6 +1366,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
 			const QByteArray data = imageReply->readAll();
 			const bool success    = imageReply->error() == QNetworkReply::NoError;
+			const QString failureText = previewFailureText(imageReply);
 			imageReply->deleteLater();
 
 			auto it = m_persistentChatPreviews.find(previewKey);
@@ -1366,7 +1387,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 			}
 
 			it->failed = true;
-			it->description = previewFailureText(imageReply);
+			it->description = failureText;
 			renderIfVisible();
 		});
 		return;
@@ -1384,6 +1405,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		const QByteArray data = pageReply->readAll();
 		const bool success    = pageReply->error() == QNetworkReply::NoError;
 		const QString contentType = pageReply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
+		const QString failureText = previewFailureText(pageReply);
 		pageReply->deleteLater();
 
 		auto it = m_persistentChatPreviews.find(previewKey);
@@ -1399,7 +1421,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 			if (it->title == tr("Loading link preview...")) {
 				it->title = previewDisplayHost(previewUrl);
 			}
-			it->description = success ? tr("Preview unavailable") : previewFailureText(pageReply);
+			it->description = success ? tr("Preview unavailable") : failureText;
 			it->failed      = !success;
 			renderIfVisible();
 			return;
@@ -1442,6 +1464,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
 			const QByteArray imageData = imageReply->readAll();
 			const bool imageSuccess    = imageReply->error() == QNetworkReply::NoError;
+			const QString failureText = previewFailureText(imageReply);
 			imageReply->deleteLater();
 
 			auto it = m_persistentChatPreviews.find(previewKey);
@@ -1463,7 +1486,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 			}
 
 			if (it->description.isEmpty() || it->description == tr("Fetching page metadata")) {
-				it->description = previewFailureText(imageReply);
+				it->description = failureText;
 			}
 			renderIfVisible();
 		});
