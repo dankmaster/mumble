@@ -99,6 +99,8 @@ public:
 						 std::optional< unsigned int > createdByUserID = std::nullopt);
 	std::optional< ::mumble::server::db::DBChatThread >
 		getChatThreadByScope(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey);
+	std::vector< ::mumble::server::db::DBChatThread > getChatThreads(unsigned int serverID, unsigned int startOffset = 0,
+																	 int amount = -1);
 	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
 													 std::optional< unsigned int > authorUserID = std::nullopt,
 													 std::optional< unsigned int > authorSession = std::nullopt);

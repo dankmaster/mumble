@@ -172,9 +172,84 @@ namespace {
 				return "channel:" + std::to_string(scopeID);
 			case MumbleProto::ServerGlobal:
 				return "global";
+			case MumbleProto::Aggregate:
+				return {};
 		}
 
 		return {};
+	}
+
+	std::optional< unsigned int > channelIDFromScopeKey(const std::string &scopeKey) {
+		const QString key = QString::fromStdString(scopeKey);
+		if (!key.startsWith(QStringLiteral("channel:"))) {
+			return std::nullopt;
+		}
+
+		bool ok           = false;
+		const unsigned int channelID = key.mid(8).toUInt(&ok);
+		if (!ok) {
+			return std::nullopt;
+		}
+
+		return channelID;
+	}
+
+	bool resolveStoredChatThread(const ::msdb::DBChatThread &thread, const QHash< unsigned int, Channel * > &channels,
+								 MumbleProto::ChatScope &scope, unsigned int &scopeID, Channel *&permissionChannel) {
+		switch (thread.scope) {
+			case ::msdb::ChatThreadScope::Channel: {
+				std::optional< unsigned int > channelID = channelIDFromScopeKey(thread.scopeKey);
+				if (!channelID) {
+					return false;
+				}
+
+				scope             = MumbleProto::Channel;
+				scopeID           = channelID.value();
+				permissionChannel = channels.value(scopeID);
+				return permissionChannel != nullptr;
+			}
+			case ::msdb::ChatThreadScope::ServerGlobal:
+				scope             = MumbleProto::ServerGlobal;
+				scopeID           = 0;
+				permissionChannel = channels.value(Mumble::ROOT_CHANNEL_ID);
+				return permissionChannel != nullptr;
+			case ::msdb::ChatThreadScope::Private:
+				return false;
+		}
+
+		return false;
+	}
+
+	QSet< ServerUser * > recipientsWithTextAccess(const QHash< unsigned int, ServerUser * > &connectedUsers,
+												  Channel *channel, ChanACL::ACLCache &cache) {
+		QSet< ServerUser * > recipients;
+
+		for (ServerUser *currentUser : connectedUsers) {
+			if (currentUser && ChanACL::hasPermission(currentUser, channel, ChanACL::TextMessage, &cache)) {
+				recipients.insert(currentUser);
+			}
+		}
+
+		return recipients;
+	}
+
+	struct AggregateChatEntry {
+		::msdb::DBChatMessage message;
+		MumbleProto::ChatScope scope = MumbleProto::Channel;
+		unsigned int scopeID         = 0;
+	};
+
+	bool newerAggregateEntry(const AggregateChatEntry &lhs, const AggregateChatEntry &rhs) {
+		const std::size_t lhsCreatedAt = ::msdb::toEpochSeconds(lhs.message.createdAt);
+		const std::size_t rhsCreatedAt = ::msdb::toEpochSeconds(rhs.message.createdAt);
+		if (lhsCreatedAt != rhsCreatedAt) {
+			return lhsCreatedAt > rhsCreatedAt;
+		}
+		if (lhs.message.messageID != rhs.message.messageID) {
+			return lhs.message.messageID > rhs.message.messageID;
+		}
+
+		return lhs.message.threadID > rhs.message.threadID;
 	}
 
 	MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
@@ -1848,7 +1923,6 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
 	Channel *permissionChannel = nullptr;
-	bool broadcastToAll        = false;
 	::msdb::ChatThreadScope dbScope;
 
 	switch (scope) {
@@ -1860,8 +1934,9 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 			scopeID           = 0;
 			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
 			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
-			broadcastToAll    = true;
 			break;
+		case MumbleProto::Aggregate:
+			return;
 		default:
 			return;
 	}
@@ -1885,22 +1960,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 
 	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID);
 
-	QSet< ServerUser * > users;
-	if (broadcastToAll) {
-		for (ServerUser *currentUser : qhUsers) {
-			users.insert(currentUser);
-		}
-	} else {
-		for (User *currentUser : permissionChannel->qlUsers) {
-			users.insert(static_cast< ServerUser * >(currentUser));
-		}
-		for (unsigned int session : m_channelListenerManager.getListenersForChannel(permissionChannel->iId)) {
-			ServerUser *currentUser = qhUsers.value(session);
-			if (currentUser) {
-				users.insert(currentUser);
-			}
-		}
-	}
+	QSet< ServerUser * > users = recipientsWithTextAccess(qhUsers, permissionChannel, acCache);
 
 	for (ServerUser *currentUser : users) {
 		sendMessage(currentUser, protoMessage);
@@ -1948,8 +2008,66 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
 			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
 			break;
+		case MumbleProto::Aggregate:
+			break;
 		default:
 			return;
+	}
+
+	const unsigned int limit       = msg.has_limit() ? std::clamp(msg.limit(), 1U, 200U) : 50U;
+	const unsigned int startOffset = msg.has_start_offset() ? msg.start_offset() : 0;
+
+	MumbleProto::ChatHistoryResponse response;
+	response.set_scope(scope);
+	response.set_scope_id(scopeID);
+	response.set_start_offset(startOffset);
+	response.set_has_more(false);
+
+	if (scope == MumbleProto::Aggregate) {
+		std::vector< AggregateChatEntry > entries;
+		for (const ::msdb::DBChatThread &currentThread : m_dbWrapper.getChatThreads(iServerNum)) {
+			MumbleProto::ChatScope messageScope = MumbleProto::Channel;
+			unsigned int messageScopeID         = 0;
+			Channel *messagePermissionChannel   = nullptr;
+
+			if (!resolveStoredChatThread(currentThread, qhChannels, messageScope, messageScopeID,
+										 messagePermissionChannel)) {
+				continue;
+			}
+
+			if (!ChanACL::hasPermission(uSource, messagePermissionChannel, ChanACL::TextMessage, &acCache)) {
+				continue;
+			}
+
+			for (const ::msdb::DBChatMessage &currentMessage :
+				 m_dbWrapper.getChatMessages(iServerNum, currentThread.threadID)) {
+				AggregateChatEntry entry;
+				entry.message = currentMessage;
+				entry.scope   = messageScope;
+				entry.scopeID = messageScopeID;
+				entries.push_back(std::move(entry));
+			}
+		}
+
+		std::sort(entries.begin(), entries.end(), newerAggregateEntry);
+
+		const std::size_t offset = startOffset;
+		const std::size_t pageEnd =
+			std::min< std::size_t >(entries.size(), static_cast< std::size_t >(startOffset) + limit);
+		response.set_has_more(entries.size() > static_cast< std::size_t >(startOffset) + limit);
+
+		if (offset < pageEnd) {
+			std::vector< AggregateChatEntry > page(entries.begin() + static_cast< std::ptrdiff_t >(offset),
+												   entries.begin() + static_cast< std::ptrdiff_t >(pageEnd));
+			std::reverse(page.begin(), page.end());
+
+			for (const AggregateChatEntry &entry : page) {
+				*response.add_messages() = protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID);
+			}
+		}
+
+		sendMessage(uSource, response);
+		return;
 	}
 
 	if (!permissionChannel) {
@@ -1961,16 +2079,7 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 		return;
 	}
 
-	const unsigned int limit       = msg.has_limit() ? std::clamp(msg.limit(), 1U, 200U) : 50U;
-	const unsigned int startOffset = msg.has_start_offset() ? msg.start_offset() : 0;
-	const std::string scopeKey     = chatScopeKey(scope, scopeID);
-
-	MumbleProto::ChatHistoryResponse response;
-	response.set_scope(scope);
-	response.set_scope_id(scopeID);
-	response.set_start_offset(startOffset);
-	response.set_has_more(false);
-
+	const std::string scopeKey = chatScopeKey(scope, scopeID);
 	std::optional< ::msdb::DBChatThread > thread =
 		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
 	if (!thread) {
@@ -2036,6 +2145,8 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
 			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
 			break;
+		case MumbleProto::Aggregate:
+			return;
 		default:
 			return;
 	}

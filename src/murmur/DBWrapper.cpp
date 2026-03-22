@@ -992,6 +992,22 @@ std::optional< ::msdb::DBChatThread > DBWrapper::getChatThreadByScope(unsigned i
 	WRAPPER_END
 }
 
+std::vector< ::msdb::DBChatThread > DBWrapper::getChatThreads(unsigned int serverID, unsigned int startOffset, int amount) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+
+	if (amount < 0) {
+		return m_serverDB.getChatThreadTable().getThreads(serverID, std::numeric_limits< unsigned int >::max(),
+														  startOffset);
+	}
+
+	assert(amount >= 0);
+	return m_serverDB.getChatThreadTable().getThreads(serverID, static_cast< unsigned int >(amount), startOffset);
+
+	WRAPPER_END
+}
+
 ::msdb::DBChatMessage DBWrapper::addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
 												 std::optional< unsigned int > authorUserID,
 												 std::optional< unsigned int > authorSession) {

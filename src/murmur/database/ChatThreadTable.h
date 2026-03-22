@@ -12,7 +12,9 @@
 #include "database/Table.h"
 
 #include <chrono>
+#include <limits>
 #include <optional>
+#include <vector>
 
 namespace soci {
 class session;
@@ -52,6 +54,10 @@ namespace server {
 			DBChatThread getThread(unsigned int serverID, unsigned int threadID);
 			std::optional< DBChatThread > getThreadByScope(unsigned int serverID, ChatThreadScope scope,
 														   const std::string &scopeKey);
+			std::vector< DBChatThread >
+				getThreads(unsigned int serverID,
+						   unsigned int maxEntries  = static_cast< unsigned int >(std::numeric_limits< int >::max()),
+						   unsigned int startOffset = 0);
 			void touchThread(unsigned int serverID, unsigned int threadID,
 							 const std::chrono::system_clock::time_point &timepoint = std::chrono::system_clock::now());
 

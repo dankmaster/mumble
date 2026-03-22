@@ -242,6 +242,53 @@ namespace server {
 			}
 		}
 
+		std::vector< DBChatThread > ChatThreadTable::getThreads(unsigned int serverID, unsigned int maxEntries,
+																unsigned int startOffset) {
+			assert(maxEntries <= std::numeric_limits< int >::max());
+			assert(startOffset <= std::numeric_limits< int >::max());
+
+			try {
+				std::vector< DBChatThread > threads;
+				soci::row row;
+
+				::mdb::TransactionHolder transaction = ensureTransaction();
+
+				soci::statement stmt =
+					(m_sql.prepare << "SELECT \"" << column::thread_id << "\", \"" << column::thread_scope << "\", \""
+								   << column::scope_key << "\", \"" << column::created_by_user_id << "\", \""
+								   << column::created_at << "\", \"" << column::updated_at << "\" FROM \"" << NAME
+								   << "\" WHERE \"" << column::server_id << "\" = :serverID ORDER BY \""
+								   << column::updated_at << "\" DESC, \"" << column::thread_id << "\" DESC "
+								   << ::mdb::utils::limitOffset(m_backend, ":limit", ":offset"),
+					 soci::use(serverID), soci::use(maxEntries), soci::use(startOffset), soci::into(row));
+
+				stmt.execute(false);
+
+				while (stmt.fetch()) {
+					assert(row.size() == 6);
+
+					DBChatThread thread(serverID, static_cast< unsigned int >(row.get< int >(0)));
+					thread.scope     = decodeThreadScope(static_cast< unsigned int >(row.get< int >(1)));
+					thread.scopeKey  = row.get< std::string >(2);
+					thread.createdAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(4)));
+					thread.updatedAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(5)));
+
+					if (row.get_indicator(3) == soci::i_ok) {
+						thread.createdByUserID = static_cast< unsigned int >(row.get< int >(3));
+					}
+
+					threads.push_back(std::move(thread));
+				}
+
+				transaction.commit();
+
+				return threads;
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(
+					::mdb::AccessException("Failed at getting chat threads for server with ID " + std::to_string(serverID)));
+			}
+		}
+
 		void ChatThreadTable::touchThread(unsigned int serverID, unsigned int threadID,
 										  const std::chrono::system_clock::time_point &timepoint) {
 			try {

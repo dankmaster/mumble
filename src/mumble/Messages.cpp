@@ -54,6 +54,8 @@ namespace {
 			}
 			case MumbleProto::ServerGlobal:
 				return QObject::tr("Global chat");
+			case MumbleProto::Aggregate:
+				return QObject::tr("All chats");
 		}
 
 		return QObject::tr("Unknown chat");

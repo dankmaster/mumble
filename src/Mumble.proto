@@ -641,6 +641,7 @@ message PluginDataTransmission {
 enum ChatScope {
 	Channel = 0;
 	ServerGlobal = 1;
+	Aggregate = 2;
 }
 
 // Sent by the client to submit a persistent chat message to the server.
