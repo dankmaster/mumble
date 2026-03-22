@@ -41,7 +41,7 @@ jobs:
       - name: Publish
         uses: actions/upload-artifact@v6
         with:
-          name: Mumble-windows-client-${{ github.ref_name }}-${{ github.run_number }}
+          name: Mumble-windows-client-${{ github.run_number }}
           compression-level: 9
           path: |
             build/mumble
