@@ -237,6 +237,12 @@ namespace {
 		return user && user->bSupportsPersistentChat;
 	}
 
+	void inferPersistentChatSupport(ServerUser *user) {
+		if (user) {
+			user->bSupportsPersistentChat = true;
+		}
+	}
+
 	QSet< ServerUser * > legacyChannelRecipients(const QHash< unsigned int, ServerUser * > &connectedUsers,
 												 const ChannelListenerManager &channelListenerManager,
 												 const Channel *channel) {
@@ -2026,8 +2032,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 	RATELIMIT(uSource);
 
 	if (!clientSupportsPersistentChat(uSource)) {
-		sendPersistentChatUnsupported(uSource);
-		return;
+		inferPersistentChatSupport(uSource);
 	}
 
 	QString text = u8(msg.message());
@@ -2109,8 +2114,7 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	RATELIMIT(uSource);
 
 	if (!clientSupportsPersistentChat(uSource)) {
-		sendPersistentChatUnsupported(uSource);
-		return;
+		inferPersistentChatSupport(uSource);
 	}
 
 	MumbleProto::ChatScope scope =
@@ -2261,8 +2265,7 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 	RATELIMIT(uSource);
 
 	if (!clientSupportsPersistentChat(uSource)) {
-		sendPersistentChatUnsupported(uSource);
-		return;
+		inferPersistentChatSupport(uSource);
 	}
 
 	const std::optional< unsigned int > userID = persistedUserID(uSource);
