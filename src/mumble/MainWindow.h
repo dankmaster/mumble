@@ -40,6 +40,7 @@ class TextToSpeech;
 class UserModel;
 class Tokens;
 class Channel;
+class ScreenShareManager;
 class UserInformation;
 class VoiceRecorderDialog;
 class PositionalAudioViewer;
@@ -140,6 +141,7 @@ public:
 	/// save when activating the "Save Image As..." context menu item.
 	QTextCursor qtcSaveImageCursor;
 	QPointer< LogTextBrowser > m_imageSourceBrowser;
+	std::unique_ptr< ScreenShareManager > m_screenShareManager;
 
 	QPointer< Channel > cContextChannel;
 	QPointer< ClientUser > cuContextUser;
@@ -247,6 +249,10 @@ protected:
 	MUComboBox *qcbTransmitMode;
 	QAction *qaTransmitMode;
 	QAction *qaTransmitModeSeparator;
+	QAction *qaChannelScreenShareStart = nullptr;
+	QAction *qaChannelScreenShareStop = nullptr;
+	QAction *qaChannelScreenShareWatch = nullptr;
+	QAction *qaChannelScreenShareStopWatching = nullptr;
 
 	Search::SearchDialog *m_searchDialog = nullptr;
 
@@ -297,6 +303,7 @@ protected:
 	Channel *getContextMenuChannel();
 	ClientUser *getContextMenuUser();
 	ContextMenuTarget getContextMenuTargets();
+	QString screenShareStreamForChannel(const Channel *channel) const;
 
 	void autocompleteUsername();
 
@@ -351,6 +358,10 @@ public slots:
 	void on_qaChannelHide_triggered();
 	void on_qaChannelPin_triggered();
 	void on_qaChannelCopyURL_triggered();
+	void on_qaChannelScreenShareStart_triggered();
+	void on_qaChannelScreenShareStop_triggered();
+	void on_qaChannelScreenShareWatch_triggered();
+	void on_qaChannelScreenShareStopWatching_triggered();
 	void on_qaAudioReset_triggered();
 	void on_qaAudioMute_triggered();
 	void on_qaAudioDeaf_triggered();

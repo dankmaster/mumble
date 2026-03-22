@@ -21,6 +21,7 @@
 #include "PBKDF2.h"
 #include "ProtoUtils.h"
 #include "QtUtils.h"
+#include "ScreenShare.h"
 #include "ServerUser.h"
 #include "User.h"
 #include "Version.h"
@@ -35,8 +36,10 @@
 #include "murmur/database/UserProperty.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QDateTime>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
+#include <QtCore/QUuid>
 #include <QtCore/QXmlStreamAttributes>
 #include <QtCore/QtEndian>
 #include <QtNetwork/QHostInfo>
@@ -61,6 +64,16 @@
 #	include <netinet/in.h>
 #	include <poll.h>
 #endif
+
+namespace {
+	constexpr quint64 SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
+	constexpr quint64 SCREEN_SHARE_RELAY_TOKEN_REFRESH_SKEW_MSEC = 60ULL * 1000ULL;
+
+	QString randomRelayCredential() {
+		return QUuid::createUuid().toString(QUuid::WithoutBraces)
+			+ QUuid::createUuid().toString(QUuid::WithoutBraces);
+	}
+} // namespace
 
 ExecEvent::ExecEvent(std::function< void() > f) : QEvent(static_cast< QEvent::Type >(EXEC_QEVENT)) {
 	func = f;
@@ -359,6 +372,14 @@ void Server::readParams() {
 	bBonjour                           = Meta::mp->bBonjour;
 	bAllowPing                         = Meta::mp->bAllowPing;
 	allowRecording                     = Meta::mp->allowRecording;
+	bScreenShareEnabled                = Meta::mp->screenShareEnabled;
+	bScreenShareRecordingEnabled       = Meta::mp->screenShareRecordingEnabled;
+	bScreenShareHelperRequired         = Meta::mp->screenShareHelperRequired;
+	qlPreferredScreenShareCodecs       = Meta::mp->qlPreferredScreenShareCodecs;
+	uiScreenShareMaxWidth              = Meta::mp->uiScreenShareMaxWidth;
+	uiScreenShareMaxHeight             = Meta::mp->uiScreenShareMaxHeight;
+	uiScreenShareMaxFps                = Meta::mp->uiScreenShareMaxFps;
+	qsScreenShareRelayUrl              = Meta::mp->qsScreenShareRelayUrl;
 	rollingStatsWindow                 = Meta::mp->rollingStatsWindow;
 	bCertRequired                      = Meta::mp->bCertRequired;
 	bForceExternalAuth                 = Meta::mp->bForceExternalAuth;
@@ -417,6 +438,28 @@ void Server::readParams() {
 	m_dbWrapper.getConfigurationTo(iServerNum, "imagemessagelength", iMaxImageMessageLength);
 	m_dbWrapper.getConfigurationTo(iServerNum, "allowhtml", bAllowHTML);
 	m_dbWrapper.getConfigurationTo(iServerNum, "persistentglobalchat", bPersistentGlobalChatEnabled);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_enabled", bScreenShareEnabled);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_recording_enabled", bScreenShareRecordingEnabled);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_helper_required", bScreenShareHelperRequired);
+	QString screenShareCodecPreferences =
+		Mumble::ScreenShare::codecPreferenceString(qlPreferredScreenShareCodecs);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_codec_preferences", screenShareCodecPreferences);
+	qlPreferredScreenShareCodecs = Mumble::ScreenShare::parseCodecPreferenceString(
+		screenShareCodecPreferences, Meta::mp->qlPreferredScreenShareCodecs);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_width", uiScreenShareMaxWidth);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_height", uiScreenShareMaxHeight);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_fps", uiScreenShareMaxFps);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_relay_url", qsScreenShareRelayUrl);
+	uiScreenShareMaxWidth =
+		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxWidth, Meta::mp->uiScreenShareMaxWidth,
+										   Mumble::ScreenShare::HARD_MAX_WIDTH);
+	uiScreenShareMaxHeight =
+		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxHeight, Meta::mp->uiScreenShareMaxHeight,
+										   Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	uiScreenShareMaxFps =
+		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxFps, Meta::mp->uiScreenShareMaxFps,
+										   Mumble::ScreenShare::HARD_MAX_FPS);
+	qsScreenShareRelayUrl = Mumble::ScreenShare::normalizeRelayUrl(qsScreenShareRelayUrl);
 	m_dbWrapper.getConfigurationTo(iServerNum, "defaultchannel", iDefaultChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannel", bRememberChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannelduration", iRememberChanDuration);
@@ -557,6 +600,98 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 			mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
 			sendAll(mpsc);
 		}
+	} else if (key == "screen_share_enabled") {
+		const bool enabled = !v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareEnabled;
+		if (enabled != bScreenShareEnabled) {
+			bScreenShareEnabled = enabled;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_enabled(bScreenShareEnabled);
+			sendAll(mpsc);
+
+			if (!bScreenShareEnabled) {
+				const QList< QString > streamIDs = qhScreenShareStreams.keys();
+				for (const QString &streamID : streamIDs) {
+					stopScreenShare(streamID, 0, MumbleProto::ScreenShareLifecycleStateStopped,
+									QStringLiteral("Screen sharing disabled by server policy"));
+				}
+			}
+		}
+	} else if (key == "screen_share_recording_enabled") {
+		const bool enabled = !v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareRecordingEnabled;
+		if (enabled != bScreenShareRecordingEnabled) {
+			bScreenShareRecordingEnabled = enabled;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_recording_enabled(bScreenShareRecordingEnabled);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_helper_required") {
+		const bool required = !v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareHelperRequired;
+		if (required != bScreenShareHelperRequired) {
+			bScreenShareHelperRequired = required;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_helper_required(bScreenShareHelperRequired);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_codec_preferences") {
+		const QList< int > codecs =
+			!v.isNull()
+				? Mumble::ScreenShare::parseCodecPreferenceString(v, Meta::mp->qlPreferredScreenShareCodecs)
+				: Meta::mp->qlPreferredScreenShareCodecs;
+		if (codecs != qlPreferredScreenShareCodecs) {
+			qlPreferredScreenShareCodecs = codecs;
+			MumbleProto::ServerConfig mpsc;
+			for (const int codec : qlPreferredScreenShareCodecs) {
+				mpsc.add_preferred_screen_share_codecs(static_cast< MumbleProto::ScreenShareCodec >(codec));
+			}
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_max_width") {
+		const unsigned int width = Mumble::ScreenShare::sanitizeLimit(
+			(!v.isNull() && i > 0) ? static_cast< unsigned int >(i) : Meta::mp->uiScreenShareMaxWidth,
+			Meta::mp->uiScreenShareMaxWidth, Mumble::ScreenShare::HARD_MAX_WIDTH);
+		if (width != uiScreenShareMaxWidth) {
+			uiScreenShareMaxWidth = width;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_max_width(uiScreenShareMaxWidth);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_max_height") {
+		const unsigned int height = Mumble::ScreenShare::sanitizeLimit(
+			(!v.isNull() && i > 0) ? static_cast< unsigned int >(i) : Meta::mp->uiScreenShareMaxHeight,
+			Meta::mp->uiScreenShareMaxHeight, Mumble::ScreenShare::HARD_MAX_HEIGHT);
+		if (height != uiScreenShareMaxHeight) {
+			uiScreenShareMaxHeight = height;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_max_height(uiScreenShareMaxHeight);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_max_fps") {
+		const unsigned int fps = Mumble::ScreenShare::sanitizeLimit(
+			(!v.isNull() && i > 0) ? static_cast< unsigned int >(i) : Meta::mp->uiScreenShareMaxFps,
+			Meta::mp->uiScreenShareMaxFps, Mumble::ScreenShare::HARD_MAX_FPS);
+		if (fps != uiScreenShareMaxFps) {
+			uiScreenShareMaxFps = fps;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_max_fps(uiScreenShareMaxFps);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_relay_url") {
+		const QString relayUrl =
+			Mumble::ScreenShare::normalizeRelayUrl(!v.isNull() ? v : Meta::mp->qsScreenShareRelayUrl);
+		if (relayUrl != qsScreenShareRelayUrl) {
+			qsScreenShareRelayUrl = relayUrl;
+			MumbleProto::ServerConfig mpsc;
+			if (!qsScreenShareRelayUrl.isEmpty()) {
+				mpsc.set_screen_share_relay_url(u8(qsScreenShareRelayUrl));
+			}
+			sendAll(mpsc);
+
+			const QList< QString > streamIDs = qhScreenShareStreams.keys();
+			for (const QString &streamID : streamIDs) {
+				stopScreenShare(streamID, 0, MumbleProto::ScreenShareLifecycleStateStopped,
+								QStringLiteral("Screen-share relay endpoint changed by server policy"));
+			}
+		}
 	} else if (key == "defaultchannel")
 		iDefaultChan = i ? static_cast< unsigned int >(i) : Meta::mp->iDefaultChan;
 	else if (key == "rememberchannel")
@@ -643,6 +778,199 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 		broadcastListenerVolumeAdjustments =
 			(!v.isNull() ? QVariant(v).toBool() : Meta::mp->broadcastListenerVolumeAdjustments);
 	}
+}
+
+bool Server::supportsScreenShareSignaling(const ServerUser *user) const {
+	return user && user->bSupportsScreenShareSignaling;
+}
+
+bool Server::supportsScreenShareCapture(const ServerUser *user) const {
+	return supportsScreenShareSignaling(user) && user->bSupportsScreenShareCapture;
+}
+
+bool Server::supportsScreenShareView(const ServerUser *user) const {
+	return supportsScreenShareSignaling(user) && user->bSupportsScreenShareView;
+}
+
+QString Server::screenShareRelayTokenForRecipient(const ScreenShareStream &stream, const ServerUser *recipient) const {
+	if (!recipient) {
+		return QString();
+	}
+
+	return (recipient->uiSession == stream.uiOwnerSession) ? stream.qsRelayPublishToken : stream.qsRelayViewToken;
+}
+
+MumbleProto::ScreenShareRelayRole
+	Server::screenShareRelayRoleForRecipient(const ScreenShareStream &stream, const ServerUser *recipient) const {
+	if (recipient && recipient->uiSession == stream.uiOwnerSession) {
+		return MumbleProto::ScreenShareRelayRolePublisher;
+	}
+
+	return MumbleProto::ScreenShareRelayRoleViewer;
+}
+
+Channel *Server::screenShareScopeChannel(const MumbleProto::ScreenShareScope scope, const unsigned int scopeID) const {
+	switch (scope) {
+		case MumbleProto::ScreenShareScopeChannel:
+			return qhChannels.value(scopeID);
+	}
+
+	return nullptr;
+}
+
+void Server::ensureFreshScreenShareRelayCredentials(ScreenShareStream &stream) {
+	const quint64 now = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
+	if (stream.uiRelayTokenExpiresAt > 0 && now + SCREEN_SHARE_RELAY_TOKEN_REFRESH_SKEW_MSEC < stream.uiRelayTokenExpiresAt) {
+		return;
+	}
+
+	if (stream.qsRelaySessionID.isEmpty()) {
+		stream.qsRelaySessionID = QUuid::createUuid().toString(QUuid::WithoutBraces);
+	}
+	stream.qsRelayPublishToken   = randomRelayCredential();
+	stream.qsRelayViewToken      = randomRelayCredential();
+	stream.uiRelayTokenExpiresAt = now + SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
+}
+
+void Server::populateScreenShareStateMessage(MumbleProto::ScreenShareState &msg,
+											 ScreenShareStream &stream,
+											 const ServerUser *recipient) {
+	ensureFreshScreenShareRelayCredentials(stream);
+	msg.Clear();
+	msg.set_stream_id(u8(stream.qsStreamID));
+	msg.set_owner_session(stream.uiOwnerSession);
+	msg.set_scope(stream.scope);
+	msg.set_scope_id(stream.uiScopeID);
+	if (!stream.qsRelayRoomID.isEmpty()) {
+		msg.set_relay_room_id(u8(stream.qsRelayRoomID));
+	}
+	const QString relayToken = screenShareRelayTokenForRecipient(stream, recipient);
+	if (!relayToken.isEmpty()) {
+		msg.set_relay_token(u8(relayToken));
+	}
+	if (!stream.qsRelayUrl.isEmpty()) {
+		msg.set_relay_url(u8(stream.qsRelayUrl));
+	}
+	if (!stream.qsRelaySessionID.isEmpty()) {
+		msg.set_relay_session_id(u8(stream.qsRelaySessionID));
+	}
+	msg.set_relay_transport(stream.relayTransport);
+	msg.set_relay_role(screenShareRelayRoleForRecipient(stream, recipient));
+	if (stream.uiRelayTokenExpiresAt > 0) {
+		msg.set_relay_token_expires_at(stream.uiRelayTokenExpiresAt);
+	}
+	msg.set_created_at(stream.uiCreatedAt);
+	msg.set_state(stream.state);
+	msg.set_codec(stream.codec);
+	for (const int codec : stream.qlCodecFallbackOrder) {
+		msg.add_codec_fallback_order(static_cast< MumbleProto::ScreenShareCodec >(codec));
+	}
+	msg.set_width(stream.uiWidth);
+	msg.set_height(stream.uiHeight);
+	msg.set_fps(stream.uiFps);
+	msg.set_bitrate_kbps(stream.uiBitrateKbps);
+}
+
+void Server::sendScreenShareStateToAudience(ScreenShareStream &stream, ServerUser *except) {
+	Channel *channel = screenShareScopeChannel(stream.scope, stream.uiScopeID);
+	if (!channel) {
+		return;
+	}
+
+	for (User *currentUser : channel->qlUsers) {
+		ServerUser *serverUser = static_cast< ServerUser * >(currentUser);
+		if (!serverUser || serverUser == except || !supportsScreenShareSignaling(serverUser)
+			|| serverUser->sState != ServerUser::Authenticated) {
+			continue;
+		}
+
+		MumbleProto::ScreenShareState msg;
+		populateScreenShareStateMessage(msg, stream, serverUser);
+		sendMessage(serverUser, msg);
+	}
+}
+
+void Server::sendScreenShareStopToAudience(const ScreenShareStream &stream, const unsigned int actorSession,
+										   const MumbleProto::ScreenShareLifecycleState state, const QString &reason,
+										   ServerUser *except) {
+	Channel *channel = screenShareScopeChannel(stream.scope, stream.uiScopeID);
+	if (!channel) {
+		return;
+	}
+
+	MumbleProto::ScreenShareStop msg;
+	msg.set_stream_id(u8(stream.qsStreamID));
+	msg.set_owner_session(stream.uiOwnerSession);
+	if (actorSession != 0) {
+		msg.set_actor_session(actorSession);
+	}
+	msg.set_state(state);
+	if (!reason.isEmpty()) {
+		msg.set_reason(u8(reason));
+	}
+
+	for (User *currentUser : channel->qlUsers) {
+		ServerUser *serverUser = static_cast< ServerUser * >(currentUser);
+		if (!serverUser || serverUser == except || !supportsScreenShareSignaling(serverUser)
+			|| serverUser->sState != ServerUser::Authenticated) {
+			continue;
+		}
+
+		sendMessage(serverUser, msg);
+	}
+}
+
+void Server::syncScreenShareStateForUser(ServerUser *user, Channel *previousChannel) {
+	if (!user || !supportsScreenShareSignaling(user) || user->sState != ServerUser::Authenticated) {
+		return;
+	}
+
+	const QString previousStreamID =
+		(previousChannel && qhScreenShareStreamByChannel.contains(previousChannel->iId))
+			? qhScreenShareStreamByChannel.value(previousChannel->iId)
+			: QString();
+	const QString currentStreamID =
+		(user->cChannel && qhScreenShareStreamByChannel.contains(user->cChannel->iId))
+			? qhScreenShareStreamByChannel.value(user->cChannel->iId)
+			: QString();
+
+	if (!previousStreamID.isEmpty() && previousStreamID != currentStreamID) {
+		const ScreenShareStream stream = qhScreenShareStreams.value(previousStreamID);
+		MumbleProto::ScreenShareStop msg;
+		msg.set_stream_id(u8(stream.qsStreamID));
+		msg.set_owner_session(stream.uiOwnerSession);
+		msg.set_actor_session(user->uiSession);
+		msg.set_state(MumbleProto::ScreenShareLifecycleStateStopped);
+		msg.set_reason(u8(QStringLiteral("Viewer left the screen-share channel")));
+		sendMessage(user, msg);
+	}
+
+	if (!currentStreamID.isEmpty()) {
+		ScreenShareStream &stream = qhScreenShareStreams[currentStreamID];
+		MumbleProto::ScreenShareState msg;
+		populateScreenShareStateMessage(msg, stream, user);
+		sendMessage(user, msg);
+	}
+}
+
+bool Server::stopScreenShare(const QString &streamID, const unsigned int actorSession,
+							 const MumbleProto::ScreenShareLifecycleState state, const QString &reason) {
+	auto it = qhScreenShareStreams.find(streamID);
+	if (it == qhScreenShareStreams.end()) {
+		return false;
+	}
+
+	const ScreenShareStream stream = it.value();
+	qhScreenShareStreams.erase(it);
+	qhScreenShareStreamByOwnerSession.remove(stream.uiOwnerSession);
+	qhScreenShareStreamByChannel.remove(stream.uiScopeID);
+
+	sendScreenShareStopToAudience(stream, actorSession, state, reason);
+	log(QString::fromLatin1("Screen share %1 stopped for owner session %2: %3")
+			.arg(stream.qsStreamID)
+			.arg(stream.uiOwnerSession)
+			.arg(reason));
+	return true;
 }
 
 #ifdef USE_ZEROCONF
@@ -1670,6 +1998,11 @@ void Server::connectionClosed(QAbstractSocket::SocketError err, const QString &r
 		emit userDisconnected(u);
 	}
 
+	if (qhScreenShareStreamByOwnerSession.contains(u->uiSession)) {
+		stopScreenShare(qhScreenShareStreamByOwnerSession.value(u->uiSession), u->uiSession,
+						MumbleProto::ScreenShareLifecycleStateFailed, QStringLiteral("Screen-share owner disconnected"));
+	}
+
 	Channel *old = u->cChannel;
 
 	{
@@ -1911,6 +2244,12 @@ void Server::removeChannel(Channel *chan, Channel *dest) {
 	if (!dest)
 		dest = chan->cParent;
 
+	if (qhScreenShareStreamByChannel.contains(chan->iId)) {
+		stopScreenShare(qhScreenShareStreamByChannel.value(chan->iId), 0,
+						MumbleProto::ScreenShareLifecycleStateStopped,
+						QStringLiteral("Screen-share channel removed"));
+	}
+
 	{
 		QWriteLocker wl(&qrwlVoiceThread);
 		chan->unlink(nullptr);
@@ -2044,6 +2383,12 @@ void Server::userEnterChannel(User *p, Channel *c, MumbleProto::UserState &mpus)
 		return;
 
 	Channel *old = p->cChannel;
+	ServerUser *serverUser = static_cast< ServerUser * >(p);
+
+	if (qhScreenShareStreamByOwnerSession.contains(serverUser->uiSession)) {
+		stopScreenShare(qhScreenShareStreamByOwnerSession.value(serverUser->uiSession), serverUser->uiSession,
+						MumbleProto::ScreenShareLifecycleStateStopped, QStringLiteral("Screen-share owner changed channel"));
+	}
 
 	{
 		QWriteLocker wl(&qrwlVoiceThread);
@@ -2076,9 +2421,11 @@ void Server::userEnterChannel(User *p, Channel *c, MumbleProto::UserState &mpus)
 		QCoreApplication::instance()->postEvent(this, new ExecEvent(std::bind(func_ptr, this, old->iId)));
 	}
 
-	sendClientPermission(static_cast< ServerUser * >(p), c);
+	sendClientPermission(serverUser, c);
 	if (c->cParent)
-		sendClientPermission(static_cast< ServerUser * >(p), c->cParent);
+		sendClientPermission(serverUser, c->cParent);
+
+	syncScreenShareStateForUser(serverUser, old);
 }
 
 bool Server::hasPermission(ServerUser *p, Channel *c, QFlags< ChanACL::Perm > perm) {

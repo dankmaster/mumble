@@ -128,6 +128,14 @@ public:
 	int iOpusThreshold;
 	bool bAllowHTML;
 	bool bPersistentGlobalChatEnabled = false;
+	bool bScreenShareEnabled = false;
+	bool bScreenShareRecordingEnabled = false;
+	bool bScreenShareHelperRequired = true;
+	QList< int > qlPreferredScreenShareCodecs;
+	unsigned int uiScreenShareMaxWidth = 1920;
+	unsigned int uiScreenShareMaxHeight = 1080;
+	unsigned int uiScreenShareMaxFps = 60;
+	QString qsScreenShareRelayUrl;
 	QString qsPassword;
 	QString qsWelcomeText;
 	QString qsWelcomeTextFile;
@@ -322,6 +330,32 @@ public:
 	QHash< int, QString > qhUserNameCache;
 	QHash< Mumble::QtUtils::CaseInsensitiveQString, int > qhUserIDCache;
 
+	struct ScreenShareStream {
+		QString qsStreamID;
+		unsigned int uiOwnerSession = 0;
+		MumbleProto::ScreenShareScope scope = MumbleProto::ScreenShareScopeChannel;
+		unsigned int uiScopeID = 0;
+		QString qsRelayRoomID;
+		QString qsRelayUrl;
+		QString qsRelaySessionID;
+		QString qsRelayPublishToken;
+		QString qsRelayViewToken;
+		quint64 uiRelayTokenExpiresAt = 0;
+		MumbleProto::ScreenShareRelayTransport relayTransport = MumbleProto::ScreenShareRelayTransportUnknown;
+		quint64 uiCreatedAt = 0;
+		MumbleProto::ScreenShareLifecycleState state = MumbleProto::ScreenShareLifecycleStatePending;
+		MumbleProto::ScreenShareCodec codec = MumbleProto::ScreenShareCodecUnknown;
+		QList< int > qlCodecFallbackOrder;
+		unsigned int uiWidth = 0;
+		unsigned int uiHeight = 0;
+		unsigned int uiFps = 0;
+		unsigned int uiBitrateKbps = 0;
+	};
+
+	QHash< QString, ScreenShareStream > qhScreenShareStreams;
+	QHash< unsigned int, QString > qhScreenShareStreamByOwnerSession;
+	QHash< unsigned int, QString > qhScreenShareStreamByChannel;
+
 	std::vector< Ban > m_bans;
 
 	DBWrapper m_dbWrapper;
@@ -378,6 +412,23 @@ public:
 										const QSet< ServerUser * > &legacyFallbackRecipients = {});
 
 	void setLiveConf(const QString &key, const QString &value);
+	bool supportsScreenShareSignaling(const ServerUser *user) const;
+	bool supportsScreenShareCapture(const ServerUser *user) const;
+	bool supportsScreenShareView(const ServerUser *user) const;
+	Channel *screenShareScopeChannel(MumbleProto::ScreenShareScope scope, unsigned int scopeID) const;
+	void ensureFreshScreenShareRelayCredentials(ScreenShareStream &stream);
+	QString screenShareRelayTokenForRecipient(const ScreenShareStream &stream, const ServerUser *recipient) const;
+	MumbleProto::ScreenShareRelayRole screenShareRelayRoleForRecipient(const ScreenShareStream &stream,
+																		 const ServerUser *recipient) const;
+	void populateScreenShareStateMessage(MumbleProto::ScreenShareState &msg, ScreenShareStream &stream,
+										 const ServerUser *recipient);
+	void sendScreenShareStateToAudience(ScreenShareStream &stream, ServerUser *except = nullptr);
+	void sendScreenShareStopToAudience(const ScreenShareStream &stream, unsigned int actorSession,
+									   MumbleProto::ScreenShareLifecycleState state, const QString &reason,
+									   ServerUser *except = nullptr);
+	void syncScreenShareStateForUser(ServerUser *user, Channel *previousChannel = nullptr);
+	bool stopScreenShare(const QString &streamID, unsigned int actorSession,
+						 MumbleProto::ScreenShareLifecycleState state, const QString &reason);
 
 	QString addressToString(const QHostAddress &, unsigned short port);
 

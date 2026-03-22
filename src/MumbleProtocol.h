@@ -53,7 +53,13 @@
 	PROCESS_MUMBLE_TCP_MESSAGE(ChatMessage, 28)         \
 	PROCESS_MUMBLE_TCP_MESSAGE(ChatHistoryRequest, 29)  \
 	PROCESS_MUMBLE_TCP_MESSAGE(ChatHistoryResponse, 30) \
-	PROCESS_MUMBLE_TCP_MESSAGE(ChatReadStateUpdate, 31)
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatReadStateUpdate, 31) \
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareCreate, 32)   \
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareState, 33)    \
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareOffer, 34)    \
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareAnswer, 35)   \
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareIceCandidate, 36) \
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareStop, 37)
 
 /**
  * "X-macro" for all Mumble Protobuf UDP messages types.

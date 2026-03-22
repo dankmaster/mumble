@@ -39,6 +39,7 @@
 #include "QtWidgetUtils.h"
 #include "RichTextEditor.h"
 #include "Screen.h"
+#include "ScreenShareManager.h"
 #include "SearchDialog.h"
 #include "ServerHandler.h"
 #include "ServerInformation.h"
@@ -569,6 +570,15 @@ MainWindow::MainWindow(QWidget *p)
 
 	createActions();
 	setupUi(this);
+	qaChannelScreenShareStart = new QAction(tr("Start Screen Share"), this);
+	qaChannelScreenShareStop = new QAction(tr("Stop Screen Share"), this);
+	qaChannelScreenShareWatch = new QAction(tr("Watch Screen Share"), this);
+	qaChannelScreenShareStopWatching = new QAction(tr("Stop Watching Screen Share"), this);
+	connect(qaChannelScreenShareStart, &QAction::triggered, this, &MainWindow::on_qaChannelScreenShareStart_triggered);
+	connect(qaChannelScreenShareStop, &QAction::triggered, this, &MainWindow::on_qaChannelScreenShareStop_triggered);
+	connect(qaChannelScreenShareWatch, &QAction::triggered, this, &MainWindow::on_qaChannelScreenShareWatch_triggered);
+	connect(qaChannelScreenShareStopWatching, &QAction::triggered, this,
+			&MainWindow::on_qaChannelScreenShareStopWatching_triggered);
 	setupGui();
 	connect(qmUser, SIGNAL(aboutToShow()), this, SLOT(qmUser_aboutToShow()));
 	connect(qmChannel, SIGNAL(aboutToShow()), this, SLOT(qmChannel_aboutToShow()));
@@ -598,8 +608,11 @@ MainWindow::MainWindow(QWidget *p)
 			 || (Global::get().s.bMinimalView && Global::get().s.aotbAlwaysOnTop == Settings::OnTopInMinimal)
 			 || (!Global::get().s.bMinimalView && Global::get().s.aotbAlwaysOnTop == Settings::OnTopInNormal));
 
+	m_screenShareManager = std::make_unique< ScreenShareManager >(this);
 	QObject::connect(this, &MainWindow::serverSynchronized, Global::get().pluginManager,
 					 &PluginManager::on_serverSynchronized);
+	QObject::connect(this, &MainWindow::disconnectedFromServer, m_screenShareManager.get(),
+					 &ScreenShareManager::resetState);
 
 	// Set up initial client side talking state without the need for the user to do anything.
 	// This will, for example, make sure the correct status tray icon is used on connect.
@@ -1222,7 +1235,17 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	}
 
 	const auto renderIfVisible = [this, previewKey]() {
-		updatePersistentChatPreviewViewIfVisible(previewKey);
+		QPointer< MainWindow > guardedThis(this);
+		QMetaObject::invokeMethod(
+			this,
+			[guardedThis, previewKey]() {
+				if (!guardedThis) {
+					return;
+				}
+
+				guardedThis->updatePersistentChatPreviewViewIfVisible(previewKey);
+			},
+			Qt::QueuedConnection);
 	};
 
 	PersistentChatPreview preview;
@@ -1555,6 +1578,22 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		return;
 	}
 
+	QSet< QString > previewKeysToEnsure;
+	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
+		if ((message.has_deleted_at() && message.deleted_at() > 0) || !Global::get().s.bEnableLinkPreviews) {
+			continue;
+		}
+
+		if (const std::optional< QString > previewKey = persistentChatPreviewKey(message);
+			previewKey && !m_persistentChatPreviews.contains(*previewKey)) {
+			previewKeysToEnsure.insert(*previewKey);
+		}
+	}
+
+	for (auto it = previewKeysToEnsure.cbegin(); it != previewKeysToEnsure.cend(); ++it) {
+		ensurePersistentChatPreview(*it);
+	}
+
 	const int oldScrollValue = m_persistentChatHistory->verticalScrollBar()->value();
 	const int oldScrollMax   = m_persistentChatHistory->verticalScrollBar()->maximum();
 
@@ -1651,7 +1690,6 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		cursor.insertHtml(QString::fromLatin1("<br/>"));
 		if (!message.has_deleted_at() || message.deleted_at() == 0) {
 			if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
-				ensurePersistentChatPreview(*previewKey);
 				const QString previewHtml = persistentChatPreviewHtml(*previewKey);
 				if (!previewHtml.isEmpty()) {
 					cursor.insertHtml(previewHtml);
@@ -2196,6 +2234,22 @@ ContextMenuTarget MainWindow::getContextMenuTargets() {
 	qpContextPosition = QPoint();
 
 	return target;
+}
+
+QString MainWindow::screenShareStreamForChannel(const Channel *channel) const {
+	if (!channel || !m_screenShareManager) {
+		return QString();
+	}
+
+	const QHash< QString, ScreenShareSession > &sessions = m_screenShareManager->sessions();
+	for (auto it = sessions.cbegin(); it != sessions.cend(); ++it) {
+		const ScreenShareSession &session = it.value();
+		if (session.scope == MumbleProto::ScreenShareScopeChannel && session.scopeID == channel->iId) {
+			return it.key();
+		}
+	}
+
+	return QString();
 }
 
 bool MainWindow::handleSpecialContextMenu(const QUrl &url, const QPoint &pos_, bool focus) {
@@ -3185,6 +3239,57 @@ void MainWindow::qmListener_aboutToShow() {
 	}
 }
 
+void MainWindow::on_qaChannelScreenShareStart_triggered() {
+	Channel *c = getContextMenuChannel();
+	if (!c || !m_screenShareManager) {
+		return;
+	}
+
+	m_screenShareManager->requestStartChannelShare(static_cast< unsigned int >(c->iId));
+}
+
+void MainWindow::on_qaChannelScreenShareStop_triggered() {
+	Channel *c = getContextMenuChannel();
+	if (!c || !m_screenShareManager) {
+		return;
+	}
+
+	const QString streamID = screenShareStreamForChannel(c);
+	if (streamID.isEmpty()) {
+		return;
+	}
+
+	m_screenShareManager->requestStopShare(streamID);
+}
+
+void MainWindow::on_qaChannelScreenShareWatch_triggered() {
+	Channel *c = getContextMenuChannel();
+	if (!c || !m_screenShareManager) {
+		return;
+	}
+
+	const QString streamID = screenShareStreamForChannel(c);
+	if (streamID.isEmpty()) {
+		return;
+	}
+
+	m_screenShareManager->requestStartViewing(streamID);
+}
+
+void MainWindow::on_qaChannelScreenShareStopWatching_triggered() {
+	Channel *c = getContextMenuChannel();
+	if (!c || !m_screenShareManager) {
+		return;
+	}
+
+	const QString streamID = screenShareStreamForChannel(c);
+	if (streamID.isEmpty()) {
+		return;
+	}
+
+	m_screenShareManager->requestStopViewing(streamID);
+}
+
 void MainWindow::on_qaUserMute_triggered() {
 	ClientUser *p = getContextMenuUser();
 	if (!p)
@@ -3593,10 +3698,11 @@ void MainWindow::on_qmConfig_aboutToShow() {
 
 void MainWindow::qmChannel_aboutToShow() {
 	Channel *c = getContextMenuTargets().channel;
+	const ClientUser *self = ClientUser::get(Global::get().uiSession);
 
 	qmChannel->clear();
 
-	if (c && c->iId != ClientUser::get(Global::get().uiSession)->cChannel->iId) {
+	if (c && self && self->cChannel && c->iId != self->cChannel->iId) {
 		qmChannel->addAction(qaChannelJoin);
 	}
 
@@ -3605,6 +3711,36 @@ void MainWindow::qmChannel_aboutToShow() {
 		// and thus it doesn't make sense to show the action for it
 		qmChannel->addAction(qaChannelListen);
 		qaChannelListen->setChecked(Global::get().channelListenerManager->isListening(Global::get().uiSession, c->iId));
+	}
+
+	if (c && self && self->cChannel && m_screenShareManager) {
+		const QString streamID      = screenShareStreamForChannel(c);
+		const bool hasScreenShare   = !streamID.isEmpty();
+		const bool isCurrentChannel = c->iId == self->cChannel->iId;
+		bool addedScreenShareAction = false;
+
+		if (isCurrentChannel && !hasScreenShare && m_screenShareManager->canRequestLocalShare()) {
+			qmChannel->addAction(qaChannelScreenShareStart);
+			qaChannelScreenShareStart->setEnabled(true);
+			addedScreenShareAction = true;
+		} else if (hasScreenShare) {
+			const ScreenShareSession session = m_screenShareManager->sessions().value(streamID);
+			if (session.ownerSession == self->uiSession) {
+				qmChannel->addAction(qaChannelScreenShareStop);
+				qaChannelScreenShareStop->setEnabled(true);
+			} else if (m_screenShareManager->isViewingSession(streamID)) {
+				qmChannel->addAction(qaChannelScreenShareStopWatching);
+				qaChannelScreenShareStopWatching->setEnabled(true);
+			} else {
+				qmChannel->addAction(qaChannelScreenShareWatch);
+				qaChannelScreenShareWatch->setEnabled(m_screenShareManager->canViewSession(streamID));
+			}
+			addedScreenShareAction = true;
+		}
+
+		if (addedScreenShareAction) {
+			qmChannel->addSeparator();
+		}
 	}
 
 	qmChannel->addSeparator();

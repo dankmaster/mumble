@@ -25,6 +25,7 @@
 #include "PacketDataStream.h"
 #include "ProtoUtils.h"
 #include "RichTextEditor.h"
+#include "ScreenShareHelperClient.h"
 #include "SSL.h"
 #include "ServerResolver.h"
 #include "ServerResolverRecord.h"
@@ -832,6 +833,7 @@ void ServerHandler::serverConnectionConnected() {
 	mpv.set_release(u8(advertisedRelease));
 	MumbleProto::setVersion(mpv, Version::get());
 	mpv.set_supports_persistent_chat(true);
+	ScreenShareHelperClient::applyAdvertisedCapabilities(mpv);
 
 	const QString advertisedOS        = Global::get().s.qsAdvertisedOSOverride.trimmed();
 	const QString advertisedOSVersion = Global::get().s.qsAdvertisedOSVersionOverride.trimmed();

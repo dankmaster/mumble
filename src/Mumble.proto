@@ -24,6 +24,20 @@ message Version {
 	optional string os_version = 4;
 	// Whether this client understands the persistent chat protocol.
 	optional bool supports_persistent_chat = 6 [default = false];
+	// Whether this client understands fork-specific screen-share signaling.
+	optional bool supports_screen_share_signaling = 7 [default = false];
+	// Whether this client can capture and publish a screen-share stream.
+	optional bool supports_screen_share_capture = 8 [default = false];
+	// Whether this client can receive and render a screen-share stream.
+	optional bool supports_screen_share_view = 9 [default = false];
+	// Screen-share codecs this client can negotiate for publishing or viewing.
+	repeated ScreenShareCodec supported_screen_share_codecs = 10 [packed = true];
+	// Maximum screen-share width this client can publish or render reliably.
+	optional uint32 max_screen_share_width = 11;
+	// Maximum screen-share height this client can publish or render reliably.
+	optional uint32 max_screen_share_height = 12;
+	// Maximum screen-share frames per second this client can publish or render reliably.
+	optional uint32 max_screen_share_fps = 13;
 }
 
 // Not used. Not even for tunneling UDP through TCP.
@@ -592,6 +606,35 @@ message RequestBlob {
 	repeated uint32 channel_description = 3;
 }
 
+enum ScreenShareCodec {
+	ScreenShareCodecUnknown = 0;
+	ScreenShareCodecH264 = 1;
+	ScreenShareCodecVP9 = 2;
+	ScreenShareCodecAV1 = 3;
+}
+
+enum ScreenShareScope {
+	ScreenShareScopeChannel = 0;
+}
+
+enum ScreenShareLifecycleState {
+	ScreenShareLifecycleStatePending = 0;
+	ScreenShareLifecycleStateActive = 1;
+	ScreenShareLifecycleStateStopped = 2;
+	ScreenShareLifecycleStateFailed = 3;
+}
+
+enum ScreenShareRelayTransport {
+	ScreenShareRelayTransportUnknown = 0;
+	ScreenShareRelayTransportDirect = 1;
+	ScreenShareRelayTransportWebRTC = 2;
+}
+
+enum ScreenShareRelayRole {
+	ScreenShareRelayRoleViewer = 0;
+	ScreenShareRelayRolePublisher = 1;
+}
+
 // Sent by the server when it informs the clients on server configuration
 // details.
 message ServerConfig {
@@ -611,6 +654,22 @@ message ServerConfig {
 	optional bool recording_allowed = 7;
 	// Whether the server allows the persistent server-global chat thread.
 	optional bool persistent_global_chat_enabled = 8;
+	// Whether the server currently allows screen-sharing sessions.
+	optional bool screen_share_enabled = 9;
+	// Whether the server allows screen-share recording when the feature lands.
+	optional bool screen_share_recording_enabled = 10;
+	// Whether using the external screen-share helper is required.
+	optional bool screen_share_helper_required = 11;
+	// Preferred codec order for screen-sharing on this server.
+	repeated ScreenShareCodec preferred_screen_share_codecs = 12 [packed = true];
+	// Maximum screen-share width the server is willing to negotiate.
+	optional uint32 screen_share_max_width = 13;
+	// Maximum screen-share height the server is willing to negotiate.
+	optional uint32 screen_share_max_height = 14;
+	// Maximum screen-share frame rate the server is willing to negotiate.
+	optional uint32 screen_share_max_fps = 15;
+	// Relay/SFU endpoint that clients should use for screen-sharing sessions.
+	optional string screen_share_relay_url = 16;
 }
 
 // Sent by the server to inform the clients of suggested client configuration
@@ -696,4 +755,77 @@ message ChatReadStateUpdate {
 	optional uint32 user_id = 4;
 	optional uint32 last_read_message_id = 5;
 	optional uint64 updated_at = 6;
+}
+
+// Sent by the publisher to request that the server create a new screen-share session.
+message ScreenShareCreate {
+	optional ScreenShareScope scope = 1 [default = ScreenShareScopeChannel];
+	optional uint32 scope_id = 2 [default = 0];
+	repeated ScreenShareCodec requested_codecs = 3 [packed = true];
+	optional uint32 requested_width = 4;
+	optional uint32 requested_height = 5;
+	optional uint32 requested_fps = 6;
+	optional uint32 requested_bitrate_kbps = 7;
+	optional bool prefer_hardware_encoding = 8 [default = true];
+}
+
+// Sent by the server to announce the currently active screen-share session state.
+message ScreenShareState {
+	optional string stream_id = 1;
+	optional uint32 owner_session = 2;
+	optional ScreenShareScope scope = 3 [default = ScreenShareScopeChannel];
+	optional uint32 scope_id = 4 [default = 0];
+	optional string relay_room_id = 5;
+	optional string relay_token = 6;
+	optional uint64 created_at = 7;
+	optional ScreenShareLifecycleState state = 8 [default = ScreenShareLifecycleStatePending];
+	optional ScreenShareCodec codec = 9 [default = ScreenShareCodecUnknown];
+	repeated ScreenShareCodec codec_fallback_order = 10 [packed = true];
+	optional uint32 width = 11;
+	optional uint32 height = 12;
+	optional uint32 fps = 13;
+	optional uint32 bitrate_kbps = 14;
+	optional string relay_url = 15;
+	optional string relay_session_id = 16;
+	optional ScreenShareRelayTransport relay_transport = 17 [default = ScreenShareRelayTransportUnknown];
+	optional ScreenShareRelayRole relay_role = 18 [default = ScreenShareRelayRoleViewer];
+	optional uint64 relay_token_expires_at = 19;
+}
+
+// Relays a publisher or viewer offer blob through Murmur.
+message ScreenShareOffer {
+	optional string stream_id = 1;
+	optional uint32 owner_session = 2;
+	optional uint32 viewer_session = 3;
+	optional string relay_room_id = 4;
+	optional string sdp = 5;
+}
+
+// Relays a publisher or viewer answer blob through Murmur.
+message ScreenShareAnswer {
+	optional string stream_id = 1;
+	optional uint32 owner_session = 2;
+	optional uint32 viewer_session = 3;
+	optional string relay_room_id = 4;
+	optional string sdp = 5;
+}
+
+// Relays connectivity candidates for a screen-share session.
+message ScreenShareIceCandidate {
+	optional string stream_id = 1;
+	optional uint32 owner_session = 2;
+	optional uint32 viewer_session = 3;
+	optional string candidate = 4;
+	optional string mid = 5;
+	optional uint32 mline_index = 6;
+	optional bool end_of_candidates = 7 [default = false];
+}
+
+// Sent to tear down a screen-share session.
+message ScreenShareStop {
+	optional string stream_id = 1;
+	optional uint32 owner_session = 2;
+	optional uint32 actor_session = 3;
+	optional ScreenShareLifecycleState state = 4 [default = ScreenShareLifecycleStateStopped];
+	optional string reason = 5;
 }

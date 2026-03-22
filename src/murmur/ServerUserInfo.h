@@ -9,6 +9,7 @@
 #include "User.h"
 #include "Version.h"
 
+#include <QList>
 #include <QString>
 #include <QStringList>
 
@@ -25,6 +26,13 @@ public:
 	QString qsOS;
 	QString qsOSVersion;
 	bool bSupportsPersistentChat = false;
+	bool bSupportsScreenShareSignaling = false;
+	bool bSupportsScreenShareCapture = false;
+	bool bSupportsScreenShareView = false;
+	QList< int > qlSupportedScreenShareCodecs;
+	unsigned int uiMaxScreenShareWidth = 0;
+	unsigned int uiMaxScreenShareHeight = 0;
+	unsigned int uiMaxScreenShareFps = 0;
 
 	std::string ssContext;
 	QString qsIdentity;

@@ -7,6 +7,7 @@
 #define MUMBLE_MUMBLE_GLOBAL_H_
 
 #include <QtCore/QDir>
+#include <QtCore/QList>
 
 #include "ACL.h"
 #include "ChannelListenerManager.h"
@@ -101,6 +102,14 @@ public:
 	bool prioritySpeakerActiveOverride;
 	bool bAllowHTML;
 	bool bPersistentGlobalChatEnabled;
+	bool bScreenShareEnabled;
+	bool bScreenShareRecordingEnabled;
+	bool bScreenShareHelperRequired;
+	QList< int > qlPreferredScreenShareCodecs;
+	unsigned int uiScreenShareMaxWidth;
+	unsigned int uiScreenShareMaxHeight;
+	unsigned int uiScreenShareMaxFps;
+	QString qsScreenShareRelayUrl;
 	unsigned int uiMessageLength;
 	unsigned int uiImageLength;
 	unsigned int uiMaxUsers;

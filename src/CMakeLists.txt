@@ -75,6 +75,8 @@ set(SHARED_SOURCES
 	"QtUtils.cpp"
 	"ProcessResolver.cpp"
 	"ProtoUtils.cpp"
+	"ScreenShareIPC.cpp"
+	"ScreenShare.cpp"
 	"SelfSignedCertificate.cpp"
 	"ServerAddress.cpp"
 	"ServerResolver.cpp"
@@ -112,6 +114,8 @@ set(SHARED_HEADERS
 	"PlatformCheck.h"
 	"ProcessResolver.h"
 	"ProtoUtils.h"
+	"ScreenShare.h"
+	"ScreenShareIPC.h"
 	"SelfSignedCertificate.h"
 	"ServerAddress.h"
 	"ServerResolver.h"
@@ -233,10 +237,14 @@ endif()
 if(client)
 	add_subdirectory(mumble)
 
+	add_subdirectory(screen-helper)
+
 	if(UNIX AND NOT APPLE)
 		install(FILES "${CMAKE_SOURCE_DIR}/icons/mumble.svg" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
 		install(FILES "${CMAKE_SOURCE_DIR}/icons/mumble_256x256.png" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps" RENAME "mumble.png")
 	endif()
+else()
+	add_subdirectory(screen-helper)
 endif()
 
 if(server)
