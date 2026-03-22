@@ -172,7 +172,9 @@ public:
 		QString canonicalUrl;
 		QString title;
 		QString subtitle;
+		QString description;
 		QString thumbnailHtml;
+		QString openLabel;
 		bool metadataFinished = false;
 		bool thumbnailFinished = false;
 		bool failed           = false;
