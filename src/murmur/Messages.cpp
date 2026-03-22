@@ -1926,7 +1926,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
 	Channel *permissionChannel = nullptr;
-	::msdb::ChatThreadScope dbScope;
+	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
 		case MumbleProto::Channel:
@@ -2010,7 +2010,7 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
 	Channel *permissionChannel = nullptr;
-	::msdb::ChatThreadScope dbScope;
+	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
 		case MumbleProto::Channel:
@@ -2162,7 +2162,7 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
 	Channel *permissionChannel = nullptr;
-	::msdb::ChatThreadScope dbScope;
+	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
 		case MumbleProto::Channel:
