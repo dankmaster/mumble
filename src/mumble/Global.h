@@ -101,6 +101,13 @@ public:
 	bool prioritySpeakerActiveOverride;
 	bool bAllowHTML;
 	bool bPersistentGlobalChatEnabled;
+	bool bScreenShareEnabled;
+	bool bScreenShareRecordingEnabled;
+	bool bScreenShareHelperRequired;
+	QList< int > qlPreferredScreenShareCodecs;
+	unsigned int uiScreenShareMaxWidth;
+	unsigned int uiScreenShareMaxHeight;
+	unsigned int uiScreenShareMaxFps;
 	unsigned int uiMessageLength;
 	unsigned int uiImageLength;
 	unsigned int uiMaxUsers;

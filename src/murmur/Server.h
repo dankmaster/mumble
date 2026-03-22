@@ -128,6 +128,13 @@ public:
 	int iOpusThreshold;
 	bool bAllowHTML;
 	bool bPersistentGlobalChatEnabled = false;
+	bool bScreenShareEnabled = false;
+	bool bScreenShareRecordingEnabled = false;
+	bool bScreenShareHelperRequired = true;
+	QList< int > qlPreferredScreenShareCodecs;
+	unsigned int uiScreenShareMaxWidth = 1920;
+	unsigned int uiScreenShareMaxHeight = 1080;
+	unsigned int uiScreenShareMaxFps = 60;
 	QString qsPassword;
 	QString qsWelcomeText;
 	QString qsWelcomeTextFile;

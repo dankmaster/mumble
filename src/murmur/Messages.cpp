@@ -13,6 +13,7 @@
 #include "MumbleConstants.h"
 #include "ProtoUtils.h"
 #include "QtUtils.h"
+#include "ScreenShare.h"
 #include "Server.h"
 #include "ServerUser.h"
 #include "User.h"
@@ -235,6 +236,16 @@ namespace {
 
 	bool clientSupportsPersistentChat(const ServerUser *user) {
 		return user && user->bSupportsPersistentChat;
+	}
+
+	QList< int > screenShareCodecListFromVersion(const MumbleProto::Version &msg) {
+		QList< int > codecs;
+		codecs.reserve(msg.supported_screen_share_codecs_size());
+		for (int i = 0; i < msg.supported_screen_share_codecs_size(); ++i) {
+			codecs.append(static_cast< int >(msg.supported_screen_share_codecs(i)));
+		}
+
+		return Mumble::ScreenShare::sanitizeCodecList(codecs);
 	}
 
 	void inferPersistentChatSupport(ServerUser *user) {
@@ -851,6 +862,15 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 	mpsc.set_max_users(static_cast< unsigned int >(iMaxUsers));
 	mpsc.set_recording_allowed(allowRecording);
 	mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
+	mpsc.set_screen_share_enabled(bScreenShareEnabled);
+	mpsc.set_screen_share_recording_enabled(bScreenShareRecordingEnabled);
+	mpsc.set_screen_share_helper_required(bScreenShareHelperRequired);
+	for (const int codec : qlPreferredScreenShareCodecs) {
+		mpsc.add_preferred_screen_share_codecs(static_cast< MumbleProto::ScreenShareCodec >(codec));
+	}
+	mpsc.set_screen_share_max_width(uiScreenShareMaxWidth);
+	mpsc.set_screen_share_max_height(uiScreenShareMaxHeight);
+	mpsc.set_screen_share_max_fps(uiScreenShareMaxFps);
 	sendMessage(uSource, mpsc);
 
 	MumbleProto::SuggestConfig mpsug;
@@ -2746,6 +2766,25 @@ void Server::msgVersion(ServerUser *uSource, MumbleProto::Version &msg) {
 
 	uSource->m_version = MumbleProto::getVersion(msg);
 	uSource->bSupportsPersistentChat = msg.has_supports_persistent_chat() && msg.supports_persistent_chat();
+	uSource->bSupportsScreenShareSignaling =
+		msg.has_supports_screen_share_signaling() && msg.supports_screen_share_signaling();
+	uSource->bSupportsScreenShareCapture =
+		msg.has_supports_screen_share_capture() && msg.supports_screen_share_capture();
+	uSource->bSupportsScreenShareView = msg.has_supports_screen_share_view() && msg.supports_screen_share_view();
+	uSource->qlSupportedScreenShareCodecs = screenShareCodecListFromVersion(msg);
+	uSource->uiMaxScreenShareWidth =
+		msg.has_max_screen_share_width()
+			? Mumble::ScreenShare::sanitizeLimit(msg.max_screen_share_width(), 0, Mumble::ScreenShare::HARD_MAX_WIDTH)
+			: 0;
+	uSource->uiMaxScreenShareHeight =
+		msg.has_max_screen_share_height()
+			? Mumble::ScreenShare::sanitizeLimit(msg.max_screen_share_height(), 0,
+												 Mumble::ScreenShare::HARD_MAX_HEIGHT)
+			: 0;
+	uSource->uiMaxScreenShareFps =
+		msg.has_max_screen_share_fps()
+			? Mumble::ScreenShare::sanitizeLimit(msg.max_screen_share_fps(), 0, Mumble::ScreenShare::HARD_MAX_FPS)
+			: 0;
 	if (msg.has_release()) {
 		uSource->qsRelease = convertWithSizeRestriction(msg.release(), 100);
 	}

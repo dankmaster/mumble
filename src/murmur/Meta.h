@@ -157,6 +157,20 @@ public:
 
 	/// A flag indicating whether recording is allowed on this server
 	bool allowRecording;
+	/// A flag indicating whether live screen sharing is allowed on this server
+	bool screenShareEnabled;
+	/// A flag indicating whether screen-share recording is allowed once implemented
+	bool screenShareRecordingEnabled;
+	/// Whether the fork-specific screen-share helper process is required
+	bool screenShareHelperRequired;
+	/// Preferred codec order for screen-sharing
+	QList< int > qlPreferredScreenShareCodecs;
+	/// Maximum negotiated screen-share width
+	unsigned int uiScreenShareMaxWidth;
+	/// Maximum negotiated screen-share height
+	unsigned int uiScreenShareMaxHeight;
+	/// Maximum negotiated screen-share frame rate
+	unsigned int uiScreenShareMaxFps;
 
 	/// The number of seconds to keep rolling stats for per client
 	unsigned int rollingStatsWindow;

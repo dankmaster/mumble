@@ -118,6 +118,13 @@ Global::Global(const QString &qsConfigPath) {
 
 	bAllowHTML       = true;
 	bPersistentGlobalChatEnabled = false;
+	bScreenShareEnabled = false;
+	bScreenShareRecordingEnabled = false;
+	bScreenShareHelperRequired = true;
+	qlPreferredScreenShareCodecs.clear();
+	uiScreenShareMaxWidth = 0;
+	uiScreenShareMaxHeight = 0;
+	uiScreenShareMaxFps = 0;
 	uiMessageLength  = 5000;
 	uiImageLength    = 131072;
 	uiMaxUsers       = 0;

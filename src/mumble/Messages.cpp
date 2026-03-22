@@ -27,6 +27,7 @@
 #include "ChannelListenerManager.h"
 #include "PluginManager.h"
 #include "ProtoUtils.h"
+#include "ScreenShare.h"
 #include "ServerHandler.h"
 #include "TalkingUI.h"
 #include "User.h"
@@ -39,6 +40,7 @@
 #include "crypto/CryptState.h"
 #include "Global.h"
 
+#include <algorithm>
 #include <QTextDocumentFragment>
 
 #define ACTOR_INIT                           \
@@ -60,6 +62,18 @@
 		qWarning("MainWindow: Received message outside of session (sid %d).", Global::get().uiSession); \
 		return;                                                                                         \
 	}
+
+namespace {
+	QList< int > preferredScreenShareCodecsFromConfig(const MumbleProto::ServerConfig &msg) {
+		QList< int > codecs;
+		codecs.reserve(msg.preferred_screen_share_codecs_size());
+		for (int i = 0; i < msg.preferred_screen_share_codecs_size(); ++i) {
+			codecs.append(static_cast< int >(msg.preferred_screen_share_codecs(i)));
+		}
+
+		return Mumble::ScreenShare::sanitizeCodecList(codecs);
+	}
+} // namespace
 
 /// The authenticate message is being used by the client to send the authentication credentials to the server. Therefore
 /// the server won't send this message type to the client which is why this implementation does nothing.
@@ -218,6 +232,30 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 		const bool enabled = msg.persistent_global_chat_enabled();
 		persistentGlobalChanged = Global::get().bPersistentGlobalChatEnabled != enabled;
 		Global::get().bPersistentGlobalChatEnabled = enabled;
+	}
+	if (msg.has_screen_share_enabled()) {
+		Global::get().bScreenShareEnabled = msg.screen_share_enabled();
+	}
+	if (msg.has_screen_share_recording_enabled()) {
+		Global::get().bScreenShareRecordingEnabled = msg.screen_share_recording_enabled();
+	}
+	if (msg.has_screen_share_helper_required()) {
+		Global::get().bScreenShareHelperRequired = msg.screen_share_helper_required();
+	}
+	if (msg.preferred_screen_share_codecs_size() > 0) {
+		Global::get().qlPreferredScreenShareCodecs = preferredScreenShareCodecsFromConfig(msg);
+	}
+	if (msg.has_screen_share_max_width()) {
+		Global::get().uiScreenShareMaxWidth =
+			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_width(), 0, Mumble::ScreenShare::HARD_MAX_WIDTH);
+	}
+	if (msg.has_screen_share_max_height()) {
+		Global::get().uiScreenShareMaxHeight =
+			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_height(), 0, Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	}
+	if (msg.has_screen_share_max_fps()) {
+		Global::get().uiScreenShareMaxFps =
+			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_fps(), 0, Mumble::ScreenShare::HARD_MAX_FPS);
 	}
 	if (persistentGlobalChanged) {
 		updateChatBar();
