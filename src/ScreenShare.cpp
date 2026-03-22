@@ -256,6 +256,5 @@ namespace ScreenShare {
 	bool isValidRelayUrl(const QString &relayUrl) {
 		return !normalizeRelayUrl(relayUrl).isEmpty();
 	}
-
 } // namespace ScreenShare
 } // namespace Mumble

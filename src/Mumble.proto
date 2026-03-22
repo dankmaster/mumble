@@ -634,7 +634,6 @@ enum ScreenShareRelayRole {
 	ScreenShareRelayRoleViewer = 0;
 	ScreenShareRelayRolePublisher = 1;
 }
-
 // Sent by the server when it informs the clients on server configuration
 // details.
 message ServerConfig {
@@ -705,6 +704,7 @@ enum ChatScope {
 	Channel = 0;
 	ServerGlobal = 1;
 	Aggregate = 2;
+	TextChannel = 3;
 }
 
 // Sent by the client to submit a persistent chat message to the server.
@@ -828,4 +828,17 @@ message ScreenShareStop {
 	optional uint32 actor_session = 3;
 	optional ScreenShareLifecycleState state = 4 [default = ScreenShareLifecycleStateStopped];
 	optional string reason = 5;
+}
+
+message TextChannelInfo {
+	required uint32 text_channel_id = 1;
+	required string name = 2;
+	optional string description = 3;
+	optional uint32 acl_channel_id = 4 [default = 0];
+	optional uint32 position = 5 [default = 0];
+}
+
+message TextChannelSync {
+	repeated TextChannelInfo channels = 1;
+	optional uint32 default_text_channel_id = 2;
 }

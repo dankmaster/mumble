@@ -406,6 +406,7 @@ public:
 	static void hashAssign(QByteArray &destination, QByteArray &hash, const QByteArray &source);
 	bool isTextAllowed(QString &str, bool &changed);
 	void sendPersistentChatUnsupported(ServerUser *uSource);
+	void sendTextChannelSync(ServerUser *uSource);
 	void persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
 										unsigned int scopeID, Channel *permissionChannel,
 										::mumble::server::db::ChatThreadScope dbScope,

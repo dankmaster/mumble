@@ -12,6 +12,7 @@
 #include "ChatMessageTable.h"
 #include "ChatReadStateTable.h"
 #include "ChatThreadTable.h"
+#include "TextChannelTable.h"
 #include "ChannelTable.h"
 #include "ConfigTable.h"
 #include "GroupMemberTable.h"
@@ -45,6 +46,7 @@ namespace server {
 				ChatThreadTable,
 				ChatMessageTable,
 				ChatReadStateTable,
+				TextChannelTable,
 				UserPropertyTable,
 				GroupTable,
 				GroupMemberTable,
@@ -106,6 +108,9 @@ namespace server {
 				std::make_unique< ChatReadStateTable >(m_sql, m_backend, getChatThreadTable(), getUserTable()));
 			assert(id == TableIndex::ChatReadStateTable);
 
+			id = addTable(std::make_unique< TextChannelTable >(m_sql, m_backend, getServerTable(), getChannelTable()));
+			assert(id == TableIndex::TextChannelTable);
+
 			id = addTable(std::make_unique< UserPropertyTable >(m_sql, m_backend, getUserTable()));
 			assert(id == TableIndex::UserPropertyTable);
 
@@ -157,6 +162,7 @@ namespace server {
 		GET_TABLE_IMPL(ChatThreadTable)
 		GET_TABLE_IMPL(ChatMessageTable)
 		GET_TABLE_IMPL(ChatReadStateTable)
+		GET_TABLE_IMPL(TextChannelTable)
 		GET_TABLE_IMPL(UserPropertyTable)
 		GET_TABLE_IMPL(GroupTable)
 		GET_TABLE_IMPL(GroupMemberTable)

@@ -926,6 +926,32 @@ UserView::item {
   padding-top: -1px;
 }
 
+#qdwChat {
+  background-color: #2e2e2e;
+  border: 1px solid #1c1c1c;
+}
+
+#qcbPersistentChatScope,
+#qtePersistentChatWelcome,
+#qtePersistentChatHistory,
+#qteChat,
+#qleAdvertisedRelease,
+#qleAdvertisedOS,
+#qleAdvertisedOSVersion {
+  background-color: #191919;
+  color: #d8d8d8;
+  border: 1px solid #1c1c1c;
+  selection-background-color: #298ce1;
+  selection-color: #FFF;
+}
+
+#qcbPersistentChatScope {
+  padding: 4px;
+}
+
+#qtePersistentChatWelcome,
+#qtePersistentChatHistory,
+#qteChat,
 #qdwChat > QTextEdit {
   padding: -2px;
   margin: 0 2px;
@@ -933,8 +959,39 @@ UserView::item {
   font-size: 10pt;
 }
 
+#qfPersistentChatDivider {
+  background-color: #555;
+  color: #555;
+  border: 0;
+  min-height: 1px;
+  max-height: 1px;
+}
+
+#qgbPrivacy,
+#qgbAnnouncedIdentity {
+  margin-top: 8px;
+}
+
+#qcbLinkPreviews {
+  color: #d8d8d8;
+}
+
 #qtIconToolbar QComboBox {
   font-size: 8pt;
+}
+
+.persistent-chat-preview-card {
+  background-color: #191919;
+  border: 1px solid #1c1c1c;
+}
+
+.persistent-chat-preview-subtitle,
+.persistent-chat-preview-status {
+  color: #484848;
+}
+
+.persistent-chat-preview-status {
+  font-style: italic;
 }
 
 .log-time {

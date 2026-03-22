@@ -41,6 +41,7 @@
 #include "crypto/CryptState.h"
 #include "Global.h"
 
+#include <algorithm>
 #include <QTextDocumentFragment>
 
 #define ACTOR_INIT                           \
@@ -1409,6 +1410,10 @@ void MainWindow::msgScreenShareStop(const MumbleProto::ScreenShareStop &msg) {
 	if (m_screenShareManager) {
 		m_screenShareManager->handleScreenShareStop(msg);
 	}
+}
+
+void MainWindow::msgTextChannelSync(const MumbleProto::TextChannelSync &msg) {
+	handlePersistentTextChannelSync(msg);
 }
 
 #undef ACTOR_INIT

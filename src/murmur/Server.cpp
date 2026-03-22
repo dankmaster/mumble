@@ -358,6 +358,13 @@ void Server::readParams() {
 	iMaxTextMessageLength              = Meta::mp->iMaxTextMessageLength;
 	iMaxImageMessageLength             = Meta::mp->iMaxImageMessageLength;
 	bAllowHTML                         = Meta::mp->bAllowHTML;
+	bScreenShareEnabled                = Meta::mp->screenShareEnabled;
+	bScreenShareRecordingEnabled       = Meta::mp->screenShareRecordingEnabled;
+	bScreenShareHelperRequired         = Meta::mp->screenShareHelperRequired;
+	qlPreferredScreenShareCodecs       = Meta::mp->qlPreferredScreenShareCodecs;
+	uiScreenShareMaxWidth              = Meta::mp->uiScreenShareMaxWidth;
+	uiScreenShareMaxHeight             = Meta::mp->uiScreenShareMaxHeight;
+	uiScreenShareMaxFps                = Meta::mp->uiScreenShareMaxFps;
 	iDefaultChan                       = Meta::mp->iDefaultChan;
 	bRememberChan                      = Meta::mp->bRememberChan;
 	iRememberChanDuration              = Meta::mp->iRememberChanDuration;
