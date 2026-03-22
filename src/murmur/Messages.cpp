@@ -233,6 +233,34 @@ namespace {
 		return recipients;
 	}
 
+	bool clientSupportsPersistentChat(const ServerUser *user) {
+		return user && user->bSupportsPersistentChat;
+	}
+
+	QSet< ServerUser * > legacyChannelRecipients(const QHash< unsigned int, ServerUser * > &connectedUsers,
+												 const ChannelListenerManager &channelListenerManager,
+												 const Channel *channel) {
+		QSet< ServerUser * > recipients;
+		if (!channel) {
+			return recipients;
+		}
+
+		for (User *currentUser : channel->qlUsers) {
+			if (currentUser) {
+				recipients.insert(static_cast< ServerUser * >(currentUser));
+			}
+		}
+
+		for (unsigned int session : channelListenerManager.getListenersForChannel(channel->iId)) {
+			ServerUser *currentUser = connectedUsers.value(session);
+			if (currentUser) {
+				recipients.insert(currentUser);
+			}
+		}
+
+		return recipients;
+	}
+
 	struct AggregateChatEntry {
 		::msdb::DBChatMessage message;
 		MumbleProto::ChatScope scope = MumbleProto::Channel;
@@ -285,7 +313,87 @@ namespace {
 
 		return protoUpdate;
 	}
+
+	MumbleProto::TextMessage legacyTextMessageFromPersistent(const MumbleProto::ChatMessage &message) {
+		MumbleProto::TextMessage legacyMessage;
+		if (message.has_actor()) {
+			legacyMessage.set_actor(message.actor());
+		}
+		legacyMessage.set_message(message.message());
+
+		switch (message.has_scope() ? message.scope() : MumbleProto::Channel) {
+			case MumbleProto::Channel:
+				legacyMessage.add_channel_id(message.has_scope_id() ? message.scope_id() : Mumble::ROOT_CHANNEL_ID);
+				break;
+			case MumbleProto::ServerGlobal:
+				legacyMessage.add_tree_id(Mumble::ROOT_CHANNEL_ID);
+				break;
+			case MumbleProto::Aggregate:
+				break;
+		}
+
+		return legacyMessage;
+	}
 } // namespace
+
+void Server::sendPersistentChatUnsupported(ServerUser *uSource) {
+	MumbleProto::PermissionDenied denied;
+	denied.set_session(uSource->uiSession);
+	denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
+	denied.set_reason(u8(QStringLiteral(
+		"This client version does not support persistent chat. Upgrade the client to use persistent chat features.")));
+	sendMessage(uSource, denied);
+}
+
+void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
+											  unsigned int scopeID, Channel *permissionChannel,
+											  ::msdb::ChatThreadScope dbScope,
+											  const QSet< ServerUser * > &legacyFallbackRecipients) {
+	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
+	const std::string scopeKey                       = chatScopeKey(scope, scopeID);
+	if (scopeKey.empty()) {
+		return;
+	}
+
+	::msdb::DBChatThread thread =
+		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
+	::msdb::DBChatMessage storedMessage =
+		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), authorUserID, uSource->uiSession);
+
+	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID);
+
+	for (ServerUser *currentUser : recipientsWithTextAccess(qhUsers, permissionChannel, acCache)) {
+		if (clientSupportsPersistentChat(currentUser)) {
+			sendMessage(currentUser, protoMessage);
+		}
+	}
+
+	if (!legacyFallbackRecipients.isEmpty()) {
+		MumbleProto::TextMessage legacyMessage = legacyTextMessageFromPersistent(protoMessage);
+		for (ServerUser *currentUser : legacyFallbackRecipients) {
+			if (!currentUser || clientSupportsPersistentChat(currentUser) || currentUser == uSource) {
+				continue;
+			}
+
+			sendMessage(currentUser, legacyMessage);
+		}
+	}
+
+	if (authorUserID) {
+		::msdb::DBChatReadState readState(iServerNum, thread.threadID, authorUserID.value());
+		readState.lastReadMessageID = storedMessage.messageID;
+		readState.updatedAt         = std::chrono::system_clock::now();
+		m_dbWrapper.setChatReadState(readState);
+
+		if (clientSupportsPersistentChat(uSource)) {
+			std::optional< ::msdb::DBChatReadState > persistedReadState =
+				m_dbWrapper.getChatReadState(iServerNum, thread.threadID, authorUserID.value());
+			if (persistedReadState) {
+				sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
+			}
+		}
+	}
+}
 
 /// Checks whether the given channel has restrictions affecting the ENTER privilege
 ///
@@ -1890,6 +1998,16 @@ void Server::msgTextMessage(ServerUser *uSource, MumbleProto::TextMessage &msg) 
 	// Remove the message sender from the list of users to send the message to
 	users.remove(uSource);
 
+	if (msg.channel_id_size() == 1 && msg.tree_id_size() == 0 && msg.session_size() == 0) {
+		Channel *channel = qhChannels.value(msg.channel_id(0));
+		if (channel) {
+			persistAndBroadcastChatMessage(uSource, text, MumbleProto::Channel, channel->iId, channel,
+										   ::msdb::ChatThreadScope::Channel, users);
+			emit userTextMessage(uSource, tm);
+			return;
+		}
+	}
+
 	// Actually send the original message to the affected users
 	for (ServerUser *u : users) {
 		sendMessage(u, msg);
@@ -1906,6 +2024,11 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 	QMutexLocker qml(&qmCache);
 
 	RATELIMIT(uSource);
+
+	if (!clientSupportsPersistentChat(uSource)) {
+		sendPersistentChatUnsupported(uSource);
+		return;
+	}
 
 	QString text = u8(msg.message());
 	bool changed = false;
@@ -1964,34 +2087,14 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		return;
 	}
 
-	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
-	const std::string scopeKey                       = chatScopeKey(scope, scopeID);
-
-	::msdb::DBChatThread thread =
-		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
-	::msdb::DBChatMessage storedMessage =
-		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), authorUserID, uSource->uiSession);
-
-	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID);
-
-	QSet< ServerUser * > users = recipientsWithTextAccess(qhUsers, permissionChannel, acCache);
-
-	for (ServerUser *currentUser : users) {
-		sendMessage(currentUser, protoMessage);
+	QSet< ServerUser * > legacyFallbackRecipients;
+	if (scope == MumbleProto::Channel) {
+		legacyFallbackRecipients = legacyChannelRecipients(qhUsers, m_channelListenerManager, permissionChannel);
+		legacyFallbackRecipients.remove(uSource);
 	}
 
-	if (authorUserID) {
-		::msdb::DBChatReadState readState(iServerNum, thread.threadID, authorUserID.value());
-		readState.lastReadMessageID = storedMessage.messageID;
-		readState.updatedAt         = std::chrono::system_clock::now();
-		m_dbWrapper.setChatReadState(readState);
-
-		std::optional< ::msdb::DBChatReadState > persistedReadState =
-			m_dbWrapper.getChatReadState(iServerNum, thread.threadID, authorUserID.value());
-		if (persistedReadState) {
-			sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
-		}
-	}
+	persistAndBroadcastChatMessage(uSource, text, scope, scopeID, permissionChannel, dbScope,
+								   legacyFallbackRecipients);
 }
 
 void Server::msgChatMessage(ServerUser *, MumbleProto::ChatMessage &) {
@@ -2004,6 +2107,11 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	QMutexLocker qml(&qmCache);
 
 	RATELIMIT(uSource);
+
+	if (!clientSupportsPersistentChat(uSource)) {
+		sendPersistentChatUnsupported(uSource);
+		return;
+	}
 
 	MumbleProto::ChatScope scope =
 		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
@@ -2151,6 +2259,11 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 	QMutexLocker qml(&qmCache);
 
 	RATELIMIT(uSource);
+
+	if (!clientSupportsPersistentChat(uSource)) {
+		sendPersistentChatUnsupported(uSource);
+		return;
+	}
 
 	const std::optional< unsigned int > userID = persistedUserID(uSource);
 	if (!userID) {
@@ -2629,6 +2742,7 @@ void Server::msgVersion(ServerUser *uSource, MumbleProto::Version &msg) {
 	RATELIMIT(uSource);
 
 	uSource->m_version = MumbleProto::getVersion(msg);
+	uSource->bSupportsPersistentChat = msg.has_supports_persistent_chat() && msg.supports_persistent_chat();
 	if (msg.has_release()) {
 		uSource->qsRelease = convertWithSizeRestriction(msg.release(), 100);
 	}

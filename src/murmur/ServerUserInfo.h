@@ -24,6 +24,7 @@ public:
 	QString qsRelease;
 	QString qsOS;
 	QString qsOSVersion;
+	bool bSupportsPersistentChat = false;
 
 	std::string ssContext;
 	QString qsIdentity;

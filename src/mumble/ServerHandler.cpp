@@ -828,6 +828,7 @@ void ServerHandler::serverConnectionConnected() {
 	MumbleProto::Version mpv;
 	mpv.set_release(u8(Version::getRelease()));
 	MumbleProto::setVersion(mpv, Version::get());
+	mpv.set_supports_persistent_chat(true);
 
 	if (!Global::get().s.bHideOS) {
 		mpv.set_os(u8(OSInfo::getOS()));
