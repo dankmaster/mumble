@@ -1222,7 +1222,17 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	}
 
 	const auto renderIfVisible = [this, previewKey]() {
-		updatePersistentChatPreviewViewIfVisible(previewKey);
+		QPointer< MainWindow > guardedThis(this);
+		QMetaObject::invokeMethod(
+			this,
+			[guardedThis, previewKey]() {
+				if (!guardedThis) {
+					return;
+				}
+
+				guardedThis->updatePersistentChatPreviewViewIfVisible(previewKey);
+			},
+			Qt::QueuedConnection);
 	};
 
 	PersistentChatPreview preview;
@@ -1555,6 +1565,22 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		return;
 	}
 
+	QSet< QString > previewKeysToEnsure;
+	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
+		if ((message.has_deleted_at() && message.deleted_at() > 0) || !Global::get().s.bEnableLinkPreviews) {
+			continue;
+		}
+
+		if (const std::optional< QString > previewKey = persistentChatPreviewKey(message);
+			previewKey && !m_persistentChatPreviews.contains(*previewKey)) {
+			previewKeysToEnsure.insert(*previewKey);
+		}
+	}
+
+	for (auto it = previewKeysToEnsure.cbegin(); it != previewKeysToEnsure.cend(); ++it) {
+		ensurePersistentChatPreview(*it);
+	}
+
 	const int oldScrollValue = m_persistentChatHistory->verticalScrollBar()->value();
 	const int oldScrollMax   = m_persistentChatHistory->verticalScrollBar()->maximum();
 
@@ -1651,7 +1677,6 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		cursor.insertHtml(QString::fromLatin1("<br/>"));
 		if (!message.has_deleted_at() || message.deleted_at() == 0) {
 			if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
-				ensurePersistentChatPreview(*previewKey);
 				const QString previewHtml = persistentChatPreviewHtml(*previewKey);
 				if (!previewHtml.isEmpty()) {
 					cursor.insertHtml(previewHtml);
