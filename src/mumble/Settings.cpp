@@ -1025,6 +1025,9 @@ void Settings::legacyLoad(const QString &path) {
 
 	// Special configuration options not exposed to UI
 	LOAD(disableConnectDialogEditing, "ui/disableconnectdialogediting");
+	LOAD(qsAdvertisedReleaseOverride, "hidden/advertisedreleaseoverride");
+	LOAD(qsAdvertisedOSOverride, "hidden/advertisedosoverride");
+	LOAD(qsAdvertisedOSVersionOverride, "hidden/advertisedosversionoverride");
 	LOAD(bPingServersDialogViewed, "consent/pingserversdialogviewed");
 
 	// OverlayPrivateWin

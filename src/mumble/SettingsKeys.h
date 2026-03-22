@@ -262,6 +262,9 @@ const SettingsKey RECORDING_FORMAT_KEY = { "recording_format" };
 
 // Hidden
 const SettingsKey DISABLE_CONNECT_DIALOG_EDITING_KEY = { "disable_connect_dialog_editing" };
+const SettingsKey ADVERTISED_RELEASE_OVERRIDE_KEY    = { "advertised_release_override" };
+const SettingsKey ADVERTISED_OS_OVERRIDE_KEY         = { "advertised_os_override" };
+const SettingsKey ADVERTISED_OS_VERSION_OVERRIDE_KEY = { "advertised_os_version_override" };
 
 // Overlay (win)
 const SettingsKey OVERLAY_WIN_HELPER_ENABLE_x86_KEY            = { "enable_win_overlay_helper_x86" };

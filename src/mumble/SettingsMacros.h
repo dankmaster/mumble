@@ -232,7 +232,11 @@
 	PROCESS(recording, RECORDING_FORMAT_KEY, iRecordingFormat)
 
 
-#define HIDDEN_SETTINGS PROCESS(hidden, DISABLE_CONNECT_DIALOG_EDITING_KEY, disableConnectDialogEditing)
+#define HIDDEN_SETTINGS                                                                         \
+	PROCESS(hidden, DISABLE_CONNECT_DIALOG_EDITING_KEY, disableConnectDialogEditing)            \
+	PROCESS(hidden, ADVERTISED_RELEASE_OVERRIDE_KEY, qsAdvertisedReleaseOverride)               \
+	PROCESS(hidden, ADVERTISED_OS_OVERRIDE_KEY, qsAdvertisedOSOverride)                         \
+	PROCESS(hidden, ADVERTISED_OS_VERSION_OVERRIDE_KEY, qsAdvertisedOSVersionOverride)
 
 
 #define WIN_OVERLAY_SETTINGS                                                            \

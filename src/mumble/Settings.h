@@ -547,6 +547,12 @@ struct Settings {
 
 	/// Removes the add and edit options in the connect dialog if set.
 	bool disableConnectDialogEditing = false;
+	/// Overrides the release string sent in the Version message while leaving the numeric protocol version intact.
+	QString qsAdvertisedReleaseOverride = {};
+	/// Overrides the OS name sent to the server when set.
+	QString qsAdvertisedOSOverride = {};
+	/// Overrides the OS version string sent to the server when set.
+	QString qsAdvertisedOSVersionOverride = {};
 
 	/// Asks the user for consent to ping servers in the public server list if not set.
 	bool bPingServersDialogViewed = false;
