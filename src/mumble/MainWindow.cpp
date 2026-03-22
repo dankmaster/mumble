@@ -763,6 +763,7 @@ void MainWindow::clearPersistentChatView(const QString &message) {
 	m_visiblePersistentChatScopeID         = 0;
 	m_visiblePersistentChatLastReadMessageID = 0;
 	m_visiblePersistentChatHasMore         = false;
+	m_persistentChatLoadingOlder           = false;
 
 	if (!m_persistentChatHistory) {
 		return;
@@ -774,10 +775,14 @@ void MainWindow::clearPersistentChatView(const QString &message) {
 	m_persistentChatHistory->moveCursor(QTextCursor::End);
 }
 
-void MainWindow::renderPersistentChatView(const QString &statusMessage) {
+void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scrollToBottom,
+										  bool preserveScrollPosition) {
 	if (!m_persistentChatHistory) {
 		return;
 	}
+
+	const int oldScrollValue = m_persistentChatHistory->verticalScrollBar()->value();
+	const int oldScrollMax   = m_persistentChatHistory->verticalScrollBar()->maximum();
 
 	m_persistentChatHistory->clear();
 	QTextCursor cursor(m_persistentChatHistory->document());
@@ -789,18 +794,21 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage) {
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(statusMessage.toHtmlEscaped()));
 	}
 
-	if (m_visiblePersistentChatHasMore) {
-		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
-							  .arg(tr("Showing the newest %1 messages. Older messages are not loaded yet.")
-									   .arg(m_persistentChatMessages.size())
-									   .toHtmlEscaped()));
+	if (m_persistentChatLoadingOlder) {
+		cursor.insertHtml(
+			QString::fromLatin1("<p><em>%1</em></p>").arg(tr("Loading older messages...").toHtmlEscaped()));
+	} else if (m_visiblePersistentChatHasMore) {
+		cursor.insertHtml(QString::fromLatin1("<p><a href='mumble-chat://load-older'>%1</a></p>")
+							  .arg(tr("Load older messages").toHtmlEscaped()));
 	}
 
 	if (m_persistentChatMessages.empty()) {
 		const QString emptyMessage =
 			target.readOnly ? tr("No accessible messages yet.") : tr("No messages in %1 yet.").arg(target.label);
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(emptyMessage.toHtmlEscaped()));
-		m_persistentChatHistory->moveCursor(QTextCursor::End);
+		if (scrollToBottom) {
+			m_persistentChatHistory->moveCursor(QTextCursor::End);
+		}
 		return;
 	}
 
@@ -834,7 +842,12 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage) {
 		cursor.insertHtml(QString::fromLatin1("<br/>"));
 	}
 
-	m_persistentChatHistory->moveCursor(QTextCursor::End);
+	if (preserveScrollPosition) {
+		const int newScrollMax = m_persistentChatHistory->verticalScrollBar()->maximum();
+		m_persistentChatHistory->verticalScrollBar()->setValue(oldScrollValue + (newScrollMax - oldScrollMax));
+	} else if (scrollToBottom) {
+		m_persistentChatHistory->moveCursor(QTextCursor::End);
+	}
 }
 
 void MainWindow::markPersistentChatRead() {
@@ -878,10 +891,24 @@ void MainWindow::refreshPersistentChatView(bool forceReload) {
 	m_visiblePersistentChatScopeID        = target.scopeID;
 	m_visiblePersistentChatLastReadMessageID = 0;
 	m_visiblePersistentChatHasMore        = false;
+	m_persistentChatLoadingOlder          = false;
 	m_persistentChatMessages.clear();
 
 	renderPersistentChatView(tr("Loading %1...").arg(target.label));
 	Global::get().sh->requestChatHistory(target.scope, target.scopeID, 0, 50);
+}
+
+void MainWindow::requestOlderPersistentChatHistory() {
+	const PersistentChatTarget target = currentPersistentChatTarget();
+	if (!target.valid || target.directMessage || !m_visiblePersistentChatScope || !m_visiblePersistentChatHasMore
+		|| m_persistentChatLoadingOlder || !Global::get().sh || !Global::get().sh->isRunning()) {
+		return;
+	}
+
+	m_persistentChatLoadingOlder = true;
+	renderPersistentChatView(QString(), false, true);
+	Global::get().sh->requestChatHistory(target.scope, target.scopeID,
+										 static_cast< unsigned int >(m_persistentChatMessages.size()), 50);
 }
 
 void MainWindow::handlePersistentChatMessage(const MumbleProto::ChatMessage &msg) {
@@ -911,8 +938,9 @@ void MainWindow::handlePersistentChatMessage(const MumbleProto::ChatMessage &msg
 		*existingMessage = msg;
 	}
 
+	const bool wasAtBottom = m_persistentChatHistory ? m_persistentChatHistory->isScrolledToBottom() : true;
 	std::sort(m_persistentChatMessages.begin(), m_persistentChatMessages.end(), chatMessageLessThan);
-	renderPersistentChatView();
+	renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
 
 	if (isActiveWindow() && qdwChat->isVisible()) {
 		markPersistentChatRead();
@@ -928,24 +956,38 @@ void MainWindow::handlePersistentChatHistory(const MumbleProto::ChatHistoryRespo
 	const MumbleProto::ChatScope responseScope =
 		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	const unsigned int responseScopeID = msg.has_scope_id() ? msg.scope_id() : 0;
+	const unsigned int startOffset     = msg.has_start_offset() ? msg.start_offset() : 0;
 	if (responseScope != target.scope || responseScopeID != target.scopeID) {
 		return;
 	}
 
 	m_visiblePersistentChatScope          = responseScope;
 	m_visiblePersistentChatScopeID        = responseScopeID;
-	m_visiblePersistentChatLastReadMessageID =
-		msg.has_last_read_message_id() ? msg.last_read_message_id() : 0;
 	m_visiblePersistentChatHasMore = msg.has_has_more() ? msg.has_more() : false;
+	m_persistentChatLoadingOlder  = false;
 
-	m_persistentChatMessages.clear();
-	m_persistentChatMessages.reserve(static_cast< std::size_t >(msg.messages_size()));
+	if (startOffset == 0) {
+		m_visiblePersistentChatLastReadMessageID =
+			msg.has_last_read_message_id() ? msg.last_read_message_id() : 0;
+		m_persistentChatMessages.clear();
+		m_persistentChatMessages.reserve(static_cast< std::size_t >(msg.messages_size()));
+	}
+
 	for (const MumbleProto::ChatMessage &message : msg.messages()) {
-		m_persistentChatMessages.push_back(message);
+		auto existingMessage = std::find_if(m_persistentChatMessages.begin(), m_persistentChatMessages.end(),
+											[&message](const MumbleProto::ChatMessage &currentMessage) {
+												return currentMessage.thread_id() == message.thread_id()
+													   && currentMessage.message_id() == message.message_id();
+											});
+		if (existingMessage == m_persistentChatMessages.end()) {
+			m_persistentChatMessages.push_back(message);
+		} else {
+			*existingMessage = message;
+		}
 	}
 
 	std::sort(m_persistentChatMessages.begin(), m_persistentChatMessages.end(), chatMessageLessThan);
-	renderPersistentChatView();
+	renderPersistentChatView(QString(), startOffset == 0, startOffset > 0);
 
 	if (isActiveWindow() && qdwChat->isVisible()) {
 		markPersistentChatRead();
@@ -4300,6 +4342,11 @@ void MainWindow::customEvent(QEvent *evt) {
 
 
 void MainWindow::on_qteLog_anchorClicked(const QUrl &url) {
+	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("load-older")) {
+		requestOlderPersistentChatHistory();
+		return;
+	}
+
 	if (!handleSpecialContextMenu(url, QCursor::pos(), true)) {
 #if defined(Q_OS_MAC) && defined(USE_OVERLAY)
 		// Clicking a link can cause the user's default browser to pop up while
@@ -4316,7 +4363,8 @@ void MainWindow::on_qteLog_anchorClicked(const QUrl &url) {
 }
 
 void MainWindow::on_qteLog_highlighted(const QUrl &url) {
-	if (url.scheme() == QString::fromLatin1("clientid") || url.scheme() == QString::fromLatin1("channelid"))
+	if (url.scheme() == QString::fromLatin1("clientid") || url.scheme() == QString::fromLatin1("channelid")
+		|| url.scheme() == QString::fromLatin1("mumble-chat"))
 		return;
 
 	if (!url.isValid())

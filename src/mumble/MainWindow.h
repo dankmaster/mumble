@@ -169,8 +169,10 @@ public:
 
 	PersistentChatTarget currentPersistentChatTarget() const;
 	void refreshPersistentChatView(bool forceReload = false);
+	void requestOlderPersistentChatHistory();
 	void clearPersistentChatView(const QString &message);
-	void renderPersistentChatView(const QString &statusMessage = QString());
+	void renderPersistentChatView(const QString &statusMessage = QString(), bool scrollToBottom = true,
+								  bool preserveScrollPosition = false);
 	void handlePersistentChatMessage(const MumbleProto::ChatMessage &msg);
 	void handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg);
 	void handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg);
@@ -232,6 +234,7 @@ protected:
 	unsigned int m_visiblePersistentChatScopeID = 0;
 	unsigned int m_visiblePersistentChatLastReadMessageID = 0;
 	bool m_visiblePersistentChatHasMore = false;
+	bool m_persistentChatLoadingOlder = false;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
