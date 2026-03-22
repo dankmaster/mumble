@@ -522,6 +522,7 @@ struct Settings {
 
 	// Network settings - SSL
 	QString qsSslCiphers = MumbleSSL::defaultOpenSSLCipherString();
+	bool bEnableLinkPreviews = true;
 
 	// Privacy settings
 	bool bHideOS = false;

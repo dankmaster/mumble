@@ -930,6 +930,7 @@ void Settings::legacyLoad(const QString &path) {
 	LOAD(iPingIntervalMsec, "net/pingintervalmsec");
 	LOAD(iConnectionTimeoutDurationMsec, "net/connectiontimeoutdurationmsec");
 	LOAD(bUdpForceTcpAddr, "net/udpforcetcpaddr");
+	LOAD(bEnableLinkPreviews, "net/enablelinkpreviews");
 
 	// Network settings - SSL
 	LOAD(qsSslCiphers, "net/sslciphers");

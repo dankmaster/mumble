@@ -72,6 +72,7 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QFileInfo>
 #include <QtCore/QSet>
+#include <QtCore/QTimer>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QRegularExpression>
@@ -85,6 +86,7 @@
 #include <QtGui/QWindow>
 #include <QtGui/QTextCursor>
 #include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QHostAddress>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
 #include <QtWidgets/QFileDialog>
@@ -249,6 +251,144 @@ namespace {
 			host.remove(0, 4);
 		}
 		return host;
+	}
+
+	bool isPrivateOrLocalAddress(const QHostAddress &address) {
+		if (address.isNull() || address.isLoopback() || address.isMulticast()) {
+			return true;
+		}
+
+		bool isIPv4 = false;
+		const quint32 ipv4Address = address.toIPv4Address(&isIPv4);
+		if (isIPv4) {
+			const quint8 firstOctet  = static_cast< quint8 >((ipv4Address >> 24) & 0xff);
+			const quint8 secondOctet = static_cast< quint8 >((ipv4Address >> 16) & 0xff);
+			if (firstOctet == 0 || firstOctet == 10 || firstOctet == 127) {
+				return true;
+			}
+			if (firstOctet == 169 && secondOctet == 254) {
+				return true;
+			}
+			if (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
+				return true;
+			}
+			if (firstOctet == 192 && secondOctet == 168) {
+				return true;
+			}
+			if (firstOctet == 100 && secondOctet >= 64 && secondOctet <= 127) {
+				return true;
+			}
+
+			return false;
+		}
+
+		const Q_IPV6ADDR ipv6Address = address.toIPv6Address();
+		if ((ipv6Address.c[0] & 0xfe) == 0xfc) {
+			return true;
+		}
+		if (ipv6Address.c[0] == 0xfe && (ipv6Address.c[1] & 0xc0) == 0x80) {
+			return true;
+		}
+		if (ipv6Address.c[0] == 0xfe && (ipv6Address.c[1] & 0xc0) == 0xc0) {
+			return true;
+		}
+
+		return false;
+	}
+
+	bool isSafePreviewTarget(const QUrl &url) {
+		if (!url.isValid()) {
+			return false;
+		}
+
+		const QString scheme = url.scheme().toLower();
+		if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
+			return false;
+		}
+		if (!url.userName().isEmpty() || !url.password().isEmpty()) {
+			return false;
+		}
+
+		const QString host = previewDisplayHost(url);
+		if (host.isEmpty()) {
+			return false;
+		}
+		if (host == QLatin1String("localhost") || host.endsWith(QLatin1String(".localhost"))
+			|| host.endsWith(QLatin1String(".local")) || host.endsWith(QLatin1String(".lan"))
+			|| host.endsWith(QLatin1String(".internal")) || host.endsWith(QLatin1String(".home.arpa"))) {
+			return false;
+		}
+
+		QHostAddress literalAddress;
+		if (literalAddress.setAddress(host)) {
+			return !isPrivateOrLocalAddress(literalAddress);
+		}
+
+		if (!host.contains(QLatin1Char('.'))) {
+			return false;
+		}
+
+		return true;
+	}
+
+	constexpr int PREVIEW_REQUEST_TIMEOUT_MSEC = 8000;
+	constexpr qint64 PREVIEW_MAX_PAGE_BYTES    = 512 * 1024;
+	constexpr qint64 PREVIEW_MAX_IMAGE_BYTES   = 4 * 1024 * 1024;
+
+	void setPreviewAbortReason(QNetworkReply *reply, const QString &reason) {
+		if (reply) {
+			reply->setProperty("previewAbortReason", reason);
+		}
+	}
+
+	QString previewAbortReason(const QNetworkReply *reply) {
+		return reply ? reply->property("previewAbortReason").toString() : QString();
+	}
+
+	QString previewFailureText(const QNetworkReply *reply) {
+		const QString abortReason = previewAbortReason(reply);
+		if (abortReason == QLatin1String("timeout")) {
+			return QObject::tr("Preview request timed out");
+		}
+		if (abortReason == QLatin1String("too_large")) {
+			return QObject::tr("Preview exceeded size limit");
+		}
+
+		return QObject::tr("Preview unavailable");
+	}
+
+	void applyPreviewReplyGuards(QNetworkReply *reply, qint64 maxBytes) {
+		if (!reply) {
+			return;
+		}
+
+		QTimer *timeoutTimer = new QTimer(reply);
+		timeoutTimer->setSingleShot(true);
+		timeoutTimer->setInterval(PREVIEW_REQUEST_TIMEOUT_MSEC);
+		QObject::connect(timeoutTimer, &QTimer::timeout, reply, [reply]() {
+			if (!reply->isFinished()) {
+				setPreviewAbortReason(reply, QLatin1String("timeout"));
+				reply->abort();
+			}
+		});
+		QObject::connect(reply, &QNetworkReply::finished, timeoutTimer, &QTimer::stop);
+		timeoutTimer->start();
+
+		if (maxBytes > 0) {
+			QObject::connect(reply, &QNetworkReply::metaDataChanged, reply, [reply, maxBytes]() {
+				const qint64 contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+				if (contentLength > maxBytes && !reply->isFinished()) {
+					setPreviewAbortReason(reply, QLatin1String("too_large"));
+					reply->abort();
+				}
+			});
+			QObject::connect(reply, &QNetworkReply::downloadProgress, reply, [reply, maxBytes](qint64 received, qint64) {
+				if (received > maxBytes && !reply->isFinished()) {
+					setPreviewAbortReason(reply, QLatin1String("too_large"));
+					reply->abort();
+				}
+			});
+		}
 	}
 
 	QString decodedPreviewText(const QString &text) {
@@ -1033,6 +1173,10 @@ void MainWindow::clearPersistentChatView(const QString &message) {
 }
 
 std::optional< QString > MainWindow::persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const {
+	if (!Global::get().s.bEnableLinkPreviews) {
+		return std::nullopt;
+	}
+
 	const QString messageHtml = u8(message.message());
 	const QList< QUrl > urls  = extractPreviewableUrls(messageHtml);
 	for (const QUrl &url : urls) {
@@ -1084,6 +1228,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		QNetworkRequest oembedRequest(oembedUrl);
 		Network::prepareRequest(oembedRequest);
 		QNetworkReply *oembedReply = Global::get().nam->get(oembedRequest);
+		applyPreviewReplyGuards(oembedReply, PREVIEW_MAX_PAGE_BYTES);
 		connect(oembedReply, &QNetworkReply::finished, this, [this, oembedReply, previewKey, renderIfVisible]() {
 			const QByteArray response = oembedReply->readAll();
 			const bool success        = oembedReply->error() == QNetworkReply::NoError;
@@ -1114,7 +1259,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 				it->title = tr("YouTube video");
 			}
 			if (it->subtitle.isEmpty() || it->subtitle == tr("Fetching title and thumbnail")) {
-				it->subtitle = tr("Preview metadata unavailable");
+				it->subtitle = previewFailureText(oembedReply);
 			}
 
 			if (it->thumbnailFinished && it->thumbnailHtml.isEmpty()) {
@@ -1127,6 +1272,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		QNetworkRequest thumbnailRequest(thumbnailUrl);
 		Network::prepareRequest(thumbnailRequest);
 		QNetworkReply *thumbnailReply = Global::get().nam->get(thumbnailRequest);
+		applyPreviewReplyGuards(thumbnailReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(thumbnailReply, &QNetworkReply::finished, this,
 				[this, thumbnailReply, previewKey, renderIfVisible]() {
 					const QByteArray data = thumbnailReply->readAll();
@@ -1155,7 +1301,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 						it->title = tr("YouTube video");
 					}
 					if (it->metadataFinished && it->subtitle.isEmpty()) {
-						it->subtitle = tr("Preview unavailable");
+						it->subtitle = previewFailureText(thumbnailReply);
 					}
 					if (it->metadataFinished && it->thumbnailHtml.isEmpty()) {
 						it->failed = true;
@@ -1177,6 +1323,16 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	preview.subtitle     = previewDisplayHost(previewUrl);
 	preview.openLabel    = isImagePreview ? tr("Open image") : tr("Open link");
 
+	if (!isSafePreviewTarget(previewUrl)) {
+		preview.title            = isImagePreview ? tr("Image preview blocked") : tr("Link preview blocked");
+		preview.description      = tr("Automatic previews are disabled for localhost and private-network targets.");
+		preview.metadataFinished = true;
+		preview.thumbnailFinished = true;
+		m_persistentChatPreviews.insert(previewKey, preview);
+		renderIfVisible();
+		return;
+	}
+
 	if (isImagePreview) {
 		const QString fileName = QFileInfo(previewUrl.path()).fileName();
 		preview.title          = fileName.isEmpty() ? tr("Image preview") : fileName;
@@ -1186,6 +1342,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		QNetworkRequest imageRequest(previewUrl);
 		Network::prepareRequest(imageRequest);
 		QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
+		applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
 			const QByteArray data = imageReply->readAll();
 			const bool success    = imageReply->error() == QNetworkReply::NoError;
@@ -1209,9 +1366,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 			}
 
 			it->failed = true;
-			if (it->description.isEmpty()) {
-				it->description = tr("Preview unavailable");
-			}
+			it->description = previewFailureText(imageReply);
 			renderIfVisible();
 		});
 		return;
@@ -1224,6 +1379,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	QNetworkRequest pageRequest(previewUrl);
 	Network::prepareRequest(pageRequest);
 	QNetworkReply *pageReply = Global::get().nam->get(pageRequest);
+	applyPreviewReplyGuards(pageReply, PREVIEW_MAX_PAGE_BYTES);
 	connect(pageReply, &QNetworkReply::finished, this, [this, pageReply, previewKey, previewUrl, renderIfVisible]() {
 		const QByteArray data = pageReply->readAll();
 		const bool success    = pageReply->error() == QNetworkReply::NoError;
@@ -1243,8 +1399,8 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 			if (it->title == tr("Loading link preview...")) {
 				it->title = previewDisplayHost(previewUrl);
 			}
-			it->description = tr("Preview unavailable");
-			it->failed      = true;
+			it->description = success ? tr("Preview unavailable") : previewFailureText(pageReply);
+			it->failed      = !success;
 			renderIfVisible();
 			return;
 		}
@@ -1273,9 +1429,16 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		}
 
 		const QUrl imageUrl = previewUrl.resolved(QUrl(imageUrlString));
+		if (!isSafePreviewTarget(imageUrl)) {
+			it->thumbnailFinished = true;
+			renderIfVisible();
+			return;
+		}
+
 		QNetworkRequest imageRequest(imageUrl);
 		Network::prepareRequest(imageRequest);
 		QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
+		applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
 			const QByteArray imageData = imageReply->readAll();
 			const bool imageSuccess    = imageReply->error() == QNetworkReply::NoError;
@@ -1299,6 +1462,9 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 				}
 			}
 
+			if (it->description.isEmpty() || it->description == tr("Fetching page metadata")) {
+				it->description = previewFailureText(imageReply);
+			}
 			renderIfVisible();
 		});
 		renderIfVisible();
@@ -1336,7 +1502,7 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey) const {
 
 	if (!preview.metadataFinished || !preview.thumbnailFinished) {
 		detailsHtml += QString::fromLatin1("<em>%1</em><br/>").arg(tr("Loading preview...").toHtmlEscaped());
-	} else if (preview.failed) {
+	} else if (preview.failed && description.isEmpty()) {
 		detailsHtml += QString::fromLatin1("<em>%1</em><br/>").arg(tr("Preview unavailable").toHtmlEscaped());
 	}
 

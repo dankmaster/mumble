@@ -312,6 +312,19 @@
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_4">
       <item>
+       <widget class="QCheckBox" name="qcbLinkPreviews">
+        <property name="toolTip">
+         <string>Allow chat to load external metadata and thumbnails for pasted links</string>
+        </property>
+        <property name="whatsThis">
+         <string>&lt;b&gt;Load external link previews in chat&lt;/b&gt;.&lt;br/&gt;When enabled, Mumble fetches metadata and thumbnails for supported links in persistent chat. Localhost and private-network targets are blocked automatically.</string>
+        </property>
+        <property name="text">
+         <string>Load external link previews in chat</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QCheckBox" name="qcbHideOS">
         <property name="toolTip">
          <string>Prevent OS information being sent to Mumble servers and web servers</string>

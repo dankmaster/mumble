@@ -112,6 +112,7 @@ const SettingsKey PING_INTERVAL_KEY                 = { "ping_interval" };
 const SettingsKey CONNECTION_TIMEOUT_KEY            = { "connection_timeout" };
 const SettingsKey FORCE_UDP_BIND_TO_TCP_ADDRESS_KEY = { "force_udp_bind_to_tcp_address" };
 const SettingsKey SSL_CIPHERS_KEY                   = { "ssl_ciphers" };
+const SettingsKey ENABLE_LINK_PREVIEWS_KEY          = { "enable_link_previews" };
 
 // ASIO
 const SettingsKey ASIO_ENABLE_KEY     = { "enable_asio" };

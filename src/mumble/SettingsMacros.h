@@ -98,7 +98,8 @@
 	PROCESS(network, PING_INTERVAL_KEY, iPingIntervalMsec)                   \
 	PROCESS(network, CONNECTION_TIMEOUT_KEY, iConnectionTimeoutDurationMsec) \
 	PROCESS(network, FORCE_UDP_BIND_TO_TCP_ADDRESS_KEY, bUdpForceTcpAddr)    \
-	PROCESS(network, SSL_CIPHERS_KEY, qsSslCiphers)
+	PROCESS(network, SSL_CIPHERS_KEY, qsSslCiphers)                          \
+	PROCESS(network, ENABLE_LINK_PREVIEWS_KEY, bEnableLinkPreviews)
 
 
 #define AUDIO_BACKEND_SETTINGS                                        \
