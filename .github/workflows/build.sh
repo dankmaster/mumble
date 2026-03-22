@@ -108,5 +108,38 @@ fi
 
 if [[ "$run_build" == "yes" ]]; then
 	echo "::notice title=CI phase::Running CMake build"
-	cmake --build . --config $BUILD_TYPE
+	build_log="${RUNNER_TEMP:-/tmp}/mumble-build.log"
+	rm -f "$build_log"
+
+	set +e
+	cmake --build . --config $BUILD_TYPE --verbose 2>&1 | tee "$build_log"
+	build_status=${PIPESTATUS[0]}
+	set -e
+
+	if [[ "$build_status" -ne 0 ]]; then
+		echo "::group::Build tool diagnostics"
+		command -v cmake || true
+		command -v ninja || true
+		command -v cl || true
+		command -v rc || true
+		command -v mt || true
+		command -v link || true
+		command -v windeployqt || true
+		command -v candle || true
+		command -v light || true
+		echo "::endgroup::"
+
+		if [[ -f "$build_log" ]]; then
+			echo "::group::Build log tail"
+			tail -n 200 "$build_log" || true
+			echo "::endgroup::"
+
+			missing_command=$(grep -E 'command not found|is not recognized as an internal or external command|No such file or directory' "$build_log" | tail -n 1 || true)
+			if [[ -n "$missing_command" ]]; then
+				echo "::error file=.github/workflows/build.sh,title=Likely missing tool::${missing_command}"
+			fi
+		fi
+
+		exit "$build_status"
+	fi
 fi
