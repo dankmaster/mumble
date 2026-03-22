@@ -265,6 +265,7 @@ protected:
 	QFrame *m_persistentChatDivider = nullptr;
 	LogTextBrowser *m_persistentChatHistory = nullptr;
 	QString m_persistentChatWelcomeText;
+	bool m_persistentChatWelcomeCollapsed = false;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
 	QHash< QString, PersistentChatPreview > m_persistentChatPreviews;
 	QHash< QString, unsigned int > m_persistentChatLastReadByScope;

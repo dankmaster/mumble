@@ -75,6 +75,7 @@
 #include <QtCore/QTimer>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QLocale>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QUrlQuery>
@@ -183,6 +184,65 @@ namespace {
 		}
 
 		return unreadCount;
+	}
+
+	QString persistentChatDateLabel(const QDate &date) {
+		if (!date.isValid()) {
+			return QObject::tr("Unknown date");
+		}
+
+		const QDate today = QDate::currentDate();
+		if (date == today) {
+			return QObject::tr("Today");
+		}
+		if (date == today.addDays(-1)) {
+			return QObject::tr("Yesterday");
+		}
+
+		return QLocale().toString(date, QLocale::LongFormat);
+	}
+
+	bool samePersistentChatActor(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
+		if (lhs.has_actor() || rhs.has_actor()) {
+			return lhs.has_actor() && rhs.has_actor() && lhs.actor() == rhs.actor();
+		}
+
+		if (lhs.has_actor_user_id() || rhs.has_actor_user_id()) {
+			return lhs.has_actor_user_id() && rhs.has_actor_user_id() && lhs.actor_user_id() == rhs.actor_user_id();
+		}
+
+		return true;
+	}
+
+	bool samePersistentChatScope(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
+		const MumbleProto::ChatScope lhsScope = lhs.has_scope() ? lhs.scope() : MumbleProto::Channel;
+		const MumbleProto::ChatScope rhsScope = rhs.has_scope() ? rhs.scope() : MumbleProto::Channel;
+		const unsigned int lhsScopeID         = lhs.has_scope_id() ? lhs.scope_id() : 0;
+		const unsigned int rhsScopeID         = rhs.has_scope_id() ? rhs.scope_id() : 0;
+		return lhsScope == rhsScope && lhsScopeID == rhsScopeID;
+	}
+
+	bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
+								   const QDateTime &previousCreatedAt, const MumbleProto::ChatMessage &message,
+								   const QDateTime &createdAt) {
+		if (!previousMessage.has_value()) {
+			return true;
+		}
+
+		if (previousCreatedAt.date() != createdAt.date()) {
+			return true;
+		}
+
+		if (!samePersistentChatActor(previousMessage.value(), message)
+			|| !samePersistentChatScope(previousMessage.value(), message)) {
+			return true;
+		}
+
+		if (previousCreatedAt.isValid() && createdAt.isValid() && previousCreatedAt.secsTo(createdAt) > (5 * 60)) {
+			return true;
+		}
+
+		return false;
 	}
 
 	QString persistentChatActorLabel(const MumbleProto::ChatMessage &msg) {
@@ -1076,6 +1136,9 @@ void MainWindow::setupPersistentChatDock() {
 }
 
 void MainWindow::setPersistentChatWelcomeText(const QString &message) {
+	if (message.trimmed().isEmpty() || m_persistentChatWelcomeText != message) {
+		m_persistentChatWelcomeCollapsed = false;
+	}
 	m_persistentChatWelcomeText = message;
 	updatePersistentChatWelcome();
 }
@@ -1707,9 +1770,15 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 
 	if (!m_persistentChatWelcomeText.trimmed().isEmpty()) {
 		cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'>"
-											  "<tr><td><strong>%1</strong><br/>")
-							  .arg(tr("Server welcome").toHtmlEscaped()));
-		Log::validHtml(m_persistentChatWelcomeText, &cursor);
+											  "<tr><td><strong>%1</strong> <a href='mumble-chat://toggle-welcome'>[%2]</a><br/>")
+							  .arg(tr("Server welcome").toHtmlEscaped(),
+								   (m_persistentChatWelcomeCollapsed ? tr("Show") : tr("Hide")).toHtmlEscaped()));
+		if (m_persistentChatWelcomeCollapsed) {
+			cursor.insertHtml(QString::fromLatin1("<em>%1</em>")
+								  .arg(tr("Hidden for now. Click Show to expand it again.").toHtmlEscaped()));
+		} else {
+			Log::validHtml(m_persistentChatWelcomeText, &cursor);
+		}
 		cursor.insertHtml(QString::fromLatin1("</td></tr></table><br/>"));
 	}
 
@@ -1761,6 +1830,10 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 	}
 
 	std::size_t messageIndex = 0;
+	std::optional< MumbleProto::ChatMessage > previousMessage;
+	QDateTime previousCreatedAt;
+	QDate previousDate;
+	bool hasRenderedDateSeparator = false;
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
 		if (firstUnreadIndex && *firstUnreadIndex == messageIndex) {
 			cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong><br/><em>%2</em></p>")
@@ -1770,17 +1843,30 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 
 		const QDateTime createdAt =
 			QDateTime::fromSecsSinceEpoch(static_cast< qint64 >(message.has_created_at() ? message.created_at() : 0));
+		const QDate messageDate = createdAt.isValid() ? createdAt.date() : QDate();
 		const QString timeString = createdAt.isValid() ? createdAt.time().toString(QLatin1String("HH:mm:ss"))
 													   : tr("Unknown time");
+		if (!hasRenderedDateSeparator || previousDate != messageDate) {
+			cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>")
+								  .arg(persistentChatDateLabel(messageDate).toHtmlEscaped()));
+			previousDate = messageDate;
+			hasRenderedDateSeparator = true;
+		}
+
+		const bool startGroup = startsPersistentChatGroup(previousMessage, previousCreatedAt, message, createdAt);
 		cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'><tr><td>"));
-		cursor.insertHtml(persistentChatActorLabel(message));
-		cursor.insertHtml(QString::fromLatin1(" "));
-		cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()), Log::Time));
+		if (startGroup) {
+			cursor.insertHtml(persistentChatActorLabel(message));
+			cursor.insertHtml(QString::fromLatin1(" "));
+			cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()), Log::Time));
+		} else {
+			cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()), Log::Time));
+		}
 
 		const MumbleProto::ChatScope scope =
 			message.has_scope() ? message.scope() : MumbleProto::Channel;
 		const unsigned int scopeID = message.has_scope_id() ? message.scope_id() : 0;
-		if (target.scope == MumbleProto::Aggregate) {
+		if (target.scope == MumbleProto::Aggregate && startGroup) {
 			cursor.insertHtml(QString::fromLatin1(" %1 ").arg(tr("in").toHtmlEscaped()));
 			const QString jumpUrl = persistentChatScopeJumpUrl(scope, scopeID);
 			if (!jumpUrl.isEmpty()) {
@@ -1791,7 +1877,9 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 			}
 		}
 
-		cursor.insertHtml(QString::fromLatin1("</td></tr><tr><td style='padding-top:2px; padding-left:18px;'>"));
+		const int leftPadding = startGroup ? 18 : 36;
+		cursor.insertHtml(
+			QString::fromLatin1("</td></tr><tr><td style='padding-top:2px; padding-left:%1px;'>").arg(leftPadding));
 		if (message.has_deleted_at() && message.deleted_at() > 0) {
 			cursor.insertHtml(QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped()));
 		} else {
@@ -1811,8 +1899,13 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 				}
 			}
 		}
-		cursor.insertHtml(QString::fromLatin1("</td></tr></table><br/>"));
+		cursor.insertHtml(QString::fromLatin1("</td></tr></table>"));
+		if (startGroup) {
+			cursor.insertHtml(QString::fromLatin1("<br/>"));
+		}
 
+		previousMessage = message;
+		previousCreatedAt = createdAt;
 		++messageIndex;
 	}
 
@@ -5423,6 +5516,15 @@ void MainWindow::customEvent(QEvent *evt) {
 
 
 void MainWindow::on_qteLog_anchorClicked(const QUrl &url) {
+	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("toggle-welcome")) {
+		m_persistentChatWelcomeCollapsed = !m_persistentChatWelcomeCollapsed;
+		if (m_persistentChatHistory) {
+			const bool wasAtBottom = m_persistentChatHistory->isScrolledToBottom();
+			renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
+		}
+		return;
+	}
+
 	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("load-older")) {
 		requestOlderPersistentChatHistory();
 		return;
