@@ -530,6 +530,7 @@ public:
 	/// @param actionName  The name of the action that has been executed.
 	/// @param p  The user on which the action was performed.
 	void logChangeNotPermanent(const QString &actionName, ClientUser *const p) const;
+	void refreshTextDocumentStylesheets();
 
 	void openServerConnectDialog(bool autoconnect = false);
 	void disconnectFromServer();

@@ -973,7 +973,6 @@ void MainWindow::setupGui() {
 	});
 
 	qteLog->document()->setMaximumBlockCount(Global::get().s.iMaxLogBlocks);
-	qteLog->document()->setDefaultStyleSheet(qApp->styleSheet());
 
 	pmModel = new UserModel(qtvUsers);
 	qtvUsers->setModel(pmModel);
@@ -1032,6 +1031,7 @@ void MainWindow::setupGui() {
 	qdwChat->setTitleBarWidget(dtbChatDockTitle);
 	qdwChat->installEventFilter(dtbChatDockTitle);
 	setupPersistentChatDock();
+	refreshTextDocumentStylesheets();
 	qteChat->setDefaultText(tr("<center>Not connected</center>"), true);
 	qteChat->setEnabled(false);
 
@@ -1097,7 +1097,6 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatScopeSelector->addItem(tr("Global chat"), static_cast< int >(PersistentChatMode::ServerGlobal));
 	m_persistentChatScopeSelector->addItem(tr("All chats"), static_cast< int >(PersistentChatMode::Aggregate));
 	m_persistentChatScopeSelector->setAccessibleName(tr("Persistent chat scope"));
-
 	m_persistentChatHistory = new LogTextBrowser(m_persistentChatContainer);
 	m_persistentChatHistory->setObjectName(QLatin1String("qtePersistentChatHistory"));
 	m_persistentChatHistory->setAccessibleName(tr("Persistent chat history"));
@@ -1105,7 +1104,6 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHistory->setReadOnly(true);
 	m_persistentChatHistory->setOpenLinks(false);
 	m_persistentChatHistory->setContextMenuPolicy(Qt::CustomContextMenu);
-	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
 	m_persistentChatHistory->document()->setDocumentMargin(10);
 
 	layout->addWidget(m_persistentChatScopeSelector);
@@ -1133,6 +1131,26 @@ void MainWindow::setupPersistentChatDock() {
 
 	updatePersistentChatScopeSelectorLabels();
 	clearPersistentChatView(tr("Connect to a server to load persistent chat history."));
+}
+
+void MainWindow::refreshTextDocumentStylesheets() {
+	const QString stylesheet = qApp->styleSheet();
+
+	if (qteLog && qteLog->document()) {
+		qteLog->document()->setDefaultStyleSheet(stylesheet);
+	}
+
+	if (qteChat && qteChat->document()) {
+		qteChat->document()->setDefaultStyleSheet(stylesheet);
+	}
+
+	if (m_persistentChatWelcome && m_persistentChatWelcome->document()) {
+		m_persistentChatWelcome->document()->setDefaultStyleSheet(stylesheet);
+	}
+
+	if (m_persistentChatHistory && m_persistentChatHistory->document()) {
+		m_persistentChatHistory->document()->setDefaultStyleSheet(stylesheet);
+	}
 }
 
 void MainWindow::setPersistentChatWelcomeText(const QString &message) {
@@ -1684,7 +1702,8 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey) const {
 	}
 
 	if (!subtitle.isEmpty()) {
-		detailsHtml += QString::fromLatin1("<em>%1</em><br/>").arg(subtitle);
+		detailsHtml +=
+			QString::fromLatin1("<span class='persistent-chat-preview-subtitle'>%1</span><br/>").arg(subtitle);
 	}
 
 	if (!description.isEmpty()) {
@@ -1692,15 +1711,17 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey) const {
 	}
 
 	if (!preview.metadataFinished || !preview.thumbnailFinished) {
-		detailsHtml += QString::fromLatin1("<em>%1</em><br/>").arg(tr("Loading preview...").toHtmlEscaped());
+		detailsHtml += QString::fromLatin1("<span class='persistent-chat-preview-status'>%1</span><br/>")
+						   .arg(tr("Loading preview...").toHtmlEscaped());
 	} else if (preview.failed && description.isEmpty()) {
-		detailsHtml += QString::fromLatin1("<em>%1</em><br/>").arg(tr("Preview unavailable").toHtmlEscaped());
+		detailsHtml += QString::fromLatin1("<span class='persistent-chat-preview-status'>%1</span><br/>")
+						   .arg(tr("Preview unavailable").toHtmlEscaped());
 	}
 
 	return QString::fromLatin1(
 			   "<table cellspacing='0' cellpadding='0'><tr><td width='28'></td><td>"
-			   "<table cellspacing='0' cellpadding='6'>"
-			   "<tr><td><a href=\"%1\"><strong>%2</strong></a><br/>%3"
+			   "<table cellspacing='0' cellpadding='6'><tr><td class='persistent-chat-preview-card'>"
+			   "<a href=\"%1\"><strong>%2</strong></a><br/>%3"
 			   "<a href=\"%1\">%4</a></td></tr></table>"
 			   "</td></tr></table>")
 		.arg(cardUrl, title, detailsHtml, openLabel);

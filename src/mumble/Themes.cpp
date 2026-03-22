@@ -156,7 +156,7 @@ bool Themes::apply() {
 	}
 
 	if (Global::get().mw) {
-		Global::get().mw->qteLog->document()->setDefaultStyleSheet(qApp->styleSheet());
+		Global::get().mw->refreshTextDocumentStylesheets();
 	}
 	return result;
 }
