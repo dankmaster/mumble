@@ -50,11 +50,19 @@ jobs:
             exit 1
           fi
 
+      - name: Configure
+        run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
+        shell: bash
+        env:
+          MUMBLE_BUILD_NUMBER: ${{ github.run_number }}
+          MUMBLE_CI_PHASE: configure
+
       - name: Build
         run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
         shell: bash
         env:
           MUMBLE_BUILD_NUMBER: ${{ github.run_number }}
+          MUMBLE_CI_PHASE: build
 
       - name: Publish
         uses: actions/upload-artifact@v6

@@ -8,6 +8,7 @@ trap 'exit_code=$?; echo "::error file=.github/workflows/build.sh,line=${LINENO}
 os=$1
 build_type=$2
 arch=$3
+phase="${MUMBLE_CI_PHASE:-all}"
 
 # Turn variables into lowercase
 os="${os,,}"
@@ -72,17 +73,40 @@ mkdir -p "$buildDir"
 
 cd "$buildDir"
 
-# Run cmake with all necessary options
-cmake -G Ninja \
-	  -S "$GITHUB_WORKSPACE" \
-	  -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
-	  -DBUILD_NUMBER=$MUMBLE_BUILD_NUMBER \
-	  $OS_SPECIFIC_CMAKE_OPTIONS \
-	  $CMAKE_OPTIONS \
-      -DCMAKE_UNITY_BUILD=ON \
-	  -Ddisplay-install-paths=ON \
-	  $ADDITIONAL_CMAKE_OPTIONS \
-	  $VCPKG_CMAKE_OPTIONS
+case "$phase" in
+	"all")
+		run_configure="yes"
+		run_build="yes"
+		;;
+	"configure")
+		run_configure="yes"
+		run_build="no"
+		;;
+	"build")
+		run_configure="no"
+		run_build="yes"
+		;;
+	*)
+		echo "Unknown CI phase '$phase'"
+		exit 1
+		;;
+esac
 
-# Actually build
-cmake --build . --config $BUILD_TYPE
+if [[ "$run_configure" == "yes" ]]; then
+	echo "::notice title=CI phase::Running CMake configure"
+	cmake -G Ninja \
+		  -S "$GITHUB_WORKSPACE" \
+		  -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+		  -DBUILD_NUMBER=$MUMBLE_BUILD_NUMBER \
+		  $OS_SPECIFIC_CMAKE_OPTIONS \
+		  $CMAKE_OPTIONS \
+	      -DCMAKE_UNITY_BUILD=ON \
+		  -Ddisplay-install-paths=ON \
+		  $ADDITIONAL_CMAKE_OPTIONS \
+		  $VCPKG_CMAKE_OPTIONS
+fi
+
+if [[ "$run_build" == "yes" ]]; then
+	echo "::notice title=CI phase::Running CMake build"
+	cmake --build . --config $BUILD_TYPE
+fi
