@@ -999,9 +999,10 @@ void MainWindow::setupPersistentChatDock() {
 	qteChat->setParent(nullptr);
 
 	m_persistentChatContainer = new QWidget(qdwChat);
+	m_persistentChatContainer->setObjectName(QLatin1String("qwPersistentChat"));
 	QVBoxLayout *layout       = new QVBoxLayout(m_persistentChatContainer);
-	layout->setContentsMargins(0, 0, 0, 0);
-	layout->setSpacing(4);
+	layout->setContentsMargins(6, 6, 6, 6);
+	layout->setSpacing(6);
 
 	m_persistentChatScopeSelector = new MUComboBox(m_persistentChatContainer);
 	m_persistentChatScopeSelector->setObjectName(QLatin1String("qcbPersistentChatScope"));
@@ -1009,25 +1010,6 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatScopeSelector->addItem(tr("Global chat"), static_cast< int >(PersistentChatMode::ServerGlobal));
 	m_persistentChatScopeSelector->addItem(tr("All chats"), static_cast< int >(PersistentChatMode::Aggregate));
 	m_persistentChatScopeSelector->setAccessibleName(tr("Persistent chat scope"));
-
-	m_persistentChatWelcome = new LogTextBrowser(m_persistentChatContainer);
-	m_persistentChatWelcome->setObjectName(QLatin1String("qtePersistentChatWelcome"));
-	m_persistentChatWelcome->setAccessibleName(tr("Server welcome message"));
-	m_persistentChatWelcome->setFrameShape(QFrame::NoFrame);
-	m_persistentChatWelcome->setReadOnly(true);
-	m_persistentChatWelcome->setOpenLinks(false);
-	m_persistentChatWelcome->setFocusPolicy(Qt::NoFocus);
-	m_persistentChatWelcome->setContextMenuPolicy(Qt::CustomContextMenu);
-	m_persistentChatWelcome->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-	m_persistentChatWelcome->setMaximumHeight(180);
-	m_persistentChatWelcome->document()->setDefaultStyleSheet(qApp->styleSheet());
-	m_persistentChatWelcome->hide();
-
-	m_persistentChatDivider = new QFrame(m_persistentChatContainer);
-	m_persistentChatDivider->setObjectName(QLatin1String("qfPersistentChatDivider"));
-	m_persistentChatDivider->setFrameShape(QFrame::HLine);
-	m_persistentChatDivider->setFrameShadow(QFrame::Sunken);
-	m_persistentChatDivider->hide();
 
 	m_persistentChatHistory = new LogTextBrowser(m_persistentChatContainer);
 	m_persistentChatHistory->setObjectName(QLatin1String("qtePersistentChatHistory"));
@@ -1037,23 +1019,15 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHistory->setOpenLinks(false);
 	m_persistentChatHistory->setContextMenuPolicy(Qt::CustomContextMenu);
 	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
+	m_persistentChatHistory->document()->setDocumentMargin(10);
 
 	layout->addWidget(m_persistentChatScopeSelector);
-	layout->addWidget(m_persistentChatWelcome);
-	layout->addWidget(m_persistentChatDivider);
 	layout->addWidget(m_persistentChatHistory, 1);
 	layout->addWidget(qteChat);
 
 	qdwChat->setWidget(m_persistentChatContainer);
 
 	connect(m_persistentChatScopeSelector, SIGNAL(currentIndexChanged(int)), this, SLOT(on_persistentChatScopeChanged(int)));
-	connect(m_persistentChatWelcome, &LogTextBrowser::anchorClicked, this, &MainWindow::on_qteLog_anchorClicked);
-	connect(m_persistentChatWelcome, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
-			&MainWindow::on_qteLog_highlighted);
-	connect(m_persistentChatWelcome, &LogTextBrowser::customContextMenuRequested, this,
-			&MainWindow::on_qteLog_customContextMenuRequested);
-	connect(m_persistentChatWelcome, &LogTextBrowser::imageActivated, this,
-			[this](const QTextCursor &cursor) { openImageDialog(m_persistentChatWelcome, cursor); });
 	connect(m_persistentChatHistory, &LogTextBrowser::anchorClicked, this, &MainWindow::on_qteLog_anchorClicked);
 	connect(m_persistentChatHistory, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
 			&MainWindow::on_qteLog_highlighted);
@@ -1079,25 +1053,16 @@ void MainWindow::setPersistentChatWelcomeText(const QString &message) {
 }
 
 void MainWindow::updatePersistentChatWelcome() {
-	if (!m_persistentChatWelcome || !m_persistentChatDivider) {
+	if (!m_persistentChatHistory) {
 		return;
 	}
 
-	m_persistentChatWelcome->clear();
-
-	const bool hasWelcome = !m_persistentChatWelcomeText.trimmed().isEmpty();
-	m_persistentChatWelcome->setVisible(hasWelcome);
-	m_persistentChatDivider->setVisible(hasWelcome);
-
-	if (!hasWelcome) {
+	if (!m_visiblePersistentChatScope && m_persistentChatMessages.empty()) {
 		return;
 	}
 
-	QTextCursor cursor(m_persistentChatWelcome->document());
-	cursor.movePosition(QTextCursor::End);
-	cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>").arg(tr("Welcome").toHtmlEscaped()));
-	Log::validHtml(m_persistentChatWelcomeText, &cursor);
-	m_persistentChatWelcome->moveCursor(QTextCursor::Start);
+	const bool wasAtBottom = m_persistentChatHistory->isScrolledToBottom();
+	renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
 }
 
 MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const {
@@ -1178,10 +1143,12 @@ void MainWindow::clearPersistentChatView(const QString &message) {
 		return;
 	}
 
+	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
 	m_persistentChatHistory->clear();
 	QTextCursor cursor(m_persistentChatHistory->document());
-	cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>").arg(tr("Chat").toHtmlEscaped()));
-	cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(message.toHtmlEscaped()));
+	cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'>"
+										  "<tr><td><strong>%1</strong><br/><em>%2</em></td></tr></table>")
+						  .arg(tr("Chat").toHtmlEscaped(), message.toHtmlEscaped()));
 	m_persistentChatHistory->moveCursor(QTextCursor::End);
 }
 
@@ -1565,6 +1532,7 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 		return;
 	}
 
+	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
 	QSet< QString > previewKeysToEnsure;
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
 		if ((message.has_deleted_at() && message.deleted_at() > 0) || !Global::get().s.bEnableLinkPreviews) {
@@ -1589,20 +1557,43 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 	cursor.movePosition(QTextCursor::End);
 
 	const PersistentChatTarget target = currentPersistentChatTarget();
+	QString targetDescription;
+	switch (target.scope) {
+		case MumbleProto::Channel:
+			targetDescription = tr("Persistent history for the active channel.");
+			break;
+		case MumbleProto::ServerGlobal:
+			targetDescription = tr("Server-wide conversation shared across the instance.");
+			break;
+		case MumbleProto::Aggregate:
+			targetDescription = tr("Unified feed of conversations you can currently read.");
+			break;
+		default:
+			targetDescription = tr("Persistent chat");
+			break;
+	}
 
-	cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>").arg(target.label.toHtmlEscaped()));
-	if (target.scope == MumbleProto::Aggregate) {
-		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
-							  .arg(tr("Merged feed across conversations you can currently read.").toHtmlEscaped()));
+	cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'>"
+										  "<tr><td><strong>%1</strong><br/><em>%2</em></td></tr></table><br/>")
+						  .arg(target.label.toHtmlEscaped(), targetDescription.toHtmlEscaped()));
+
+	if (!m_persistentChatWelcomeText.trimmed().isEmpty()) {
+		cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'>"
+											  "<tr><td><strong>%1</strong><br/>")
+							  .arg(tr("Server welcome").toHtmlEscaped()));
+		Log::validHtml(m_persistentChatWelcomeText, &cursor);
+		cursor.insertHtml(QString::fromLatin1("</td></tr></table><br/>"));
 	}
 
 	if (!statusMessage.isEmpty()) {
-		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(statusMessage.toHtmlEscaped()));
+		cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'>"
+											  "<tr><td><em>%1</em></td></tr></table><br/>")
+							  .arg(statusMessage.toHtmlEscaped()));
 	}
 
 	if (m_persistentChatLoadingOlder) {
-		cursor.insertHtml(
-			QString::fromLatin1("<p><em>%1</em></p>").arg(tr("Loading older messages...").toHtmlEscaped()));
+		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
+							  .arg(tr("Loading older messages...").toHtmlEscaped()));
 	} else if (m_visiblePersistentChatHasMore) {
 		cursor.insertHtml(QString::fromLatin1("<p><a href='mumble-chat://load-older'>%1</a></p>")
 							  .arg(tr("Load older messages").toHtmlEscaped()));
@@ -1614,7 +1605,7 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 
 	if (target.scope == MumbleProto::Aggregate) {
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
-							  .arg(tr("Read tracking is not available in All chats.").toHtmlEscaped()));
+							  .arg(tr("All chats is read-only and does not track per-thread read state.").toHtmlEscaped()));
 	}
 
 	if (m_persistentChatMessages.empty()) {
@@ -1644,16 +1635,19 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 	std::size_t messageIndex = 0;
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
 		if (firstUnreadIndex && *firstUnreadIndex == messageIndex) {
-			cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong></p>")
-								  .arg(tr("Unread messages (%1)").arg(unreadCount).toHtmlEscaped()));
+			cursor.insertHtml(QString::fromLatin1("<p><strong>%1</strong><br/><em>%2</em></p>")
+								  .arg(tr("New since last read").toHtmlEscaped(),
+									   tr("%1 unread messages").arg(unreadCount).toHtmlEscaped()));
 		}
 
 		const QDateTime createdAt =
 			QDateTime::fromSecsSinceEpoch(static_cast< qint64 >(message.has_created_at() ? message.created_at() : 0));
 		const QString timeString = createdAt.isValid() ? createdAt.time().toString(QLatin1String("HH:mm:ss"))
 													   : tr("Unknown time");
-		cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1] ").arg(timeString.toHtmlEscaped()), Log::Time));
+		cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'><tr><td>"));
 		cursor.insertHtml(persistentChatActorLabel(message));
+		cursor.insertHtml(QString::fromLatin1(" "));
+		cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()), Log::Time));
 
 		const MumbleProto::ChatScope scope =
 			message.has_scope() ? message.scope() : MumbleProto::Channel;
@@ -1663,7 +1657,7 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 			cursor.insertHtml(Log::msgColor(persistentChatScopeLabel(scope, scopeID), Log::Target));
 		}
 
-		cursor.insertHtml(QString::fromLatin1(": "));
+		cursor.insertHtml(QString::fromLatin1("</td></tr><tr><td style='padding-top:2px; padding-left:18px;'>"));
 		if (message.has_deleted_at() && message.deleted_at() > 0) {
 			cursor.insertHtml(QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped()));
 		} else {
@@ -1674,16 +1668,16 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 			cursor.insertHtml(QString::fromLatin1(" <em>%1</em>").arg(tr("(edited)").toHtmlEscaped()));
 		}
 
-		cursor.insertHtml(QString::fromLatin1("<br/>"));
 		if (!message.has_deleted_at() || message.deleted_at() == 0) {
 			if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
 				const QString previewHtml = persistentChatPreviewHtml(*previewKey);
 				if (!previewHtml.isEmpty()) {
-					cursor.insertHtml(previewHtml);
 					cursor.insertHtml(QString::fromLatin1("<br/>"));
+					cursor.insertHtml(previewHtml);
 				}
 			}
 		}
+		cursor.insertHtml(QString::fromLatin1("</td></tr></table><br/>"));
 
 		++messageIndex;
 	}
