@@ -1,6 +1,6 @@
 ![Mumble screenshot](screenshots/Mumble.png)
 
-# Mumble - Open Source voice-chat software
+# Mumble - Dankmaster Fork
 
 [![https://www.mumble.info](https://img.shields.io/badge/Website-https%3A%2F%2Fwww.mumble.info-blue?style=for-the-badge)](https://www.mumble.info)
 
@@ -11,6 +11,14 @@
 [![Cirrus CI](https://img.shields.io/cirrus/github/mumble-voip/mumble?label=Cirrus%20CI&style=for-the-badge)](https://cirrus-ci.com/github/mumble-voip/mumble)
 [![Travis CI](https://img.shields.io/travis/com/mumble-voip/mumble?label=Travis%20CI&style=for-the-badge)](https://travis-ci.com/mumble-voip/mumble)
 
+This repository is a fork of [Mumble](https://github.com/mumble-voip/mumble).
+Full credit for the original project, core architecture, and the vast majority
+of the codebase belongs to the Mumble team and all upstream contributors.
+
+This fork is a small, server-specific build for one group of friends running a
+single community server. The goal is to keep the core Mumble voice experience
+intact while experimenting with features that are useful for that server.
+
 Mumble is an Open Source, low-latency and high-quality voice-chat program
 written on top of Qt and Opus.
 
@@ -19,6 +27,25 @@ The client works on Windows, Linux, FreeBSD, OpenBSD, and macOS,
 while the server should work on anything Qt can be installed on.
 
 The documentation of the project can be found on [the website](https://www.mumble.info/documentation/).
+
+## About this fork
+
+This is not an official Mumble release. It is an experimental fork built for a
+small private community and should be treated as such.
+
+Current fork-specific features include:
+
+- persistent text chat with stored history and unread state
+- optional server-global chat
+- an ACL-filtered aggregate chat view across channels a user can read
+- a reworked chat surface with the MOTD pinned above chat history
+- richer inline media handling for images and link previews
+- optional announced identity overrides for displayed client release and OS strings
+
+Experimental work in progress:
+
+- screen-sharing capability negotiation and server config scaffolding on the
+  `feature/screen-recording` branch
 
 
 ## Contributing
