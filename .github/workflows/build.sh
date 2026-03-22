@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
-set -e
+set -Eeuo pipefail
 set -x
+
+trap 'exit_code=$?; echo "::error file=.github/workflows/build.sh,line=${LINENO},title=CI build failed::Command \"${BASH_COMMAND}\" exited with status ${exit_code}"; exit "${exit_code}"' ERR
 
 os=$1
 build_type=$2
@@ -84,4 +86,3 @@ cmake -G Ninja \
 
 # Actually build
 cmake --build . --config $BUILD_TYPE
-

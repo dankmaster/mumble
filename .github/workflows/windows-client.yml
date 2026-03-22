@@ -32,8 +32,26 @@ jobs:
           os: windows-2025-vs2026
           arch: x86_64
 
+      - name: Diagnostics
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pwd
+          ls -la .github/workflows
+          test -f ./.github/workflows/set_environment_variables.sh
+          test -f ./.github/workflows/build.sh
+          bash --version
+          cmake --version
+          ninja --version
+          if [[ -f "C:/vcvars-bash/vcvarsall.sh" ]]; then
+            echo "Found C:/vcvars-bash/vcvarsall.sh"
+          else
+            echo "::error title=Missing vcvars::C:/vcvars-bash/vcvarsall.sh was not found"
+            exit 1
+          fi
+
       - name: Build
-        run: ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
+        run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
         shell: bash
         env:
           MUMBLE_BUILD_NUMBER: ${{ github.run_number }}
