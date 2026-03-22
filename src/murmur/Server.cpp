@@ -21,6 +21,7 @@
 #include "PBKDF2.h"
 #include "ProtoUtils.h"
 #include "QtUtils.h"
+#include "ScreenShare.h"
 #include "ServerUser.h"
 #include "User.h"
 #include "Version.h"
@@ -345,6 +346,13 @@ void Server::readParams() {
 	iMaxTextMessageLength              = Meta::mp->iMaxTextMessageLength;
 	iMaxImageMessageLength             = Meta::mp->iMaxImageMessageLength;
 	bAllowHTML                         = Meta::mp->bAllowHTML;
+	bScreenShareEnabled                = Meta::mp->screenShareEnabled;
+	bScreenShareRecordingEnabled       = Meta::mp->screenShareRecordingEnabled;
+	bScreenShareHelperRequired         = Meta::mp->screenShareHelperRequired;
+	qlPreferredScreenShareCodecs       = Meta::mp->qlPreferredScreenShareCodecs;
+	uiScreenShareMaxWidth              = Meta::mp->uiScreenShareMaxWidth;
+	uiScreenShareMaxHeight             = Meta::mp->uiScreenShareMaxHeight;
+	uiScreenShareMaxFps                = Meta::mp->uiScreenShareMaxFps;
 	iDefaultChan                       = Meta::mp->iDefaultChan;
 	bRememberChan                      = Meta::mp->bRememberChan;
 	iRememberChanDuration              = Meta::mp->iRememberChanDuration;
@@ -417,6 +425,26 @@ void Server::readParams() {
 	m_dbWrapper.getConfigurationTo(iServerNum, "imagemessagelength", iMaxImageMessageLength);
 	m_dbWrapper.getConfigurationTo(iServerNum, "allowhtml", bAllowHTML);
 	m_dbWrapper.getConfigurationTo(iServerNum, "persistentglobalchat", bPersistentGlobalChatEnabled);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_enabled", bScreenShareEnabled);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_recording_enabled", bScreenShareRecordingEnabled);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_helper_required", bScreenShareHelperRequired);
+	QString screenShareCodecPreferences =
+		Mumble::ScreenShare::codecPreferenceString(qlPreferredScreenShareCodecs);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_codec_preferences", screenShareCodecPreferences);
+	qlPreferredScreenShareCodecs =
+		Mumble::ScreenShare::parseCodecPreferenceString(screenShareCodecPreferences, qlPreferredScreenShareCodecs);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_width", uiScreenShareMaxWidth);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_height", uiScreenShareMaxHeight);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_fps", uiScreenShareMaxFps);
+	uiScreenShareMaxWidth =
+		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxWidth, Meta::mp->uiScreenShareMaxWidth,
+										   Mumble::ScreenShare::HARD_MAX_WIDTH);
+	uiScreenShareMaxHeight =
+		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxHeight, Meta::mp->uiScreenShareMaxHeight,
+										   Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	uiScreenShareMaxFps =
+		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxFps, Meta::mp->uiScreenShareMaxFps,
+										   Mumble::ScreenShare::HARD_MAX_FPS);
 	m_dbWrapper.getConfigurationTo(iServerNum, "defaultchannel", iDefaultChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannel", bRememberChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannelduration", iRememberChanDuration);
@@ -555,6 +583,73 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 			bPersistentGlobalChatEnabled = enabled;
 			MumbleProto::ServerConfig mpsc;
 			mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_enabled") {
+		const bool enabled = !v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareEnabled;
+		if (enabled != bScreenShareEnabled) {
+			bScreenShareEnabled = enabled;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_enabled(bScreenShareEnabled);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_recording_enabled") {
+		const bool enabled = !v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareRecordingEnabled;
+		if (enabled != bScreenShareRecordingEnabled) {
+			bScreenShareRecordingEnabled = enabled;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_recording_enabled(bScreenShareRecordingEnabled);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_helper_required") {
+		const bool required = !v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareHelperRequired;
+		if (required != bScreenShareHelperRequired) {
+			bScreenShareHelperRequired = required;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_helper_required(bScreenShareHelperRequired);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_codec_preferences") {
+		const QList< int > codecs = !v.isNull()
+										? Mumble::ScreenShare::parseCodecPreferenceString(v,
+																				 Meta::mp->qlPreferredScreenShareCodecs)
+										: Meta::mp->qlPreferredScreenShareCodecs;
+		if (codecs != qlPreferredScreenShareCodecs) {
+			qlPreferredScreenShareCodecs = codecs;
+			MumbleProto::ServerConfig mpsc;
+			for (const int codec : qlPreferredScreenShareCodecs) {
+				mpsc.add_preferred_screen_share_codecs(static_cast< MumbleProto::ScreenShareCodec >(codec));
+			}
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_max_width") {
+		const unsigned int width = Mumble::ScreenShare::sanitizeLimit(
+			(!v.isNull() && i > 0) ? static_cast< unsigned int >(i) : Meta::mp->uiScreenShareMaxWidth,
+			Meta::mp->uiScreenShareMaxWidth, Mumble::ScreenShare::HARD_MAX_WIDTH);
+		if (width != uiScreenShareMaxWidth) {
+			uiScreenShareMaxWidth = width;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_max_width(uiScreenShareMaxWidth);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_max_height") {
+		const unsigned int height = Mumble::ScreenShare::sanitizeLimit(
+			(!v.isNull() && i > 0) ? static_cast< unsigned int >(i) : Meta::mp->uiScreenShareMaxHeight,
+			Meta::mp->uiScreenShareMaxHeight, Mumble::ScreenShare::HARD_MAX_HEIGHT);
+		if (height != uiScreenShareMaxHeight) {
+			uiScreenShareMaxHeight = height;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_max_height(uiScreenShareMaxHeight);
+			sendAll(mpsc);
+		}
+	} else if (key == "screen_share_max_fps") {
+		const unsigned int fps = Mumble::ScreenShare::sanitizeLimit(
+			(!v.isNull() && i > 0) ? static_cast< unsigned int >(i) : Meta::mp->uiScreenShareMaxFps,
+			Meta::mp->uiScreenShareMaxFps, Mumble::ScreenShare::HARD_MAX_FPS);
+		if (fps != uiScreenShareMaxFps) {
+			uiScreenShareMaxFps = fps;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_screen_share_max_fps(uiScreenShareMaxFps);
 			sendAll(mpsc);
 		}
 	} else if (key == "defaultchannel")

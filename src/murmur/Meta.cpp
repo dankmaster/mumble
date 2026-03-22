@@ -11,6 +11,7 @@
 #include "Net.h"
 #include "OSInfo.h"
 #include "PBKDF2.h"
+#include "ScreenShare.h"
 #include "SSL.h"
 #include "Server.h"
 #include "Version.h"
@@ -123,7 +124,14 @@ MetaParams::MetaParams() {
 	bLogGroupChanges = false;
 	bLogACLChanges   = false;
 
-	allowRecording = true;
+	allowRecording               = true;
+	screenShareEnabled           = false;
+	screenShareRecordingEnabled  = false;
+	screenShareHelperRequired    = true;
+	qlPreferredScreenShareCodecs = Mumble::ScreenShare::defaultCodecPreferenceList();
+	uiScreenShareMaxWidth        = Mumble::ScreenShare::DEFAULT_MAX_WIDTH;
+	uiScreenShareMaxHeight       = Mumble::ScreenShare::DEFAULT_MAX_HEIGHT;
+	uiScreenShareMaxFps          = Mumble::ScreenShare::DEFAULT_MAX_FPS;
 
 	rollingStatsWindow = 300;
 
@@ -342,7 +350,24 @@ void MetaParams::read(QString fname) {
 	bLogGroupChanges = typeCheckedFromSettings("loggroupchanges", bLogGroupChanges);
 	bLogACLChanges   = typeCheckedFromSettings("logaclchanges", bLogACLChanges);
 
-	allowRecording = typeCheckedFromSettings("allowRecording", allowRecording);
+	allowRecording              = typeCheckedFromSettings("allowRecording", allowRecording);
+	screenShareEnabled          = typeCheckedFromSettings("screen_share_enabled", screenShareEnabled);
+	screenShareRecordingEnabled =
+		typeCheckedFromSettings("screen_share_recording_enabled", screenShareRecordingEnabled);
+	screenShareHelperRequired = typeCheckedFromSettings("screen_share_helper_required", screenShareHelperRequired);
+	uiScreenShareMaxWidth =
+		Mumble::ScreenShare::sanitizeLimit(typeCheckedFromSettings("screen_share_max_width", uiScreenShareMaxWidth),
+										   uiScreenShareMaxWidth, Mumble::ScreenShare::HARD_MAX_WIDTH);
+	uiScreenShareMaxHeight =
+		Mumble::ScreenShare::sanitizeLimit(typeCheckedFromSettings("screen_share_max_height", uiScreenShareMaxHeight),
+										   uiScreenShareMaxHeight, Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	uiScreenShareMaxFps =
+		Mumble::ScreenShare::sanitizeLimit(typeCheckedFromSettings("screen_share_max_fps", uiScreenShareMaxFps),
+										   uiScreenShareMaxFps, Mumble::ScreenShare::HARD_MAX_FPS);
+	qlPreferredScreenShareCodecs = Mumble::ScreenShare::parseCodecPreferenceString(
+		typeCheckedFromSettings("screen_share_codec_preferences",
+								Mumble::ScreenShare::codecPreferenceString(qlPreferredScreenShareCodecs)),
+		qlPreferredScreenShareCodecs);
 
 	rollingStatsWindow = typeCheckedFromSettings("rollingStatsWindow", rollingStatsWindow);
 
@@ -411,6 +436,17 @@ void MetaParams::read(QString fname) {
 	qmConfig.insert(QLatin1String("kdfiterations"), QString::number(kdfIterations));
 	qmConfig.insert(QLatin1String("allowhtml"), bAllowHTML ? QLatin1String("true") : QLatin1String("false"));
 	qmConfig.insert(QLatin1String("persistentglobalchat"), QLatin1String("false"));
+	qmConfig.insert(QLatin1String("screen_share_enabled"),
+					screenShareEnabled ? QLatin1String("true") : QLatin1String("false"));
+	qmConfig.insert(QLatin1String("screen_share_recording_enabled"),
+					screenShareRecordingEnabled ? QLatin1String("true") : QLatin1String("false"));
+	qmConfig.insert(QLatin1String("screen_share_helper_required"),
+					screenShareHelperRequired ? QLatin1String("true") : QLatin1String("false"));
+	qmConfig.insert(QLatin1String("screen_share_codec_preferences"),
+					Mumble::ScreenShare::codecPreferenceString(qlPreferredScreenShareCodecs));
+	qmConfig.insert(QLatin1String("screen_share_max_width"), QString::number(uiScreenShareMaxWidth));
+	qmConfig.insert(QLatin1String("screen_share_max_height"), QString::number(uiScreenShareMaxHeight));
+	qmConfig.insert(QLatin1String("screen_share_max_fps"), QString::number(uiScreenShareMaxFps));
 	qmConfig.insert(QLatin1String("bandwidth"), QString::number(iMaxBandwidth));
 	qmConfig.insert(QLatin1String("users"), QString::number(iMaxUsers));
 	qmConfig.insert(QLatin1String("defaultchannel"), QString::number(iDefaultChan));
