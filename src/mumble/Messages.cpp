@@ -198,6 +198,7 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 ///
 /// @param msg The message object
 void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
+	bool persistentGlobalChanged = false;
 	if (msg.has_welcome_text()) {
 		QString str = u8(msg.welcome_text());
 		if (!str.isEmpty()) {
@@ -216,6 +217,18 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 		Global::get().uiMaxUsers = msg.max_users();
 	if (msg.has_recording_allowed()) {
 		Global::get().mw->enableRecording(msg.recording_allowed());
+	}
+	if (msg.has_persistent_global_chat_enabled()) {
+		const bool enabled = msg.persistent_global_chat_enabled();
+		persistentGlobalChanged = Global::get().bPersistentGlobalChatEnabled != enabled;
+		Global::get().bPersistentGlobalChatEnabled = enabled;
+	}
+	if (persistentGlobalChanged) {
+		updateChatBar();
+		const PersistentChatTarget target = currentPersistentChatTarget();
+		if (target.scope == MumbleProto::ServerGlobal || target.scope == MumbleProto::Aggregate) {
+			refreshPersistentChatView(true);
+		}
 	}
 }
 
@@ -241,15 +254,18 @@ void MainWindow::msgPermissionDenied(const MumbleProto::PermissionDenied &msg) {
 						.arg(Log::msgColor(pname, Log::Privilege))
 						.arg(Log::formatChannel(c)));
 			} else {
+				QString text;
 				if (pDst == pSelf)
-					Global::get().l->log(Log::PermissionDenied, tr("You were denied %1 privileges in %2.")
-																	.arg(Log::msgColor(pname, Log::Privilege))
-																	.arg(Log::formatChannel(c)));
+					text = tr("You were denied %1 privileges in %2.").arg(Log::msgColor(pname, Log::Privilege))
+							   .arg(Log::formatChannel(c));
 				else
-					Global::get().l->log(Log::PermissionDenied, tr("%3 was denied %1 privileges in %2.")
-																	.arg(Log::msgColor(pname, Log::Privilege))
-																	.arg(Log::formatChannel(c))
-																	.arg(Log::formatClientUser(pDst, Log::Target)));
+					text = tr("%3 was denied %1 privileges in %2.").arg(Log::msgColor(pname, Log::Privilege))
+							   .arg(Log::formatChannel(c))
+							   .arg(Log::formatClientUser(pDst, Log::Target));
+				if (msg.has_reason() && !u8(msg.reason()).trimmed().isEmpty()) {
+					text += QLatin1Char(' ') + u8(msg.reason()).toHtmlEscaped();
+				}
+				Global::get().l->log(Log::PermissionDenied, text);
 			}
 		} break;
 		case MumbleProto::PermissionDenied_DenyType_SuperUser: {

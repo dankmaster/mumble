@@ -751,6 +751,10 @@ MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const
 			target.scope   = MumbleProto::ServerGlobal;
 			target.scopeID = 0;
 			target.label   = tr("Global chat");
+			if (!Global::get().bPersistentGlobalChatEnabled) {
+				target.readOnly      = true;
+				target.statusMessage = tr("Global chat is disabled by this server.");
+			}
 			return target;
 		case PersistentChatMode::Aggregate:
 			target.valid    = true;
@@ -812,12 +816,17 @@ void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scr
 
 	if (target.scope == MumbleProto::Aggregate) {
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
+							  .arg(tr("All chats only shows conversations you can currently read.").toHtmlEscaped()));
+		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>")
 							  .arg(tr("Read tracking is not available in All chats.").toHtmlEscaped()));
 	}
 
 	if (m_persistentChatMessages.empty()) {
-		const QString emptyMessage =
+		QString emptyMessage =
 			target.readOnly ? tr("No accessible messages yet.") : tr("No messages in %1 yet.").arg(target.label);
+		if (target.scope == MumbleProto::Aggregate) {
+			emptyMessage = tr("No accessible messages yet. All chats only shows conversations you can currently read.");
+		}
 		cursor.insertHtml(QString::fromLatin1("<p><em>%1</em></p>").arg(emptyMessage.toHtmlEscaped()));
 		if (scrollToBottom) {
 			m_persistentChatHistory->moveCursor(QTextCursor::End);
@@ -930,6 +939,12 @@ void MainWindow::refreshPersistentChatView(bool forceReload) {
 	if (target.directMessage) {
 		clearPersistentChatView(tr("Direct messages still use the classic text message path and do not have persistent "
 								   "history yet."));
+		return;
+	}
+
+	if (target.scope == MumbleProto::ServerGlobal && !Global::get().bPersistentGlobalChatEnabled) {
+		clearPersistentChatView(target.statusMessage.isEmpty() ? tr("Global chat is disabled by this server.")
+															  : target.statusMessage);
 		return;
 	}
 
@@ -1066,7 +1081,7 @@ void MainWindow::syncPersistentChatInputState(bool baseEnabled) {
 	const PersistentChatTarget target = currentPersistentChatTarget();
 	bool enableInput                  = baseEnabled && target.valid && !target.readOnly;
 	if (target.valid && !target.readOnly && target.scope == MumbleProto::ServerGlobal) {
-		enableInput = Global::get().uiSession
+		enableInput = Global::get().bPersistentGlobalChatEnabled && Global::get().uiSession
 					  && (Global::get().pPermissions & (ChanACL::Write | ChanACL::TextMessage));
 	}
 	qteChat->setEnabled(enableInput);
@@ -4021,6 +4036,7 @@ void MainWindow::serverConnected() {
 	qtvUsers->setRowHidden(0, QModelIndex(), false);
 
 	Global::get().bAllowHTML      = true;
+	Global::get().bPersistentGlobalChatEnabled = false;
 	Global::get().uiMessageLength = 5000;
 	Global::get().uiImageLength   = 131072;
 	Global::get().uiMaxUsers      = 0;
@@ -4141,6 +4157,7 @@ void MainWindow::serverDisconnected(QAbstractSocket::SocketError err, QString re
 
 	// We can't record without a server anyway, so we disable the functionality here
 	enableRecording(false);
+	Global::get().bPersistentGlobalChatEnabled = false;
 
 	if (!Global::get().sh->qlErrors.isEmpty()) {
 		for (const QSslError &e : Global::get().sh->qlErrors) {
@@ -4329,6 +4346,10 @@ void MainWindow::updateChatBar() {
 			tr("<center>Type message to user '%1' here</center>").arg(target.user->qsName.toHtmlEscaped()));
 		clearPersistentChatView(tr("Direct messages still use the classic text message path and do not have persistent "
 								   "history yet."));
+	} else if (target.scope == MumbleProto::ServerGlobal && !Global::get().bPersistentGlobalChatEnabled) {
+		qteChat->setDefaultText(tr("<center>Global chat is disabled by this server.</center>"), true);
+		clearPersistentChatView(target.statusMessage.isEmpty() ? tr("Global chat is disabled by this server.")
+															  : target.statusMessage);
 	} else if (target.readOnly) {
 		qteChat->setDefaultText(tr("<center>All chats is read-only. Switch to Selection or Global chat to send.</center>"),
 								true);

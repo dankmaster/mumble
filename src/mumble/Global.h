@@ -100,6 +100,7 @@ public:
 	/// non-priority speakers.
 	bool prioritySpeakerActiveOverride;
 	bool bAllowHTML;
+	bool bPersistentGlobalChatEnabled;
 	unsigned int uiMessageLength;
 	unsigned int uiImageLength;
 	unsigned int uiMaxUsers;

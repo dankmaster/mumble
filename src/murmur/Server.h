@@ -127,6 +127,7 @@ public:
 	int iMaxImageMessageLength;
 	int iOpusThreshold;
 	bool bAllowHTML;
+	bool bPersistentGlobalChatEnabled = false;
 	QString qsPassword;
 	QString qsWelcomeText;
 	QString qsWelcomeTextFile;

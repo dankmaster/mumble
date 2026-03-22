@@ -162,6 +162,7 @@ public:
 		MumbleProto::ChatScope scope = MumbleProto::Channel;
 		unsigned int scopeID = 0;
 		QString label;
+		QString statusMessage;
 	};
 
 	void loadState(bool minimalView);

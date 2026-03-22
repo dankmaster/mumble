@@ -736,6 +736,7 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 	mpsc.set_image_message_length(static_cast< unsigned int >(iMaxImageMessageLength));
 	mpsc.set_max_users(static_cast< unsigned int >(iMaxUsers));
 	mpsc.set_recording_allowed(allowRecording);
+	mpsc.set_persistent_global_chat_enabled(bPersistentGlobalChatEnabled);
 	sendMessage(uSource, mpsc);
 
 	MumbleProto::SuggestConfig mpsug;
@@ -1941,6 +1942,17 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 			return;
 	}
 
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_permission(static_cast< unsigned int >(ChanACL::TextMessage));
+		denied.set_channel_id(Mumble::ROOT_CHANNEL_ID);
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Permission);
+		denied.set_reason(u8(QStringLiteral("Global chat is disabled by this server.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
 	if (!permissionChannel) {
 		return;
 	}
@@ -2023,6 +2035,17 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	response.set_start_offset(startOffset);
 	response.set_has_more(false);
 
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_permission(static_cast< unsigned int >(ChanACL::TextMessage));
+		denied.set_channel_id(Mumble::ROOT_CHANNEL_ID);
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Permission);
+		denied.set_reason(u8(QStringLiteral("Global chat is disabled by this server.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
 	if (scope == MumbleProto::Aggregate) {
 		std::vector< AggregateChatEntry > entries;
 		for (const ::msdb::DBChatThread &currentThread : m_dbWrapper.getChatThreads(iServerNum)) {
@@ -2032,6 +2055,10 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 
 			if (!resolveStoredChatThread(currentThread, qhChannels, messageScope, messageScopeID,
 										 messagePermissionChannel)) {
+				continue;
+			}
+
+			if (messageScope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
 				continue;
 			}
 
@@ -2149,6 +2176,17 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 			return;
 		default:
 			return;
+	}
+
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_permission(static_cast< unsigned int >(ChanACL::TextMessage));
+		denied.set_channel_id(Mumble::ROOT_CHANNEL_ID);
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Permission);
+		denied.set_reason(u8(QStringLiteral("Global chat is disabled by this server.")));
+		sendMessage(uSource, denied);
+		return;
 	}
 
 	if (!permissionChannel) {
