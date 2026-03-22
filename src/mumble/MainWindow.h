@@ -193,6 +193,12 @@ public:
 	void ensurePersistentChatPreview(const QString &previewKey);
 	QString persistentChatPreviewHtml(const QString &previewKey) const;
 	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
+	void updatePersistentChatScopeSelectorLabels();
+	std::size_t cachedPersistentChatUnreadCount(MumbleProto::ChatScope scope, unsigned int scopeID) const;
+	void setCachedPersistentChatUnreadCount(MumbleProto::ChatScope scope, unsigned int scopeID,
+											unsigned int lastReadMessageID, std::size_t unreadCount);
+	std::size_t totalCachedPersistentChatUnreadCount() const;
+	bool navigateToPersistentChatScope(MumbleProto::ChatScope scope, unsigned int scopeID);
 	void showLogContextMenu(LogTextBrowser *browser, const QPoint &position);
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
 	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
@@ -261,6 +267,8 @@ protected:
 	QString m_persistentChatWelcomeText;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
 	QHash< QString, PersistentChatPreview > m_persistentChatPreviews;
+	QHash< QString, unsigned int > m_persistentChatLastReadByScope;
+	QHash< QString, int > m_persistentChatUnreadByScope;
 	std::optional< MumbleProto::ChatScope > m_visiblePersistentChatScope;
 	unsigned int m_visiblePersistentChatScopeID = 0;
 	unsigned int m_visiblePersistentChatLastReadMessageID = 0;
