@@ -11,6 +11,7 @@
 #include "database/Backend.h"
 #include "database/Table.h"
 
+#include <chrono>
 #include <optional>
 
 namespace soci {
@@ -51,6 +52,8 @@ namespace server {
 			DBChatThread getThread(unsigned int serverID, unsigned int threadID);
 			std::optional< DBChatThread > getThreadByScope(unsigned int serverID, ChatThreadScope scope,
 														   const std::string &scopeKey);
+			void touchThread(unsigned int serverID, unsigned int threadID,
+							 const std::chrono::system_clock::time_point &timepoint = std::chrono::system_clock::now());
 
 			unsigned int getFreeThreadID(unsigned int serverID);
 

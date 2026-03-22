@@ -637,3 +637,58 @@ message PluginDataTransmission {
 	// process it or not
 	optional string dataID = 4;
 }
+
+enum ChatScope {
+	Channel = 0;
+	ServerGlobal = 1;
+}
+
+// Sent by the client to submit a persistent chat message to the server.
+message ChatSend {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	required string message = 3;
+}
+
+// Sent by the server to deliver a persistent chat message to clients.
+message ChatMessage {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	required uint32 thread_id = 3;
+	required uint32 message_id = 4;
+	optional uint32 actor = 5;
+	optional uint32 actor_user_id = 6;
+	required string message = 7;
+	required uint64 created_at = 8;
+	optional uint64 edited_at = 9;
+	optional uint64 deleted_at = 10;
+}
+
+// Sent by the client to request a paginated chunk of chat history.
+message ChatHistoryRequest {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 start_offset = 3 [default = 0];
+	optional uint32 limit = 4 [default = 50];
+}
+
+// Sent by the server to return a paginated chunk of chat history.
+message ChatHistoryResponse {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 thread_id = 3;
+	optional uint32 start_offset = 4 [default = 0];
+	repeated ChatMessage messages = 5;
+	optional bool has_more = 6 [default = false];
+	optional uint32 last_read_message_id = 7;
+}
+
+// Sent by the client or server to update persisted read state for a thread.
+message ChatReadStateUpdate {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 thread_id = 3;
+	optional uint32 user_id = 4;
+	optional uint32 last_read_message_id = 5;
+	optional uint64 updated_at = 6;
+}

@@ -1077,6 +1077,33 @@ void ServerHandler::sendChannelTextMessage(unsigned int channel, const QString &
 	sendMessage(mptm);
 }
 
+void ServerHandler::sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_) {
+	MumbleProto::ChatSend message;
+	message.set_scope(scope);
+	message.set_scope_id(scopeID);
+	message.set_message(u8(message_));
+	sendMessage(message);
+}
+
+void ServerHandler::requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int startOffset,
+									   unsigned int limit) {
+	MumbleProto::ChatHistoryRequest request;
+	request.set_scope(scope);
+	request.set_scope_id(scopeID);
+	request.set_start_offset(startOffset);
+	request.set_limit(limit);
+	sendMessage(request);
+}
+
+void ServerHandler::updateChatReadState(MumbleProto::ChatScope scope, unsigned int scopeID,
+										unsigned int lastReadMessageID) {
+	MumbleProto::ChatReadStateUpdate update;
+	update.set_scope(scope);
+	update.set_scope_id(scopeID);
+	update.set_last_read_message_id(lastReadMessageID);
+	sendMessage(update);
+}
+
 void ServerHandler::setUserComment(unsigned int uiSession, const QString &comment) {
 	MumbleProto::UserState mpus;
 	mpus.set_session(uiSession);

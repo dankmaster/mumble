@@ -242,6 +242,25 @@ namespace server {
 			}
 		}
 
+		void ChatThreadTable::touchThread(unsigned int serverID, unsigned int threadID,
+										  const std::chrono::system_clock::time_point &timepoint) {
+			try {
+				std::size_t updatedAt = toEpochSeconds(timepoint);
+
+				::mdb::TransactionHolder transaction = ensureTransaction();
+
+				m_sql << "UPDATE \"" << NAME << "\" SET \"" << column::updated_at << "\" = :updatedAt WHERE \""
+					  << column::server_id << "\" = :serverID AND \"" << column::thread_id << "\" = :threadID",
+					soci::use(updatedAt), soci::use(serverID), soci::use(threadID);
+
+				transaction.commit();
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::AccessException("Failed at touching chat thread with ID "
+															  + std::to_string(threadID) + " on server with ID "
+															  + std::to_string(serverID)));
+			}
+		}
+
 		unsigned int ChatThreadTable::getFreeThreadID(unsigned int serverID) {
 			try {
 				unsigned int id = 0;

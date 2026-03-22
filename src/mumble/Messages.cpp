@@ -41,6 +41,53 @@
 
 #include <QTextDocumentFragment>
 
+namespace {
+	QString chatScopeLabel(MumbleProto::ChatScope scope, unsigned int scopeID) {
+		switch (scope) {
+			case MumbleProto::Channel: {
+				Channel *channel = Channel::get(scopeID);
+				if (channel) {
+					return Log::formatChannel(channel);
+				}
+
+				return QObject::tr("Channel %1").arg(scopeID);
+			}
+			case MumbleProto::ServerGlobal:
+				return QObject::tr("Global chat");
+		}
+
+		return QObject::tr("Unknown chat");
+	}
+
+	QString chatActorLabel(const MumbleProto::ChatMessage &msg) {
+		if (msg.has_actor()) {
+			ClientUser *user = ClientUser::get(msg.actor());
+			if (user) {
+				return Log::formatClientUser(user, Log::Target);
+			}
+		}
+
+		if (msg.has_actor_user_id()) {
+			return QObject::tr("User %1").arg(msg.actor_user_id());
+		}
+
+		return QObject::tr("Unknown user");
+	}
+
+	void logPersistentChatMessage(const MumbleProto::ChatMessage &msg, bool history) {
+		const MumbleProto::ChatScope scope =
+			msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+		const unsigned int scopeID = msg.has_scope_id() ? msg.scope_id() : 0;
+		const QString prefix       = history ? QObject::tr("History") : QObject::tr("Chat");
+		const QString destination  = chatScopeLabel(scope, scopeID);
+		const QString actor        = chatActorLabel(msg);
+		const QString body         = u8(msg.message());
+
+		Global::get().l->log(Log::TextMessage,
+							 QObject::tr("[%1] %2 in %3: %4").arg(prefix, actor, destination, body));
+	}
+} // namespace
+
 #define ACTOR_INIT                           \
 	ClientUser *pSrc = nullptr;              \
 	if (msg.has_actor())                     \
@@ -1299,6 +1346,25 @@ void MainWindow::msgPluginDataTransmission(const MumbleProto::PluginDataTransmis
 		Global::get().pluginManager->on_receiveData(sender, reinterpret_cast< const uint8_t * >(msgData.c_str()),
 													msgData.size(), msg.dataid().c_str());
 	}
+}
+
+void MainWindow::msgChatSend(const MumbleProto::ChatSend &) {
+}
+
+void MainWindow::msgChatMessage(const MumbleProto::ChatMessage &msg) {
+	logPersistentChatMessage(msg, false);
+}
+
+void MainWindow::msgChatHistoryRequest(const MumbleProto::ChatHistoryRequest &) {
+}
+
+void MainWindow::msgChatHistoryResponse(const MumbleProto::ChatHistoryResponse &msg) {
+	for (const MumbleProto::ChatMessage &message : msg.messages()) {
+		logPersistentChatMessage(message, true);
+	}
+}
+
+void MainWindow::msgChatReadStateUpdate(const MumbleProto::ChatReadStateUpdate &) {
 }
 
 #undef ACTOR_INIT

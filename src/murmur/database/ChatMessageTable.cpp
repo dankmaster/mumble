@@ -20,6 +20,7 @@
 
 #include <soci/soci.h>
 
+#include <algorithm>
 #include <cassert>
 #include <exception>
 
@@ -159,7 +160,7 @@ namespace server {
 								   << column::created_at << "\", \"" << column::edited_at << "\", \""
 								   << column::deleted_at << "\" FROM \"" << NAME << "\" WHERE \"" << column::server_id
 								   << "\" = :serverID AND \"" << column::thread_id << "\" = :threadID ORDER BY \""
-								   << column::message_id << "\" ASC "
+								   << column::message_id << "\" DESC "
 								   << ::mdb::utils::limitOffset(m_backend, ":limit", ":offset"),
 					 soci::use(serverID), soci::use(threadID), soci::use(maxEntries), soci::use(startOffset),
 					 soci::into(row));
@@ -190,6 +191,8 @@ namespace server {
 
 					messages.push_back(std::move(message));
 				}
+
+				std::reverse(messages.begin(), messages.end());
 
 				transaction.commit();
 
