@@ -127,11 +127,21 @@ namespace {
 				return contract;
 			}
 
+			const ScreenShareExternalProcess::RuntimeSupport runtimeSupport =
+				ScreenShareExternalProcess::probeRuntimeSupport();
 			contract.valid             = true;
-			contract.runtimeExecutable = false;
-			contract.description =
-				QStringLiteral("WebRTC relay session metadata is present and can be negotiated over Murmur signaling, but the helper does not yet ship an executable WebRTC transport backend.");
-			contract.warnings << contract.description;
+			contract.runtimeExecutable = runtimeSupport.browserWebRtcAvailable;
+			contract.contractMode =
+				runtimeSupport.browserWebRtcAvailable ? QStringLiteral("browser-webrtc-runtime")
+													  : QStringLiteral("webrtc-signaling-contract");
+			if (runtimeSupport.browserWebRtcAvailable) {
+				contract.description =
+					QStringLiteral("WebRTC relay sessions can be executed by launching a dedicated browser runtime against the relay's hosted web client.");
+			} else {
+				contract.description =
+					QStringLiteral("WebRTC relay session metadata is present, but this helper host has no executable browser runtime available for the relay web client.");
+				contract.warnings << contract.description;
+			}
 			return contract;
 		}
 
@@ -202,13 +212,17 @@ QJsonArray ScreenShareRelayClient::advertisedContracts() {
 				  static_cast< int >(MumbleProto::ScreenShareRelayTransportWebRTC));
 	webrtc.insert(QStringLiteral("transport_token"),
 				  Mumble::ScreenShare::relayTransportToConfigToken(MumbleProto::ScreenShareRelayTransportWebRTC));
-	webrtc.insert(QStringLiteral("runtime_executable"), false);
+	webrtc.insert(QStringLiteral("runtime_executable"), runtimeSupport.browserWebRtcAvailable);
 	webrtc.insert(QStringLiteral("requires_signaling"), true);
 	webrtc.insert(QStringLiteral("publish_supported"), true);
 	webrtc.insert(QStringLiteral("view_supported"), true);
-	webrtc.insert(QStringLiteral("contract_mode"), QStringLiteral("webrtc-signaling-contract"));
+	webrtc.insert(QStringLiteral("contract_mode"),
+				  runtimeSupport.browserWebRtcAvailable ? QStringLiteral("browser-webrtc-runtime")
+													   : QStringLiteral("webrtc-signaling-contract"));
 	webrtc.insert(QStringLiteral("description"),
-				  QStringLiteral("The helper understands WebRTC relay session metadata and Murmur signaling, but an executable WebRTC backend still needs to be added."));
+				  runtimeSupport.browserWebRtcAvailable
+					  ? QStringLiteral("The helper can launch a dedicated browser runtime for WebRTC relay sessions announced by the server.")
+					  : QStringLiteral("The helper understands WebRTC relay session metadata, but no executable browser runtime is available on this host."));
 	contracts.push_back(webrtc);
 
 	return contracts;
@@ -220,6 +234,9 @@ QJsonArray ScreenShareRelayClient::runtimeRelayTransports() {
 	QList< MumbleProto::ScreenShareRelayTransport > transports;
 	if (!supportedDirectSchemes(runtimeSupport).isEmpty()) {
 		transports.append(MumbleProto::ScreenShareRelayTransportDirect);
+	}
+	if (runtimeSupport.browserWebRtcAvailable) {
+		transports.append(MumbleProto::ScreenShareRelayTransportWebRTC);
 	}
 
 	return transportArray(transports);

@@ -338,6 +338,19 @@ Prevents the client from sending potentially identifying information about the o
         </property>
        </widget>
       </item>
+      <item>
+       <widget class="QCheckBox" name="qcbScreenShareDiagnostics">
+        <property name="toolTip">
+         <string>Write detailed screen-share helper diagnostics to a local log file for troubleshooting</string>
+        </property>
+        <property name="whatsThis">
+         <string>&lt;b&gt;Enable screen-share diagnostics logging&lt;/b&gt;.&lt;br/&gt;When enabled, the external screen-share helper writes detailed startup, relay, encoder and crash-related diagnostics to a local log file. This is intended for troubleshooting and may include local environment details. Changes apply the next time the helper starts.</string>
+        </property>
+        <property name="text">
+         <string>Enable screen-share diagnostics logging</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

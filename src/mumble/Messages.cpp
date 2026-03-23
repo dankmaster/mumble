@@ -271,6 +271,7 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 			Mumble::ScreenShare::normalizeRelayUrl(u8(msg.screen_share_relay_url()));
 	}
 	if (persistentGlobalChanged) {
+		rebuildPersistentChatChannelList();
 		updateChatBar();
 		const PersistentChatTarget target = currentPersistentChatTarget();
 		if (target.scope == MumbleProto::ServerGlobal || target.scope == MumbleProto::Aggregate) {

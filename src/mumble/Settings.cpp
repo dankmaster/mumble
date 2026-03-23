@@ -931,6 +931,7 @@ void Settings::legacyLoad(const QString &path) {
 	LOAD(iConnectionTimeoutDurationMsec, "net/connectiontimeoutdurationmsec");
 	LOAD(bUdpForceTcpAddr, "net/udpforcetcpaddr");
 	LOAD(bEnableLinkPreviews, "net/enablelinkpreviews");
+	LOAD(bScreenShareDiagnostics, "net/screensharediagnostics");
 
 	// Network settings - SSL
 	LOAD(qsSslCiphers, "net/sslciphers");

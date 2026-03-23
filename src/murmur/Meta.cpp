@@ -133,6 +133,9 @@ MetaParams::MetaParams() {
 	uiScreenShareMaxHeight       = Mumble::ScreenShare::DEFAULT_MAX_HEIGHT;
 	uiScreenShareMaxFps          = Mumble::ScreenShare::DEFAULT_MAX_FPS;
 	qsScreenShareRelayUrl.clear();
+	qsScreenShareRelayAPIKey.clear();
+	qsScreenShareRelayAPISecret.clear();
+	screenShareDiagnosticsLogging = false;
 
 	rollingStatsWindow = 300;
 
@@ -372,6 +375,12 @@ void MetaParams::read(QString fname) {
 		Mumble::ScreenShare::DEFAULT_MAX_FPS, Mumble::ScreenShare::HARD_MAX_FPS);
 	qsScreenShareRelayUrl = Mumble::ScreenShare::normalizeRelayUrl(
 		typeCheckedFromSettings("screen_share_relay_url", qsScreenShareRelayUrl));
+	qsScreenShareRelayAPIKey =
+		typeCheckedFromSettings("screen_share_relay_api_key", qsScreenShareRelayAPIKey).trimmed();
+	qsScreenShareRelayAPISecret =
+		typeCheckedFromSettings("screen_share_relay_api_secret", qsScreenShareRelayAPISecret).trimmed();
+	screenShareDiagnosticsLogging =
+		typeCheckedFromSettings("screen_share_diagnostics_logging", screenShareDiagnosticsLogging);
 
 	rollingStatsWindow = typeCheckedFromSettings("rollingStatsWindow", rollingStatsWindow);
 
@@ -452,6 +461,8 @@ void MetaParams::read(QString fname) {
 	qmConfig.insert(QLatin1String("screen_share_max_height"), QString::number(uiScreenShareMaxHeight));
 	qmConfig.insert(QLatin1String("screen_share_max_fps"), QString::number(uiScreenShareMaxFps));
 	qmConfig.insert(QLatin1String("screen_share_relay_url"), qsScreenShareRelayUrl);
+	qmConfig.insert(QLatin1String("screen_share_diagnostics_logging"),
+					screenShareDiagnosticsLogging ? QLatin1String("true") : QLatin1String("false"));
 	qmConfig.insert(QLatin1String("bandwidth"), QString::number(iMaxBandwidth));
 	qmConfig.insert(QLatin1String("users"), QString::number(iMaxUsers));
 	qmConfig.insert(QLatin1String("defaultchannel"), QString::number(iDefaultChan));

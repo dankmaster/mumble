@@ -59,6 +59,10 @@ jobs:
           os: windows-2025-vs2026
           arch: x86_64
 
+      - name: Install ffmpeg for helper runtime probe
+        shell: powershell
+        run: choco install ffmpeg -y
+
       - name: Diagnostics
         shell: bash
         run: |
@@ -91,6 +95,31 @@ jobs:
           MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
           MUMBLE_CI_PHASE: build
 
+      - name: Verify screen-share helper runtime
+        shell: bash
+        env:
+          MUMBLE_SCREENSHARE_TEST_PATTERN: "1"
+          MUMBLE_SCREENSHARE_CAPTURE_SOURCE: test-pattern
+          MUMBLE_SCREENSHARE_HEADLESS_VIEW: "1"
+        run: |
+          set -euxo pipefail
+          ffmpeg -version
+          helper_path="$(find build -iname 'mumble-screen-helper.exe' | head -n1)"
+          test -n "$helper_path"
+          "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --print-capabilities-json > build/windows-screen-share-capabilities.json
+          test -s build/windows-screen-share-capabilities.json
+          grep -q '"ffmpeg_available":true' build/windows-screen-share-capabilities.json
+          grep -q '"capture_supported":true' build/windows-screen-share-capabilities.json
+          grep -q '"browser_webrtc_available":true' build/windows-screen-share-capabilities.json
+          grep -Eq '"edge_available":true|"chrome_available":true|"firefox_available":true' build/windows-screen-share-capabilities.json
+          grep -Eq '"h264_mf_available":true|"h264_qsv_available":true|"libx264_available":true' build/windows-screen-share-capabilities.json
+          "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --self-test > build/windows-screen-share-self-test.json
+          test -s build/windows-screen-share-self-test.json
+          grep -q '"success":true' build/windows-screen-share-self-test.json
+          grep -q '"output_file"' build/windows-screen-share-self-test.json
+          find build \( -iname 'mumble*.msi' -o -iname 'mumble*.exe' \) ! -iname 'mumble-screen-helper.exe' | sort > build/windows-client-artifacts.txt
+          test -s build/windows-client-artifacts.txt
+
       - name: Validate signing configuration
         if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
         shell: bash
@@ -111,14 +140,17 @@ jobs:
           os: windows-2025-vs2026
           arch: x86_64
 
-      - if: ${{ !inputs.SIGN_WINDOWS_INSTALLER }}
-        name: Publish
+      - name: Publish
         uses: actions/upload-artifact@v6
         with:
           name: Mumble-windows-client-${{ needs.fetch_build_number.outputs.build_number }}
           compression-level: 9
           path: |
             build/mumble
+            build/windows-screen-share-capabilities.json
+            build/windows-screen-share-helper.log
+            build/windows-screen-share-self-test.json
+            build/windows-client-artifacts.txt
             build/**/mumble*.msi
             build/**/mumble*.exe
 

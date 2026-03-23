@@ -173,6 +173,12 @@ public:
 	unsigned int uiScreenShareMaxFps;
 	/// Relay/SFU endpoint announced to compatible clients for screen sharing
 	QString qsScreenShareRelayUrl;
+	/// Optional LiveKit API key used to mint WebRTC relay join tokens
+	QString qsScreenShareRelayAPIKey;
+	/// Optional LiveKit API secret used to mint WebRTC relay join tokens
+	QString qsScreenShareRelayAPISecret;
+	/// Whether extra screen-share diagnostics should be written into the server log
+	bool screenShareDiagnosticsLogging;
 
 	/// The number of seconds to keep rolling stats for per client
 	unsigned int rollingStatsWindow;

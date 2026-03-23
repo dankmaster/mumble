@@ -36,6 +36,7 @@ namespace server {
 				static constexpr const char *thread_id       = "thread_id";
 				static constexpr const char *author_user_id  = "author_user_id";
 				static constexpr const char *author_session  = "author_session";
+				static constexpr const char *author_name     = "author_name";
 				static constexpr const char *body            = "body";
 				static constexpr const char *created_at      = "created_at";
 				static constexpr const char *edited_at       = "edited_at";

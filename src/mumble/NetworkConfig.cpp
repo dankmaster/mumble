@@ -55,6 +55,7 @@ void NetworkConfig::load(const Settings &r) {
 	loadCheckBox(qcbDisablePublicList, s.bDisablePublicList);
 	loadCheckBox(qcbSuppressIdentity, s.bSuppressIdentity);
 	loadCheckBox(qcbLinkPreviews, s.bEnableLinkPreviews);
+	loadCheckBox(qcbScreenShareDiagnostics, s.bScreenShareDiagnostics);
 	loadComboBox(qcbType, s.ptProxyType);
 
 	qleHostname->setText(r.qsProxyHost);
@@ -89,6 +90,7 @@ void NetworkConfig::save() const {
 	s.bDisablePublicList = qcbDisablePublicList->isChecked();
 	s.bSuppressIdentity  = qcbSuppressIdentity->isChecked();
 	s.bEnableLinkPreviews = qcbLinkPreviews->isChecked();
+	s.bScreenShareDiagnostics = qcbScreenShareDiagnostics->isChecked();
 	s.bHideOS            = qcbHideOS->isChecked();
 	s.qsAdvertisedReleaseOverride   = qleAdvertisedRelease->text().trimmed();
 	s.qsAdvertisedOSOverride        = qleAdvertisedOS->text().trimmed();

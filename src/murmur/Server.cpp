@@ -36,6 +36,10 @@
 #include "murmur/database/UserProperty.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QJsonArray>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QMessageAuthenticationCode>
 #include <QtCore/QDateTime>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
@@ -67,11 +71,16 @@
 
 namespace {
 	constexpr quint64 SERVER_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
+	constexpr quint64 LIVEKIT_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 60ULL * 60ULL * 1000ULL;
 	constexpr quint64 SCREEN_SHARE_RELAY_TOKEN_REFRESH_SKEW_MSEC = 60ULL * 1000ULL;
 
 	QString randomServerRelayCredential() {
 		return QUuid::createUuid().toString(QUuid::WithoutBraces)
 			+ QUuid::createUuid().toString(QUuid::WithoutBraces);
+	}
+
+	QByteArray base64UrlEncode(const QByteArray &input) {
+		return input.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
 	}
 } // namespace
 
@@ -365,6 +374,9 @@ void Server::readParams() {
 	uiScreenShareMaxWidth              = Meta::mp->uiScreenShareMaxWidth;
 	uiScreenShareMaxHeight             = Meta::mp->uiScreenShareMaxHeight;
 	uiScreenShareMaxFps                = Meta::mp->uiScreenShareMaxFps;
+	qsScreenShareRelayAPIKey           = Meta::mp->qsScreenShareRelayAPIKey;
+	qsScreenShareRelayAPISecret        = Meta::mp->qsScreenShareRelayAPISecret;
+	bScreenShareDiagnosticsLogging     = Meta::mp->screenShareDiagnosticsLogging;
 	iDefaultChan                       = Meta::mp->iDefaultChan;
 	bRememberChan                      = Meta::mp->bRememberChan;
 	iRememberChanDuration              = Meta::mp->iRememberChanDuration;
@@ -387,6 +399,8 @@ void Server::readParams() {
 	uiScreenShareMaxHeight             = Meta::mp->uiScreenShareMaxHeight;
 	uiScreenShareMaxFps                = Meta::mp->uiScreenShareMaxFps;
 	qsScreenShareRelayUrl              = Meta::mp->qsScreenShareRelayUrl;
+	qsScreenShareRelayAPIKey           = Meta::mp->qsScreenShareRelayAPIKey;
+	qsScreenShareRelayAPISecret        = Meta::mp->qsScreenShareRelayAPISecret;
 	rollingStatsWindow                 = Meta::mp->rollingStatsWindow;
 	bCertRequired                      = Meta::mp->bCertRequired;
 	bForceExternalAuth                 = Meta::mp->bForceExternalAuth;
@@ -457,6 +471,9 @@ void Server::readParams() {
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_height", uiScreenShareMaxHeight);
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_max_fps", uiScreenShareMaxFps);
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_relay_url", qsScreenShareRelayUrl);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_relay_api_key", qsScreenShareRelayAPIKey);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_relay_api_secret", qsScreenShareRelayAPISecret);
+	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_diagnostics_logging", bScreenShareDiagnosticsLogging);
 	uiScreenShareMaxWidth =
 		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxWidth, Meta::mp->uiScreenShareMaxWidth,
 										   Mumble::ScreenShare::HARD_MAX_WIDTH);
@@ -467,6 +484,8 @@ void Server::readParams() {
 		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxFps, Meta::mp->uiScreenShareMaxFps,
 										   Mumble::ScreenShare::HARD_MAX_FPS);
 	qsScreenShareRelayUrl = Mumble::ScreenShare::normalizeRelayUrl(qsScreenShareRelayUrl);
+	qsScreenShareRelayAPIKey = qsScreenShareRelayAPIKey.trimmed();
+	qsScreenShareRelayAPISecret = qsScreenShareRelayAPISecret.trimmed();
 	m_dbWrapper.getConfigurationTo(iServerNum, "defaultchannel", iDefaultChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannel", bRememberChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannelduration", iRememberChanDuration);
@@ -699,6 +718,29 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 								QStringLiteral("Screen-share relay endpoint changed by server policy"));
 			}
 		}
+	} else if (key == "screen_share_relay_api_key") {
+		const QString apiKey = (!v.isNull() ? v : Meta::mp->qsScreenShareRelayAPIKey).trimmed();
+		if (apiKey != qsScreenShareRelayAPIKey) {
+			qsScreenShareRelayAPIKey = apiKey;
+			const QList< QString > streamIDs = qhScreenShareStreams.keys();
+			for (const QString &streamID : streamIDs) {
+				stopScreenShare(streamID, 0, MumbleProto::ScreenShareLifecycleStateStopped,
+								QStringLiteral("Screen-share relay credentials changed by server policy"));
+			}
+		}
+	} else if (key == "screen_share_relay_api_secret") {
+		const QString apiSecret = (!v.isNull() ? v : Meta::mp->qsScreenShareRelayAPISecret).trimmed();
+		if (apiSecret != qsScreenShareRelayAPISecret) {
+			qsScreenShareRelayAPISecret = apiSecret;
+			const QList< QString > streamIDs = qhScreenShareStreams.keys();
+			for (const QString &streamID : streamIDs) {
+				stopScreenShare(streamID, 0, MumbleProto::ScreenShareLifecycleStateStopped,
+								QStringLiteral("Screen-share relay credentials changed by server policy"));
+			}
+		}
+	} else if (key == "screen_share_diagnostics_logging") {
+		bScreenShareDiagnosticsLogging =
+			!v.isNull() ? QVariant(v).toBool() : Meta::mp->screenShareDiagnosticsLogging;
 	} else if (key == "defaultchannel")
 		iDefaultChan = i ? static_cast< unsigned int >(i) : Meta::mp->iDefaultChan;
 	else if (key == "rememberchannel")
@@ -799,9 +841,89 @@ bool Server::supportsScreenShareView(const ServerUser *user) const {
 	return supportsScreenShareSignaling(user) && user->bSupportsScreenShareView;
 }
 
+bool Server::hasLiveKitScreenShareRelayConfig() const {
+	return !qsScreenShareRelayAPIKey.trimmed().isEmpty() && !qsScreenShareRelayAPISecret.trimmed().isEmpty();
+}
+
+QString Server::liveKitScreenShareTokenForRecipient(const ScreenShareStream &stream, const ServerUser *recipient,
+													 const quint64 expiresAt) const {
+	if (!recipient || !hasLiveKitScreenShareRelayConfig() || stream.relayTransport != MumbleProto::ScreenShareRelayTransportWebRTC
+		|| stream.qsRelayRoomID.trimmed().isEmpty()) {
+		return QString();
+	}
+
+	const MumbleProto::ScreenShareRelayRole relayRole = screenShareRelayRoleForRecipient(stream, recipient);
+	const QString roleToken = Mumble::ScreenShare::relayRoleToConfigToken(relayRole);
+	const QString identity =
+		QStringLiteral("mumble-%1-%2-%3-%4")
+			.arg(iServerNum)
+			.arg(stream.qsStreamID)
+			.arg(recipient->uiSession)
+			.arg(roleToken);
+	const QString displayName = recipient->qsName.trimmed().isEmpty()
+									? identity
+									: recipient->qsName.trimmed();
+	const qint64 expiresAtSeconds =
+		static_cast< qint64 >((expiresAt > 0 ? expiresAt : (static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch())
+															 + LIVEKIT_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC))
+							  / 1000ULL);
+	const qint64 notBeforeSeconds = static_cast< qint64 >(QDateTime::currentSecsSinceEpoch()) - 5;
+
+	QJsonObject header;
+	header.insert(QStringLiteral("alg"), QStringLiteral("HS256"));
+	header.insert(QStringLiteral("typ"), QStringLiteral("JWT"));
+
+	QJsonObject videoGrant;
+	videoGrant.insert(QStringLiteral("room"), stream.qsRelayRoomID);
+	videoGrant.insert(QStringLiteral("roomJoin"), true);
+	videoGrant.insert(QStringLiteral("canPublish"), relayRole == MumbleProto::ScreenShareRelayRolePublisher);
+	videoGrant.insert(QStringLiteral("canPublishData"), false);
+	videoGrant.insert(QStringLiteral("canSubscribe"), true);
+	if (relayRole == MumbleProto::ScreenShareRelayRolePublisher) {
+		QJsonArray publishSources;
+		publishSources.push_back(QStringLiteral("screen_share"));
+		videoGrant.insert(QStringLiteral("canPublishSources"), publishSources);
+	}
+
+	QJsonObject metadata;
+	metadata.insert(QStringLiteral("mumble_server_id"), static_cast< int >(iServerNum));
+	metadata.insert(QStringLiteral("mumble_stream_id"), stream.qsStreamID);
+	metadata.insert(QStringLiteral("mumble_owner_session"), static_cast< int >(stream.uiOwnerSession));
+	metadata.insert(QStringLiteral("mumble_recipient_session"), static_cast< int >(recipient->uiSession));
+	metadata.insert(QStringLiteral("mumble_role"), roleToken);
+	metadata.insert(QStringLiteral("mumble_relay_session_id"), stream.qsRelaySessionID);
+
+	QJsonObject payload;
+	payload.insert(QStringLiteral("iss"), qsScreenShareRelayAPIKey);
+	payload.insert(QStringLiteral("sub"), identity);
+	payload.insert(QStringLiteral("name"), displayName);
+	payload.insert(QStringLiteral("nbf"), notBeforeSeconds);
+	payload.insert(QStringLiteral("exp"), expiresAtSeconds);
+	payload.insert(QStringLiteral("jti"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+	payload.insert(QStringLiteral("video"), videoGrant);
+	payload.insert(QStringLiteral("metadata"),
+				   QString::fromUtf8(QJsonDocument(metadata).toJson(QJsonDocument::Compact)));
+
+	const QByteArray encodedHeader =
+		base64UrlEncode(QJsonDocument(header).toJson(QJsonDocument::Compact));
+	const QByteArray encodedPayload =
+		base64UrlEncode(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+	const QByteArray signingInput = encodedHeader + '.' + encodedPayload;
+	const QByteArray signature = QMessageAuthenticationCode::hash(
+		signingInput, qsScreenShareRelayAPISecret.toUtf8(), QCryptographicHash::Sha256);
+	return QString::fromLatin1(signingInput + '.' + base64UrlEncode(signature));
+}
+
 QString Server::screenShareRelayTokenForRecipient(const ScreenShareStream &stream, const ServerUser *recipient) const {
 	if (!recipient) {
 		return QString();
+	}
+
+	if (Mumble::ScreenShare::isDirectRelayTransport(stream.relayTransport)) {
+		return QString();
+	}
+	if (stream.relayTransport == MumbleProto::ScreenShareRelayTransportWebRTC && hasLiveKitScreenShareRelayConfig()) {
+		return liveKitScreenShareTokenForRecipient(stream, recipient, stream.uiRelayTokenExpiresAt);
 	}
 
 	return (recipient->uiSession == stream.uiOwnerSession) ? stream.qsRelayPublishToken : stream.qsRelayViewToken;
@@ -827,6 +949,20 @@ Channel *Server::screenShareScopeChannel(const MumbleProto::ScreenShareScope sco
 
 void Server::ensureFreshScreenShareRelayCredentials(ScreenShareStream &stream) {
 	const quint64 now = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
+	if (Mumble::ScreenShare::isDirectRelayTransport(stream.relayTransport)) {
+		if (stream.qsRelaySessionID.isEmpty()) {
+			stream.qsRelaySessionID = QUuid::createUuid().toString(QUuid::WithoutBraces);
+		}
+		stream.qsRelayPublishToken.clear();
+		stream.qsRelayViewToken.clear();
+		stream.uiRelayTokenExpiresAt = 0;
+		return;
+	}
+
+	const quint64 tokenLifetimeMsec =
+		(stream.relayTransport == MumbleProto::ScreenShareRelayTransportWebRTC && hasLiveKitScreenShareRelayConfig())
+			? LIVEKIT_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC
+			: SERVER_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
 	if (stream.uiRelayTokenExpiresAt > 0 && now + SCREEN_SHARE_RELAY_TOKEN_REFRESH_SKEW_MSEC < stream.uiRelayTokenExpiresAt) {
 		return;
 	}
@@ -834,9 +970,15 @@ void Server::ensureFreshScreenShareRelayCredentials(ScreenShareStream &stream) {
 	if (stream.qsRelaySessionID.isEmpty()) {
 		stream.qsRelaySessionID = QUuid::createUuid().toString(QUuid::WithoutBraces);
 	}
+	if (stream.relayTransport == MumbleProto::ScreenShareRelayTransportWebRTC && hasLiveKitScreenShareRelayConfig()) {
+		stream.qsRelayPublishToken.clear();
+		stream.qsRelayViewToken.clear();
+		stream.uiRelayTokenExpiresAt = now + tokenLifetimeMsec;
+		return;
+	}
 	stream.qsRelayPublishToken   = randomServerRelayCredential();
 	stream.qsRelayViewToken      = randomServerRelayCredential();
-	stream.uiRelayTokenExpiresAt = now + SERVER_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
+	stream.uiRelayTokenExpiresAt = now + tokenLifetimeMsec;
 }
 
 void Server::populateScreenShareStateMessage(MumbleProto::ScreenShareState &msg,
@@ -886,6 +1028,9 @@ void Server::sendScreenShareStateToAudience(ScreenShareStream &stream, ServerUse
 
 	for (User *currentUser : channel->qlUsers) {
 		ServerUser *serverUser = static_cast< ServerUser * >(currentUser);
+		// ScreenShare* messages must never be broadcast to legacy 1.5.x clients that don't
+		// explicitly advertise support. Those clients can still join this forked server and use
+		// normal voice/text, but screen-share signaling stays capability-gated.
 		if (!serverUser || serverUser == except || !supportsScreenShareSignaling(serverUser)
 			|| serverUser->sState != ServerUser::Authenticated) {
 			continue;
@@ -918,6 +1063,7 @@ void Server::sendScreenShareStopToAudience(const ScreenShareStream &stream, cons
 
 	for (User *currentUser : channel->qlUsers) {
 		ServerUser *serverUser = static_cast< ServerUser * >(currentUser);
+		// Keep legacy clients on the normal protocol path only.
 		if (!serverUser || serverUser == except || !supportsScreenShareSignaling(serverUser)
 			|| serverUser->sState != ServerUser::Authenticated) {
 			continue;
@@ -1720,6 +1866,14 @@ void Server::log(const QString &msg) const {
 	}
 
 	qWarning("%d => %s", iServerNum, msg.toUtf8().constData());
+}
+
+void Server::screenShareDiagnosticLog(const QString &msg) const {
+	if (!bScreenShareDiagnosticsLogging) {
+		return;
+	}
+
+	log(QStringLiteral("[screen-share] %1").arg(msg));
 }
 
 void Server::newClient() {

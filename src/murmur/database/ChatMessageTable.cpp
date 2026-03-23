@@ -36,6 +36,7 @@ namespace server {
 		constexpr const char *ChatMessageTable::column::thread_id;
 		constexpr const char *ChatMessageTable::column::author_user_id;
 		constexpr const char *ChatMessageTable::column::author_session;
+		constexpr const char *ChatMessageTable::column::author_name;
 		constexpr const char *ChatMessageTable::column::body;
 		constexpr const char *ChatMessageTable::column::created_at;
 		constexpr const char *ChatMessageTable::column::edited_at;
@@ -60,6 +61,9 @@ namespace server {
 			::mdb::Column authorSessionCol(column::author_session, ::mdb::DataType(::mdb::DataType::Integer));
 			authorSessionCol.setDefaultValue("NULL");
 
+			::mdb::Column authorNameCol(column::author_name, ::mdb::DataType(::mdb::DataType::VarChar, 255));
+			authorNameCol.setDefaultValue("NULL");
+
 			::mdb::Column bodyCol(column::body, ::mdb::DataType(::mdb::DataType::Text));
 			bodyCol.addConstraint(::mdb::Constraint(::mdb::Constraint::NotNull));
 
@@ -74,7 +78,7 @@ namespace server {
 			deletedAtCol.setDefaultValue("0");
 			deletedAtCol.addConstraint(::mdb::Constraint(::mdb::Constraint::NotNull));
 
-			setColumns({ serverCol, messageIDCol, threadIDCol, authorUserCol, authorSessionCol, bodyCol,
+			setColumns({ serverCol, messageIDCol, threadIDCol, authorUserCol, authorSessionCol, authorNameCol, bodyCol,
 						 createdAtCol, editedAtCol, deletedAtCol });
 
 			::mdb::PrimaryKey pk({ serverCol.getName(), messageIDCol.getName() });
@@ -97,10 +101,12 @@ namespace server {
 			}
 
 			try {
-				unsigned int authorUserID = 0;
-				unsigned int authorSession = 0;
-				soci::indicator authorUserInd = soci::i_null;
+				unsigned int authorUserID   = 0;
+				unsigned int authorSession  = 0;
+				std::string authorName;
+				soci::indicator authorUserInd    = soci::i_null;
 				soci::indicator authorSessionInd = soci::i_null;
+				soci::indicator authorNameInd    = soci::i_null;
 
 				if (message.authorUserID) {
 					authorUserID  = message.authorUserID.value();
@@ -109,6 +115,10 @@ namespace server {
 				if (message.authorSession) {
 					authorSession    = message.authorSession.value();
 					authorSessionInd = soci::i_ok;
+				}
+				if (message.authorName && !message.authorName->empty()) {
+					authorName    = message.authorName.value();
+					authorNameInd = soci::i_ok;
 				}
 
 				auto createdAt = message.createdAt;
@@ -124,13 +134,13 @@ namespace server {
 
 				m_sql << "INSERT INTO \"" << NAME << "\" (\"" << column::server_id << "\", \"" << column::message_id
 					  << "\", \"" << column::thread_id << "\", \"" << column::author_user_id << "\", \""
-					  << column::author_session << "\", \"" << column::body << "\", \"" << column::created_at
+					  << column::author_session << "\", \"" << column::author_name << "\", \"" << column::body << "\", \"" << column::created_at
 					  << "\", \"" << column::edited_at << "\", \"" << column::deleted_at
-					  << "\") VALUES (:serverID, :messageID, :threadID, :authorUserID, :authorSession, :body, "
+					  << "\") VALUES (:serverID, :messageID, :threadID, :authorUserID, :authorSession, :authorName, :body, "
 						 ":createdAt, :editedAt, :deletedAt)",
 					soci::use(message.serverID), soci::use(message.messageID), soci::use(message.threadID),
 					soci::use(authorUserID, authorUserInd), soci::use(authorSession, authorSessionInd),
-					soci::use(message.body), soci::use(createdAtEpoch), soci::use(editedAtEpoch),
+					soci::use(authorName, authorNameInd), soci::use(message.body), soci::use(createdAtEpoch), soci::use(editedAtEpoch),
 					soci::use(deletedAtEpoch);
 
 				transaction.commit();
@@ -156,8 +166,8 @@ namespace server {
 
 				soci::statement stmt =
 					(m_sql.prepare << "SELECT \"" << column::message_id << "\", \"" << column::author_user_id
-								   << "\", \"" << column::author_session << "\", \"" << column::body << "\", \""
-								   << column::created_at << "\", \"" << column::edited_at << "\", \""
+								   << "\", \"" << column::author_session << "\", \"" << column::author_name << "\", \""
+								   << column::body << "\", \"" << column::created_at << "\", \"" << column::edited_at << "\", \""
 								   << column::deleted_at << "\" FROM \"" << NAME << "\" WHERE \"" << column::server_id
 								   << "\" = :serverID AND \"" << column::thread_id << "\" = :threadID ORDER BY \""
 								   << column::message_id << "\" DESC "
@@ -168,14 +178,15 @@ namespace server {
 				stmt.execute(false);
 
 				while (stmt.fetch()) {
-					assert(row.size() == 7);
+					assert(row.size() == 8);
 					assert(row.get_properties(0).get_data_type() == soci::dt_integer);
 					assert(row.get_properties(1).get_data_type() == soci::dt_integer);
 					assert(row.get_properties(2).get_data_type() == soci::dt_integer);
 					assert(row.get_properties(3).get_data_type() == soci::dt_string);
-					assert(row.get_properties(4).get_data_type() == soci::dt_long_long);
+					assert(row.get_properties(4).get_data_type() == soci::dt_string);
 					assert(row.get_properties(5).get_data_type() == soci::dt_long_long);
 					assert(row.get_properties(6).get_data_type() == soci::dt_long_long);
+					assert(row.get_properties(7).get_data_type() == soci::dt_long_long);
 
 					DBChatMessage message(serverID, static_cast< unsigned int >(row.get< int >(0)), threadID);
 					if (row.get_indicator(1) == soci::i_ok) {
@@ -184,10 +195,13 @@ namespace server {
 					if (row.get_indicator(2) == soci::i_ok) {
 						message.authorSession = static_cast< unsigned int >(row.get< int >(2));
 					}
-					message.body      = row.get< std::string >(3);
-					message.createdAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(4)));
-					message.editedAt  = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(5)));
-					message.deletedAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(6)));
+					if (row.get_indicator(3) == soci::i_ok) {
+						message.authorName = row.get< std::string >(3);
+					}
+					message.body      = row.get< std::string >(4);
+					message.createdAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(5)));
+					message.editedAt  = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(6)));
+					message.deletedAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(7)));
 
 					messages.push_back(std::move(message));
 				}
@@ -232,7 +246,26 @@ namespace server {
 				return;
 			}
 
-			::mdb::Table::migrate(fromSchemaVersion, toSchemaVersion);
+			try {
+				if (fromSchemaVersion < 14) {
+					m_sql << "INSERT INTO \"" << NAME << "\" (\"" << column::server_id << "\", \"" << column::message_id
+						  << "\", \"" << column::thread_id << "\", \"" << column::author_user_id << "\", \""
+						  << column::author_session << "\", \"" << column::author_name << "\", \"" << column::body
+						  << "\", \"" << column::created_at << "\", \"" << column::edited_at << "\", \""
+						  << column::deleted_at << "\") SELECT cm.\"server_id\", cm.\"message_id\", cm.\"thread_id\", "
+						  << "cm.\"author_user_id\", cm.\"author_session\", u.\"user_name\", cm.\"body\", "
+						  << "cm.\"created_at\", cm.\"edited_at\", cm.\"deleted_at\" FROM \"chat_messages"
+						  << mdb::Database::OLD_TABLE_SUFFIX
+						  << "\" AS cm LEFT JOIN \"" << UserTable::NAME
+						  << "\" AS u ON u.\"server_id\" = cm.\"server_id\" AND u.\"user_id\" = cm.\"author_user_id\"";
+				} else {
+					::mdb::Table::migrate(fromSchemaVersion, toSchemaVersion);
+				}
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::MigrationException(
+					std::string("Failed at migrating table \"") + NAME + "\" from schema version "
+					+ std::to_string(fromSchemaVersion) + " to " + std::to_string(toSchemaVersion)));
+			}
 		}
 
 	} // namespace db

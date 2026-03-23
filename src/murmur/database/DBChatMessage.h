@@ -20,6 +20,7 @@ namespace server {
 			unsigned int threadID                          = {};
 			std::optional< unsigned int > authorUserID     = {};
 			std::optional< unsigned int > authorSession    = {};
+			std::optional< std::string > authorName        = {};
 			std::string body                               = {};
 			std::chrono::system_clock::time_point createdAt = {};
 			std::chrono::system_clock::time_point editedAt  = {};

@@ -5,6 +5,7 @@
 
 #include "ScreenShareHelperClient.h"
 
+#include "Global.h"
 #include "MumbleApplication.h"
 #include "ScreenShare.h"
 #include "ScreenShareManager.h"
@@ -17,6 +18,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonParseError>
 #include <QtCore/QProcess>
+#include <QtCore/QStandardPaths>
 #include <QtCore/QThread>
 #include <QtNetwork/QLocalSocket>
 
@@ -80,6 +82,32 @@ QString ScreenShareHelperClient::defaultHelperExecutablePath() {
 	return QDir(basePath).filePath(helperName);
 }
 
+QString ScreenShareHelperClient::diagnosticsLogPath() {
+	QString basePath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+	if (basePath.trimmed().isEmpty()) {
+		basePath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+	}
+	if (basePath.trimmed().isEmpty()) {
+		basePath = QDir::homePath();
+	}
+
+	return QDir(basePath).filePath(QStringLiteral("screen-share-helper.log"));
+}
+
+QStringList ScreenShareHelperClient::helperLaunchArguments() {
+	if (!Global::get().s.bScreenShareDiagnostics) {
+		return {};
+	}
+
+	const QString logPath = diagnosticsLogPath();
+	const QFileInfo logInfo(logPath);
+	if (!logInfo.absoluteDir().exists()) {
+		logInfo.absoluteDir().mkpath(QStringLiteral("."));
+	}
+
+	return { QStringLiteral("--diagnostics-log-file"), logPath };
+}
+
 ScreenShareHelperClient::CapabilitySnapshot ScreenShareHelperClient::detectLocalCapabilities() {
 	CapabilitySnapshot snapshot;
 	snapshot.helperExecutable = defaultHelperExecutablePath();
@@ -138,7 +166,7 @@ bool ScreenShareHelperClient::ensureHelperRunning(const QString &helperExecutabl
 		return true;
 	}
 
-	if (!QProcess::startDetached(helperExecutable, QStringList())) {
+	if (!QProcess::startDetached(helperExecutable, helperLaunchArguments())) {
 		if (errorMessage) {
 			*errorMessage = QStringLiteral("Failed to launch helper executable %1.").arg(helperExecutable);
 		}

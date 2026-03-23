@@ -125,6 +125,38 @@ namespace {
 		nvenc.detail = nvenc.available ? QStringLiteral("ffmpeg NVENC encoder(s) are available")
 									   : QStringLiteral("ffmpeg NVENC encoders are unavailable");
 		backends.append(nvenc);
+#elif defined(Q_OS_WIN)
+		EncoderBackend mediaFoundation;
+		mediaFoundation.backendID   = QStringLiteral("mf");
+		mediaFoundation.displayName = QStringLiteral("Media Foundation via ffmpeg");
+		if (runtimeSupport.h264MfAvailable) {
+			mediaFoundation.codecs.append(static_cast< int >(MumbleProto::ScreenShareCodecH264));
+		}
+		if (runtimeSupport.av1MfAvailable) {
+			mediaFoundation.codecs.append(static_cast< int >(MumbleProto::ScreenShareCodecAV1));
+		}
+		mediaFoundation.hardware = true;
+		mediaFoundation.available = !mediaFoundation.codecs.isEmpty();
+		mediaFoundation.detail =
+			mediaFoundation.available
+				? QStringLiteral("ffmpeg Media Foundation encoder(s) are available; Windows chooses hardware assistance where supported.")
+				: QStringLiteral("ffmpeg Media Foundation encoders are unavailable");
+		backends.append(mediaFoundation);
+
+		EncoderBackend qsv;
+		qsv.backendID   = QStringLiteral("qsv");
+		qsv.displayName = QStringLiteral("Intel Quick Sync via ffmpeg");
+		if (runtimeSupport.h264QsvAvailable) {
+			qsv.codecs.append(static_cast< int >(MumbleProto::ScreenShareCodecH264));
+		}
+		if (runtimeSupport.av1QsvAvailable) {
+			qsv.codecs.append(static_cast< int >(MumbleProto::ScreenShareCodecAV1));
+		}
+		qsv.hardware = true;
+		qsv.available = !qsv.codecs.isEmpty();
+		qsv.detail = qsv.available ? QStringLiteral("ffmpeg Intel Quick Sync encoder(s) are available")
+								   : QStringLiteral("ffmpeg Intel Quick Sync encoders are unavailable");
+		backends.append(qsv);
 #endif
 
 		EncoderBackend x264;
@@ -259,17 +291,24 @@ namespace {
 			plan.errorMessage = relayContract.errorMessage;
 			return plan;
 		}
-		const EncoderBackend *selectedBackend  = selectEncoderBackend(backends, codec, preferHardware);
-		if (!selectedBackend) {
+		const bool browserManagedRuntime =
+			publish && relayContract.contractMode == QLatin1String("browser-webrtc-runtime");
+		const EncoderBackend *selectedBackend =
+			browserManagedRuntime ? nullptr : selectEncoderBackend(backends, codec, preferHardware);
+		if (!browserManagedRuntime && !selectedBackend) {
 			plan.errorMessage = QStringLiteral("No encoder backend can be planned for the negotiated codec.");
 			return plan;
 		}
 
 		QJsonArray warnings;
-		if (selectedBackend->backendID == QLatin1String("stub")) {
+		if (browserManagedRuntime) {
+			warnings.append(
+				QStringLiteral("The negotiated WebRTC relay will be executed through a dedicated browser runtime, so final codec and hardware acceleration decisions are delegated to the browser."));
+		} else if (selectedBackend->backendID == QLatin1String("stub")) {
 			warnings.append(QStringLiteral("No executable encoder backend was detected for the negotiated codec; start-publish will only work if stub fallback is explicitly enabled."));
 		}
-		if (codec == MumbleProto::ScreenShareCodecAV1 && selectedBackend->backendID == QLatin1String("stub")) {
+		if (!browserManagedRuntime && codec == MumbleProto::ScreenShareCodecAV1
+			&& selectedBackend->backendID == QLatin1String("stub")) {
 			warnings.append(QStringLiteral("AV1 is negotiable, but this host currently has no executable AV1 encode backend."));
 		}
 		for (const QString &warning : relayContract.warnings) {
@@ -307,12 +346,20 @@ namespace {
 		planPayload.insert(QStringLiteral("fps"), static_cast< int >(fps));
 		planPayload.insert(QStringLiteral("bitrate_kbps"), static_cast< int >(bitrate));
 		planPayload.insert(QStringLiteral("prefer_hardware_encoding"), preferHardware);
-		planPayload.insert(QStringLiteral("planned_encoder_backend"), codecBackendToken(selectedBackend->backendID, codec));
-		planPayload.insert(QStringLiteral("planned_encoder_detail"), selectedBackend->detail);
+		planPayload.insert(QStringLiteral("planned_encoder_backend"),
+						   browserManagedRuntime ? QStringLiteral("browser-webrtc-%1")
+													 .arg(Mumble::ScreenShare::codecToConfigToken(codec))
+												 : codecBackendToken(selectedBackend->backendID, codec));
+		planPayload.insert(QStringLiteral("planned_encoder_detail"),
+						   browserManagedRuntime
+							   ? QStringLiteral("Browser-managed WebRTC encode path. Codec preference is negotiated by Mumble, while final encoder selection happens inside the browser runtime.")
+							   : selectedBackend->detail);
 		planPayload.insert(QStringLiteral("planned_renderer_backend"),
-						   publish ? QStringLiteral("ffmpeg-publish")
-								   : (runtimeSupport.windowedViewerAvailable ? QStringLiteral("ffplay-view")
-																		: QStringLiteral("ffmpeg-view")));
+						   relayContract.contractMode == QLatin1String("browser-webrtc-runtime")
+							   ? QStringLiteral("browser-webrtc")
+						   : publish ? QStringLiteral("ffmpeg-publish")
+								   : (runtimeSupport.graphicalSessionAvailable ? QStringLiteral("ffplay-view")
+																			  : QStringLiteral("ffmpeg-view")));
 		planPayload.insert(QStringLiteral("warnings"), warnings);
 
 		plan.valid = true;

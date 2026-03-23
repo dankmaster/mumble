@@ -6,22 +6,29 @@
 #include "ScreenShareHelperServer.h"
 
 #include "ScreenShareExternalProcess.h"
+#include "ScreenShare.h"
 #include "ScreenShareIPC.h"
 #include "ScreenShareRelayClient.h"
 #include "ScreenShareSessionPlanner.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QDateTime>
+#include <QtCore/QDir>
 #include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QJsonParseError>
 #include <QtCore/QProcess>
+#include <QtCore/QStandardPaths>
+#include <QtCore/QThread>
 #include <QtCore/QUrl>
 #include <QtNetwork/QLocalSocket>
 
 namespace {
 	constexpr int IDLE_TIMEOUT_MSEC = 30000;
+	constexpr int SELF_TEST_FILE_WAIT_MSEC = 5000;
 
 	QString streamIDFromPayload(const QJsonObject &payload) {
 		return payload.value(QStringLiteral("stream_id")).toString().trimmed();
@@ -56,6 +63,65 @@ namespace {
 		QUrl redacted = url;
 		redacted.setQuery(QString());
 		return redacted.toString(QUrl::FullyEncoded);
+	}
+
+	bool replySucceeded(const QJsonObject &reply, QString *errorMessage = nullptr) {
+		return Mumble::ScreenShare::IPC::replySucceeded(reply, errorMessage);
+	}
+
+	QJsonObject makeSelfTestPayload(const QString &streamID, const QString &relayUrl, const QString &relayRoomID,
+									const MumbleProto::ScreenShareRelayRole relayRole) {
+		const quint64 now = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
+
+		QJsonObject payload;
+		payload.insert(QStringLiteral("stream_id"), streamID);
+		payload.insert(QStringLiteral("owner_session"), 1);
+		payload.insert(QStringLiteral("scope"),
+					   static_cast< int >(MumbleProto::ScreenShareScopeChannel));
+		payload.insert(QStringLiteral("scope_id"), 1);
+		payload.insert(QStringLiteral("relay_url"), relayUrl);
+		payload.insert(QStringLiteral("relay_room_id"), relayRoomID);
+		payload.insert(QStringLiteral("relay_transport"),
+					   static_cast< int >(MumbleProto::ScreenShareRelayTransportDirect));
+		payload.insert(QStringLiteral("relay_transport_token"), QStringLiteral("direct"));
+		payload.insert(QStringLiteral("relay_role"), static_cast< int >(relayRole));
+		payload.insert(QStringLiteral("relay_role_token"),
+					   Mumble::ScreenShare::relayRoleToConfigToken(relayRole));
+		payload.insert(QStringLiteral("relay_token"), QStringLiteral("self-test-token"));
+		payload.insert(QStringLiteral("relay_session_id"), QStringLiteral("self-test-session"));
+		payload.insert(QStringLiteral("relay_token_expires_at"), QString::number(now + 60000));
+		payload.insert(QStringLiteral("created_at"), QString::number(now));
+		payload.insert(QStringLiteral("state"),
+					   static_cast< int >(MumbleProto::ScreenShareLifecycleStateActive));
+		payload.insert(QStringLiteral("codec"),
+					   static_cast< int >(MumbleProto::ScreenShareCodecH264));
+		payload.insert(QStringLiteral("codec_token"), QStringLiteral("h264"));
+		payload.insert(QStringLiteral("width"), 1280);
+		payload.insert(QStringLiteral("height"), 720);
+		payload.insert(QStringLiteral("fps"), 30);
+		payload.insert(QStringLiteral("bitrate_kbps"), 4500);
+		payload.insert(QStringLiteral("prefer_hardware_encoding"), true);
+		return payload;
+	}
+
+	bool waitForFileToAppear(const QString &filePath, qint64 *fileSize = nullptr) {
+		const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + SELF_TEST_FILE_WAIT_MSEC;
+		while (QDateTime::currentMSecsSinceEpoch() < deadline) {
+			const QFileInfo fileInfo(filePath);
+			if (fileInfo.exists() && fileInfo.isFile() && fileInfo.size() > 0) {
+				if (fileSize) {
+					*fileSize = fileInfo.size();
+				}
+				return true;
+			}
+
+			QThread::msleep(100);
+		}
+
+		if (fileSize) {
+			*fileSize = QFileInfo(filePath).size();
+		}
+		return false;
 	}
 } // namespace
 
@@ -188,7 +254,7 @@ QJsonObject ScreenShareHelperServer::dispatchRequest(const QJsonObject &request)
 	return Mumble::ScreenShare::IPC::makeErrorReply(QStringLiteral("Unhandled command."));
 }
 
-QJsonObject ScreenShareHelperServer::handleQueryCapabilities() {
+QJsonObject ScreenShareHelperServer::capabilityPayload() const {
 	QJsonObject payload;
 	payload.insert(QStringLiteral("supports_signaling"), true);
 	payload.insert(QStringLiteral("helper_available"), true);
@@ -209,7 +275,86 @@ QJsonObject ScreenShareHelperServer::handleQueryCapabilities() {
 	payload.insert(QStringLiteral("signaling_relay_transports"), ScreenShareRelayClient::signalingRelayTransports());
 	payload.insert(QStringLiteral("runtime_support"),
 				   ScreenShareExternalProcess::runtimeSupportToJson(ScreenShareExternalProcess::probeRuntimeSupport()));
-	return Mumble::ScreenShare::IPC::makeSuccessReply(payload);
+	return payload;
+}
+
+QJsonObject ScreenShareHelperServer::handleQueryCapabilities() const {
+	return Mumble::ScreenShare::IPC::makeSuccessReply(capabilityPayload());
+}
+
+QJsonObject ScreenShareHelperServer::runSelfTest() {
+	const QString tempBase = QStandardPaths::writableLocation(QStandardPaths::TempLocation).trimmed().isEmpty()
+								 ? QDir::tempPath()
+								 : QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+	const QString relayDirectory =
+		QDir(tempBase).filePath(QStringLiteral("mumble-screen-share/self-test-relay"));
+	QDir(relayDirectory).removeRecursively();
+	QDir().mkpath(relayDirectory);
+
+	const QString streamID = QStringLiteral("self-test-%1")
+								 .arg(QString::number(QDateTime::currentMSecsSinceEpoch()));
+	const QString relayRoomID = QStringLiteral("room-%1").arg(streamID);
+	const QString relayUrl = QUrl::fromLocalFile(relayDirectory + QDir::separator()).toString();
+
+	const QJsonObject publishPayload =
+		makeSelfTestPayload(streamID, relayUrl, relayRoomID, MumbleProto::ScreenShareRelayRolePublisher);
+	const QJsonObject publishReply = handleStartPublish(publishPayload);
+	QString errorMessage;
+	if (!replySucceeded(publishReply, &errorMessage)) {
+		return Mumble::ScreenShare::IPC::makeErrorReply(
+			QStringLiteral("Self-test publish start failed: %1").arg(errorMessage), publishReply);
+	}
+
+	const QJsonObject publishResult = publishReply.value(QStringLiteral("payload")).toObject();
+	const QString outputUrl =
+		publishResult.value(QStringLiteral("active_endpoint_url")).toString();
+	const QString outputPath = QUrl(outputUrl).toLocalFile();
+	qint64 outputSize = 0;
+	if (outputPath.isEmpty() || !waitForFileToAppear(outputPath, &outputSize)) {
+		handleStopPublish(QJsonObject{ { QStringLiteral("stream_id"), streamID } });
+		return Mumble::ScreenShare::IPC::makeErrorReply(
+			QStringLiteral("Self-test did not observe a non-empty relay file."),
+			QJsonObject{
+				{ QStringLiteral("stream_id"), streamID },
+				{ QStringLiteral("active_endpoint_url"), outputUrl },
+				{ QStringLiteral("observed_file_size"), QString::number(outputSize) },
+			});
+	}
+
+	const QJsonObject stopPublishReply =
+		handleStopPublish(QJsonObject{ { QStringLiteral("stream_id"), streamID } });
+	if (!replySucceeded(stopPublishReply, &errorMessage)) {
+		return Mumble::ScreenShare::IPC::makeErrorReply(
+			QStringLiteral("Self-test publish stop failed: %1").arg(errorMessage), stopPublishReply);
+	}
+
+	const QJsonObject viewPayload =
+		makeSelfTestPayload(streamID, relayUrl, relayRoomID, MumbleProto::ScreenShareRelayRoleViewer);
+	const QJsonObject viewReply = handleStartView(viewPayload);
+	if (!replySucceeded(viewReply, &errorMessage)) {
+		return Mumble::ScreenShare::IPC::makeErrorReply(
+			QStringLiteral("Self-test view start failed: %1").arg(errorMessage), viewReply);
+	}
+
+	QThread::msleep(500);
+	const QJsonObject stopViewReply =
+		handleStopView(QJsonObject{ { QStringLiteral("stream_id"), streamID } });
+	if (!replySucceeded(stopViewReply, &errorMessage)) {
+		return Mumble::ScreenShare::IPC::makeErrorReply(
+			QStringLiteral("Self-test view stop failed: %1").arg(errorMessage), stopViewReply);
+	}
+
+	QJsonObject result;
+	result.insert(QStringLiteral("stream_id"), streamID);
+	result.insert(QStringLiteral("relay_url"), relayUrl);
+	result.insert(QStringLiteral("relay_room_id"), relayRoomID);
+	result.insert(QStringLiteral("output_file"), outputPath);
+	result.insert(QStringLiteral("output_size"), QString::number(outputSize));
+	result.insert(QStringLiteral("publish_reply"), publishResult);
+	result.insert(QStringLiteral("view_reply"), viewReply.value(QStringLiteral("payload")).toObject());
+	result.insert(QStringLiteral("runtime_support"),
+				  ScreenShareExternalProcess::runtimeSupportToJson(ScreenShareExternalProcess::probeRuntimeSupport()));
+	return Mumble::ScreenShare::IPC::makeSuccessReply(result);
 }
 
 QJsonObject ScreenShareHelperServer::handleStartPublish(const QJsonObject &payload) {

@@ -32,6 +32,9 @@ namespace {
 		QString localFilePath;
 	};
 
+	ScreenShareExternalProcess::LaunchResult
+		startProcess(const QString &program, const QStringList &arguments, QObject *parent, const QString &executionMode);
+
 	QString readMergedProcessOutput(QProcess &process) {
 		return QString::fromUtf8(process.readAll());
 	}
@@ -98,6 +101,207 @@ namespace {
 		return path;
 	}
 
+	QString findExecutableAny(const QStringList &candidates) {
+		for (const QString &candidate : candidates) {
+			const QString resolved = QStandardPaths::findExecutable(candidate);
+			if (!resolved.isEmpty()) {
+				return resolved;
+			}
+		}
+
+		return QString();
+	}
+
+#ifdef Q_OS_WIN
+	QString existingWindowsBrowserPath(const QStringList &relativePaths) {
+		QStringList roots;
+		for (const char *envName : { "ProgramFiles", "ProgramFiles(x86)", "LocalAppData" }) {
+			const QString root = qEnvironmentVariable(envName).trimmed();
+			if (!root.isEmpty() && !roots.contains(root)) {
+				roots.append(root);
+			}
+		}
+
+		for (const QString &root : roots) {
+			for (const QString &relativePath : relativePaths) {
+				const QString candidate = QDir(root).filePath(relativePath);
+				if (QFileInfo(candidate).isExecutable()) {
+					return candidate;
+				}
+			}
+		}
+
+		return QString();
+	}
+#endif
+
+	QString preferredBrowserPath(const ScreenShareExternalProcess::RuntimeSupport &support, QString *browserID = nullptr) {
+		if (support.edgeAvailable) {
+			if (browserID) {
+				*browserID = QStringLiteral("edge");
+			}
+			return support.edgePath;
+		}
+		if (support.chromeAvailable) {
+			if (browserID) {
+				*browserID = QStringLiteral("chrome");
+			}
+			return support.chromePath;
+		}
+		if (support.firefoxAvailable) {
+			if (browserID) {
+				*browserID = QStringLiteral("firefox");
+			}
+			return support.firefoxPath;
+		}
+
+		if (browserID) {
+			browserID->clear();
+		}
+		return QString();
+	}
+
+	QString browserProfileDirectory(const QJsonObject &plan, const bool publish, const QString &browserID) {
+		const QString streamID = plan.value(QStringLiteral("stream_id")).toString().trimmed();
+		const QString sanitizedStreamID =
+			streamID.isEmpty() ? QStringLiteral("screen-share")
+							   : sanitizeRoomToken(streamID);
+		QString tempBase = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+		if (tempBase.trimmed().isEmpty()) {
+			tempBase = QDir::tempPath();
+		}
+
+		return QDir(tempBase)
+			.filePath(QStringLiteral("mumble-screen-share/%1/%2-%3")
+						  .arg(browserID,
+							   publish ? QStringLiteral("publish") : QStringLiteral("view"),
+							   sanitizedStreamID));
+	}
+
+	QString browserLaunchUrl(const QJsonObject &plan, QString *errorMessage, QStringList *warnings) {
+		const QString relayUrl = Mumble::ScreenShare::normalizeRelayUrl(plan.value(QStringLiteral("relay_url")).toString());
+		if (relayUrl.isEmpty()) {
+			if (errorMessage) {
+				*errorMessage = QStringLiteral("Missing or invalid relay_url.");
+			}
+			return QString();
+		}
+
+		QUrl launchUrl(relayUrl);
+		const QString originalScheme = launchUrl.scheme().trimmed().toLower();
+		if (originalScheme == QLatin1String("wss")) {
+			launchUrl.setScheme(QStringLiteral("https"));
+			if (warnings) {
+				warnings->append(
+					QStringLiteral("Launching the WebRTC relay UI over https while preserving the original wss relay URL as signaling metadata."));
+			}
+		} else if (originalScheme == QLatin1String("ws")) {
+			launchUrl.setScheme(QStringLiteral("http"));
+			if (warnings) {
+				warnings->append(
+					QStringLiteral("Launching the WebRTC relay UI over http while preserving the original ws relay URL as signaling metadata."));
+			}
+		}
+
+		if (launchUrl.scheme().trimmed().isEmpty() || launchUrl.host().trimmed().isEmpty()) {
+			if (errorMessage) {
+				*errorMessage = QStringLiteral("Unable to derive a browser launch URL from relay_url.");
+			}
+			return QString();
+		}
+
+		QUrlQuery query(launchUrl);
+		auto appendQuery = [&](const QString &key, const QString &value) {
+			if (!value.trimmed().isEmpty()) {
+				query.addQueryItem(key, value);
+			}
+		};
+
+		appendQuery(QStringLiteral("mumble_screen_share"), QStringLiteral("1"));
+		appendQuery(QStringLiteral("relay_url"), relayUrl);
+		appendQuery(QStringLiteral("relay_room_id"), plan.value(QStringLiteral("relay_room_id")).toString());
+		appendQuery(QStringLiteral("relay_token"), plan.value(QStringLiteral("relay_token")).toString());
+		appendQuery(QStringLiteral("relay_session_id"), plan.value(QStringLiteral("relay_session_id")).toString());
+		appendQuery(QStringLiteral("stream_id"), plan.value(QStringLiteral("stream_id")).toString());
+		appendQuery(QStringLiteral("relay_role"), plan.value(QStringLiteral("relay_role_token")).toString());
+		appendQuery(QStringLiteral("codec"), plan.value(QStringLiteral("codec_token")).toString());
+		appendQuery(QStringLiteral("transport"), plan.value(QStringLiteral("relay_transport_token")).toString());
+		appendQuery(QStringLiteral("width"), QString::number(qMax(0, plan.value(QStringLiteral("width")).toInt())));
+		appendQuery(QStringLiteral("height"), QString::number(qMax(0, plan.value(QStringLiteral("height")).toInt())));
+		appendQuery(QStringLiteral("fps"), QString::number(qMax(0, plan.value(QStringLiteral("fps")).toInt())));
+		appendQuery(QStringLiteral("bitrate_kbps"),
+					QString::number(qMax(0, plan.value(QStringLiteral("bitrate_kbps")).toInt())));
+		launchUrl.setQuery(query);
+		return launchUrl.toString(QUrl::FullyEncoded);
+	}
+
+	ScreenShareExternalProcess::LaunchResult startBrowserWebRtcSession(
+		const ScreenShareExternalProcess::RuntimeSupport &support, const QJsonObject &plan, QObject *parent,
+		const bool publish) {
+		ScreenShareExternalProcess::LaunchResult launch;
+		if (!support.graphicalSessionAvailable) {
+			launch.errorMessage =
+				QStringLiteral("A graphical desktop session is required for the helper WebRTC browser runtime.");
+			return launch;
+		}
+
+		QString browserID;
+		const QString browserPath = preferredBrowserPath(support, &browserID);
+		if (browserPath.isEmpty()) {
+			launch.errorMessage =
+				QStringLiteral("No supported browser runtime was found for WebRTC screen sharing.");
+			return launch;
+		}
+
+		QString launchUrlError;
+		QStringList warnings;
+		const QString launchUrl = browserLaunchUrl(plan, &launchUrlError, &warnings);
+		if (launchUrl.isEmpty()) {
+			launch.errorMessage = launchUrlError;
+			return launch;
+		}
+
+		const QString profileDir = browserProfileDirectory(plan, publish, browserID);
+		QDir(profileDir).removeRecursively();
+		QDir().mkpath(profileDir);
+
+		QStringList arguments;
+		if (browserID == QLatin1String("edge") || browserID == QLatin1String("chrome")) {
+			arguments << QStringLiteral("--new-window")
+					  << QStringLiteral("--disable-session-crashed-bubble")
+					  << QStringLiteral("--autoplay-policy=no-user-gesture-required")
+					  << QStringLiteral("--user-data-dir=%1").arg(profileDir)
+					  << QStringLiteral("--app=%1").arg(launchUrl);
+		} else if (browserID == QLatin1String("firefox")) {
+			arguments << QStringLiteral("-new-instance")
+					  << QStringLiteral("-profile")
+					  << profileDir
+					  << QStringLiteral("-new-window")
+					  << launchUrl;
+		} else {
+			launch.errorMessage = QStringLiteral("Unsupported browser runtime selected for WebRTC.");
+			return launch;
+		}
+
+		launch = startProcess(browserPath, arguments, parent,
+							  publish ? QStringLiteral("browser-webrtc-publish")
+									  : QStringLiteral("browser-webrtc-view"));
+		if (!launch.started) {
+			return launch;
+		}
+
+		launch.endpointUrl = launchUrl;
+		launch.warnings    = warnings;
+		if (publish) {
+			launch.selectedCaptureSource = QStringLiteral("browser-webrtc-%1").arg(browserID);
+			launch.selectedEncoder = QStringLiteral("browser-webrtc");
+		} else {
+			launch.selectedRenderer = QStringLiteral("browser-webrtc-%1").arg(browserID);
+		}
+
+		return launch;
+	}
+
 	QString detectRenderNode() {
 #ifdef Q_OS_LINUX
 		const QDir driDir(QStringLiteral("/dev/dri"));
@@ -152,6 +356,12 @@ namespace {
 				if (support.h264VaapiAvailable) {
 					appendUnique(QStringLiteral("vaapi-h264"));
 				}
+				if (support.h264MfAvailable) {
+					appendUnique(QStringLiteral("mf-h264"));
+				}
+				if (support.h264QsvAvailable) {
+					appendUnique(QStringLiteral("qsv-h264"));
+				}
 				if (support.libx264Available) {
 					appendUnique(QStringLiteral("libx264-h264"));
 				}
@@ -162,6 +372,12 @@ namespace {
 				}
 				if (support.av1VaapiAvailable) {
 					appendUnique(QStringLiteral("vaapi-av1"));
+				}
+				if (support.av1MfAvailable) {
+					appendUnique(QStringLiteral("mf-av1"));
+				}
+				if (support.av1QsvAvailable) {
+					appendUnique(QStringLiteral("qsv-av1"));
 				}
 				if (support.libSvtAv1Available) {
 					appendUnique(QStringLiteral("libsvtav1-av1"));
@@ -294,7 +510,7 @@ namespace {
 		}
 
 #ifdef Q_OS_WIN
-		if (forcedSource == QLatin1String("gdigrab") || forcedSource == QLatin1String("windows")
+		if (forcedSource == QLatin1String("gdi") || forcedSource == QLatin1String("gdigrab")
 			|| forcedSource == QLatin1String("desktop") || forcedSource.isEmpty()) {
 			if (!support.gdigrabAvailable) {
 				if (errorMessage) {
@@ -317,10 +533,6 @@ namespace {
 				arguments->append(QStringLiteral("1"));
 				arguments->append(QStringLiteral("-framerate"));
 				arguments->append(QString::number(fps));
-				arguments->append(QStringLiteral("-offset_x"));
-				arguments->append(QStringLiteral("0"));
-				arguments->append(QStringLiteral("-offset_y"));
-				arguments->append(QStringLiteral("0"));
 				arguments->append(QStringLiteral("-video_size"));
 				arguments->append(QStringLiteral("%1x%2").arg(width).arg(height));
 				arguments->append(QStringLiteral("-i"));
@@ -424,11 +636,33 @@ namespace {
 					}
 					return true;
 				}
+				if (plannedBackend.contains(QLatin1String("mf")) && support.h264MfAvailable) {
+					appendRateControl(QStringLiteral("h264_mf"));
+					arguments->append(QStringLiteral("-pix_fmt"));
+					arguments->append(QStringLiteral("nv12"));
+					if (selectedEncoder) {
+						*selectedEncoder = QStringLiteral("h264_mf");
+					}
+					return true;
+				}
+				if (plannedBackend.contains(QLatin1String("qsv")) && support.h264QsvAvailable) {
+					appendRateControl(QStringLiteral("h264_qsv"));
+					arguments->append(QStringLiteral("-pix_fmt"));
+					arguments->append(QStringLiteral("nv12"));
+					if (selectedEncoder) {
+						*selectedEncoder = QStringLiteral("h264_qsv");
+					}
+					return true;
+				}
 				if (support.libx264Available) {
 					if (warnings && plannedBackend.contains(QLatin1String("nvenc"))) {
 						warnings->append(QStringLiteral("Falling back from NVENC to libx264 on this host."));
 					} else if (warnings && plannedBackend.contains(QLatin1String("vaapi"))) {
 						warnings->append(QStringLiteral("Falling back from VA-API to libx264 on this host."));
+					} else if (warnings && plannedBackend.contains(QLatin1String("mf"))) {
+						warnings->append(QStringLiteral("Falling back from Media Foundation H.264 to libx264 on this host."));
+					} else if (warnings && plannedBackend.contains(QLatin1String("qsv"))) {
+						warnings->append(QStringLiteral("Falling back from Intel Quick Sync H.264 to libx264 on this host."));
 					}
 					appendRateControl(QStringLiteral("libx264"));
 					arguments->append(QStringLiteral("-preset"));
@@ -468,9 +702,27 @@ namespace {
 					}
 					return true;
 				}
+				if (plannedBackend.contains(QLatin1String("mf")) && support.av1MfAvailable) {
+					appendRateControl(QStringLiteral("av1_mf"));
+					if (selectedEncoder) {
+						*selectedEncoder = QStringLiteral("av1_mf");
+					}
+					return true;
+				}
+				if (plannedBackend.contains(QLatin1String("qsv")) && support.av1QsvAvailable) {
+					appendRateControl(QStringLiteral("av1_qsv"));
+					if (selectedEncoder) {
+						*selectedEncoder = QStringLiteral("av1_qsv");
+					}
+					return true;
+				}
 				if (support.libSvtAv1Available) {
 					if (warnings && (plannedBackend.contains(QLatin1String("nvenc")) || plannedBackend.contains(QLatin1String("vaapi")))) {
 						warnings->append(QStringLiteral("Falling back to libsvtav1 on this host."));
+					} else if (warnings && plannedBackend.contains(QLatin1String("mf"))) {
+						warnings->append(QStringLiteral("Falling back from Media Foundation AV1 to libsvtav1 on this host."));
+					} else if (warnings && plannedBackend.contains(QLatin1String("qsv"))) {
+						warnings->append(QStringLiteral("Falling back from Intel Quick Sync AV1 to libsvtav1 on this host."));
 					}
 					appendRateControl(QStringLiteral("libsvtav1"));
 					arguments->append(QStringLiteral("-preset"));
@@ -543,8 +795,48 @@ ScreenShareExternalProcess::RuntimeSupport ScreenShareExternalProcess::probeRunt
 	RuntimeSupport support;
 	support.ffmpegPath     = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
 	support.ffplayPath     = QStandardPaths::findExecutable(QStringLiteral("ffplay"));
+#ifdef Q_OS_WIN
+	support.edgePath = findExecutableAny(QStringList{ QStringLiteral("msedge.exe") });
+	if (support.edgePath.isEmpty()) {
+		support.edgePath = existingWindowsBrowserPath(QStringList{
+			QStringLiteral("Microsoft/Edge/Application/msedge.exe"),
+			QStringLiteral("Microsoft/Edge Beta/Application/msedge.exe") });
+	}
+	support.chromePath = findExecutableAny(QStringList{ QStringLiteral("chrome.exe") });
+	if (support.chromePath.isEmpty()) {
+		support.chromePath = existingWindowsBrowserPath(QStringList{
+			QStringLiteral("Google/Chrome/Application/chrome.exe"),
+			QStringLiteral("Chromium/Application/chrome.exe") });
+	}
+	support.firefoxPath = findExecutableAny(QStringList{ QStringLiteral("firefox.exe") });
+	if (support.firefoxPath.isEmpty()) {
+		support.firefoxPath =
+			existingWindowsBrowserPath(QStringList{ QStringLiteral("Mozilla Firefox/firefox.exe") });
+	}
+#else
+	support.edgePath = findExecutableAny(QStringList{
+		QStringLiteral("microsoft-edge"),
+		QStringLiteral("microsoft-edge-stable") });
+	support.chromePath = findExecutableAny(QStringList{
+		QStringLiteral("google-chrome"),
+		QStringLiteral("google-chrome-stable"),
+		QStringLiteral("chromium"),
+		QStringLiteral("chromium-browser") });
+	support.firefoxPath = findExecutableAny(QStringList{ QStringLiteral("firefox") });
+#endif
 	support.ffmpegAvailable = !support.ffmpegPath.isEmpty();
 	support.ffplayAvailable = !support.ffplayPath.isEmpty();
+	support.edgeAvailable   = !support.edgePath.isEmpty();
+	support.chromeAvailable = !support.chromePath.isEmpty();
+	support.firefoxAvailable = !support.firefoxPath.isEmpty();
+#ifdef Q_OS_WIN
+	support.graphicalSessionAvailable = true;
+#else
+	support.graphicalSessionAvailable = !qEnvironmentVariable("DISPLAY").trimmed().isEmpty()
+		|| !qEnvironmentVariable("WAYLAND_DISPLAY").trimmed().isEmpty();
+#endif
+	support.browserWebRtcAvailable =
+		support.graphicalSessionAvailable && (support.edgeAvailable || support.chromeAvailable || support.firefoxAvailable);
 	support.x11DisplayAvailable = !qEnvironmentVariable("DISPLAY").trimmed().isEmpty();
 	support.windowedViewerAvailable = hasWindowedViewerSurface();
 
@@ -555,6 +847,7 @@ ScreenShareExternalProcess::RuntimeSupport ScreenShareExternalProcess::probeRunt
 
 		support.gdigrabAvailable  = devices.contains(QLatin1String("gdigrab"));
 		support.x11GrabAvailable   = devices.contains(QLatin1String("x11grab"));
+		support.gdigrabAvailable   = devices.contains(QLatin1String("gdigrab"));
 		support.lavfiAvailable     = devices.contains(QLatin1String("lavfi"));
 #ifdef Q_OS_LINUX
 		const bool nvidiaDeviceAvailable = anyNvidiaDevicePresent();
@@ -564,9 +857,13 @@ ScreenShareExternalProcess::RuntimeSupport ScreenShareExternalProcess::probeRunt
 
 		support.h264NvencAvailable = encoders.contains(QLatin1String("h264_nvenc")) && nvidiaDeviceAvailable;
 		support.h264VaapiAvailable = encoders.contains(QLatin1String("h264_vaapi"));
+		support.h264MfAvailable    = encoders.contains(QLatin1String("h264_mf"));
+		support.h264QsvAvailable   = encoders.contains(QLatin1String("h264_qsv"));
 		support.libx264Available   = encoders.contains(QLatin1String("libx264"));
 		support.av1NvencAvailable  = encoders.contains(QLatin1String("av1_nvenc")) && nvidiaDeviceAvailable;
 		support.av1VaapiAvailable  = encoders.contains(QLatin1String("av1_vaapi"));
+		support.av1MfAvailable     = encoders.contains(QLatin1String("av1_mf"));
+		support.av1QsvAvailable    = encoders.contains(QLatin1String("av1_qsv"));
 		support.libSvtAv1Available = encoders.contains(QLatin1String("libsvtav1"));
 		support.libVpxVp9Available = encoders.contains(QLatin1String("libvpx-vp9"));
 		support.fileProtocolAvailable = protocols.contains(QLatin1String("file"));
@@ -582,16 +879,25 @@ QJsonObject ScreenShareExternalProcess::runtimeSupportToJson(const RuntimeSuppor
 	QJsonObject payload;
 	payload.insert(QStringLiteral("ffmpeg_available"), support.ffmpegAvailable);
 	payload.insert(QStringLiteral("ffplay_available"), support.ffplayAvailable);
-	payload.insert(QStringLiteral("gdigrab_available"), support.gdigrabAvailable);
+	payload.insert(QStringLiteral("browser_webrtc_available"), support.browserWebRtcAvailable);
+	payload.insert(QStringLiteral("edge_available"), support.edgeAvailable);
+	payload.insert(QStringLiteral("chrome_available"), support.chromeAvailable);
+	payload.insert(QStringLiteral("firefox_available"), support.firefoxAvailable);
+	payload.insert(QStringLiteral("graphical_session_available"), support.graphicalSessionAvailable);
 	payload.insert(QStringLiteral("x11_display_available"), support.x11DisplayAvailable);
 	payload.insert(QStringLiteral("x11grab_available"), support.x11GrabAvailable);
+	payload.insert(QStringLiteral("gdigrab_available"), support.gdigrabAvailable);
 	payload.insert(QStringLiteral("lavfi_available"), support.lavfiAvailable);
 	payload.insert(QStringLiteral("windowed_viewer_available"), support.windowedViewerAvailable);
 	payload.insert(QStringLiteral("h264_nvenc_available"), support.h264NvencAvailable);
 	payload.insert(QStringLiteral("h264_vaapi_available"), support.h264VaapiAvailable);
+	payload.insert(QStringLiteral("h264_mf_available"), support.h264MfAvailable);
+	payload.insert(QStringLiteral("h264_qsv_available"), support.h264QsvAvailable);
 	payload.insert(QStringLiteral("libx264_available"), support.libx264Available);
 	payload.insert(QStringLiteral("av1_nvenc_available"), support.av1NvencAvailable);
 	payload.insert(QStringLiteral("av1_vaapi_available"), support.av1VaapiAvailable);
+	payload.insert(QStringLiteral("av1_mf_available"), support.av1MfAvailable);
+	payload.insert(QStringLiteral("av1_qsv_available"), support.av1QsvAvailable);
 	payload.insert(QStringLiteral("libsvtav1_available"), support.libSvtAv1Available);
 	payload.insert(QStringLiteral("libvpx_vp9_available"), support.libVpxVp9Available);
 	payload.insert(QStringLiteral("file_protocol_available"), support.fileProtocolAvailable);
@@ -608,6 +914,12 @@ QJsonObject ScreenShareExternalProcess::runtimeSupportToJson(const RuntimeSuppor
 	if (support.rtmpsProtocolAvailable) {
 		publishSchemes.push_back(QStringLiteral("rtmps"));
 	}
+	if (support.browserWebRtcAvailable) {
+		publishSchemes.push_back(QStringLiteral("http"));
+		publishSchemes.push_back(QStringLiteral("https"));
+		publishSchemes.push_back(QStringLiteral("ws"));
+		publishSchemes.push_back(QStringLiteral("wss"));
+	}
 	payload.insert(QStringLiteral("publish_relay_schemes"), publishSchemes);
 	payload.insert(QStringLiteral("view_relay_schemes"), publishSchemes);
 	return payload;
@@ -616,6 +928,9 @@ QJsonObject ScreenShareExternalProcess::runtimeSupportToJson(const RuntimeSuppor
 ScreenShareExternalProcess::LaunchResult ScreenShareExternalProcess::startPublish(const QJsonObject &plan, QObject *parent) {
 	LaunchResult launch;
 	const RuntimeSupport support = probeRuntimeSupport();
+	if (plan.value(QStringLiteral("relay_contract_mode")).toString() == QLatin1String("browser-webrtc-runtime")) {
+		return startBrowserWebRtcSession(support, plan, parent, true);
+	}
 	if (!plan.value(QStringLiteral("relay_runtime_executable")).toBool(true)) {
 		launch.errorMessage =
 			plan.value(QStringLiteral("relay_contract_description"))
@@ -737,6 +1052,9 @@ ScreenShareExternalProcess::LaunchResult ScreenShareExternalProcess::startPublis
 ScreenShareExternalProcess::LaunchResult ScreenShareExternalProcess::startView(const QJsonObject &plan, QObject *parent) {
 	LaunchResult launch;
 	const RuntimeSupport support = probeRuntimeSupport();
+	if (plan.value(QStringLiteral("relay_contract_mode")).toString() == QLatin1String("browser-webrtc-runtime")) {
+		return startBrowserWebRtcSession(support, plan, parent, false);
+	}
 	if (!plan.value(QStringLiteral("relay_runtime_executable")).toBool(true)) {
 		launch.errorMessage =
 			plan.value(QStringLiteral("relay_contract_description"))
@@ -749,7 +1067,7 @@ ScreenShareExternalProcess::LaunchResult ScreenShareExternalProcess::startView(c
 		}
 		return launch;
 	}
-	const bool headlessView = envFlagEnabled("MUMBLE_SCREENSHARE_HEADLESS_VIEW") || !support.windowedViewerAvailable;
+	const bool headlessView = !support.graphicalSessionAvailable || envFlagEnabled("MUMBLE_SCREENSHARE_HEADLESS_VIEW");
 	if (headlessView ? !support.ffmpegAvailable : !support.ffplayAvailable) {
 		launch.errorMessage =
 			headlessView ? QStringLiteral("ffmpeg is not installed on this host for headless viewer mode.")

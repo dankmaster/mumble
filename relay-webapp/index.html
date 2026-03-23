@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Mumble Screen Share Relay</title>
+	<link rel="stylesheet" href="./styles.css">
+	<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.3/dist/livekit-client.umd.min.js" defer></script>
+</head>
+<body>
+	<main class="shell">
+		<section class="hero">
+			<p class="eyebrow">Mumble Premium Screen Share</p>
+			<h1 id="title">Preparing screen share…</h1>
+			<p id="subtitle" class="subtitle">
+				This window is managed by the Mumble screen-share helper.
+			</p>
+			<div class="status-row">
+				<span id="role-pill" class="pill">waiting</span>
+				<span id="connection-pill" class="pill pill-muted">idle</span>
+			</div>
+		</section>
+
+		<section class="panel panel-actions">
+			<div id="publisher-actions" class="actions hidden">
+				<button id="start-share" class="primary">Start sharing</button>
+				<button id="stop-share" class="secondary" disabled>Stop sharing</button>
+			</div>
+			<div id="viewer-actions" class="actions hidden">
+				<button id="reconnect-view" class="secondary">Reconnect</button>
+			</div>
+			<p id="hint" class="hint"></p>
+		</section>
+
+		<section class="panel panel-stage">
+			<div id="video-stage" class="video-stage">
+				<div id="empty-state" class="empty-state">
+					<h2 id="empty-title">Waiting for screen share</h2>
+					<p id="empty-copy">Nothing is being rendered yet.</p>
+				</div>
+			</div>
+		</section>
+
+		<section class="panel panel-meta">
+			<dl class="meta-grid">
+				<div>
+					<dt>Stream</dt>
+					<dd id="meta-stream">unknown</dd>
+				</div>
+				<div>
+					<dt>Room</dt>
+					<dd id="meta-room">unknown</dd>
+				</div>
+				<div>
+					<dt>Relay</dt>
+					<dd id="meta-relay">unknown</dd>
+				</div>
+				<div>
+					<dt>Codec</dt>
+					<dd id="meta-codec">unknown</dd>
+				</div>
+			</dl>
+		</section>
+
+		<section class="panel panel-log">
+			<h2>Diagnostics</h2>
+			<pre id="log" class="log"></pre>
+		</section>
+	</main>
+
+	<script src="./relay-app.js" defer></script>
+</body>
+</html>

@@ -344,7 +344,8 @@ namespace {
 	}
 
 	MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
-													 unsigned int scopeID) {
+													 unsigned int scopeID,
+													 const std::optional< std::string > &resolvedAuthorName = std::nullopt) {
 		MumbleProto::ChatMessage protoMessage;
 		protoMessage.set_scope(scope);
 		protoMessage.set_scope_id(scopeID);
@@ -355,6 +356,9 @@ namespace {
 		}
 		if (message.authorUserID) {
 			protoMessage.set_actor_user_id(message.authorUserID.value());
+		}
+		if (resolvedAuthorName && !resolvedAuthorName->empty()) {
+			protoMessage.set_actor_name(*resolvedAuthorName);
 		}
 		protoMessage.set_message(message.body);
 		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
@@ -451,6 +455,8 @@ void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &
 											  ::msdb::ChatThreadScope dbScope,
 											  const QSet< ServerUser * > &legacyFallbackRecipients) {
 	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
+	const std::optional< std::string > authorName =
+		uSource->qsName.isEmpty() ? std::nullopt : std::optional< std::string >(u8(uSource->qsName));
 	const std::string scopeKey                       = chatScopeKey(scope, scopeID);
 	if (scopeKey.empty()) {
 		return;
@@ -459,9 +465,10 @@ void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &
 	::msdb::DBChatThread thread =
 		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
 	::msdb::DBChatMessage storedMessage =
-		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), authorUserID, uSource->uiSession);
+		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), authorUserID, uSource->uiSession,
+								   authorName);
 
-	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID);
+	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID, authorName);
 
 	for (ServerUser *currentUser : recipientsWithTextAccess(qhUsers, permissionChannel, acCache)) {
 		if (clientSupportsPersistentChat(currentUser)) {
@@ -2279,6 +2286,25 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	response.set_scope(scope);
 	response.set_scope_id(scopeID);
 	response.set_start_offset(startOffset);
+
+	const auto resolvedAuthorName = [this](const ::msdb::DBChatMessage &message) -> std::optional< std::string > {
+		if (message.authorName && !message.authorName->empty()) {
+			return message.authorName;
+		}
+
+		if (message.authorSession) {
+			ServerUser *currentUser = qhUsers.value(message.authorSession.value());
+			if (currentUser && !currentUser->qsName.isEmpty()) {
+				return u8(currentUser->qsName);
+			}
+		}
+
+		if (message.authorUserID && m_dbWrapper.registeredUserExists(iServerNum, message.authorUserID.value())) {
+			return m_dbWrapper.getUserName(iServerNum, message.authorUserID.value());
+		}
+
+		return std::nullopt;
+	};
 	response.set_has_more(false);
 
 	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
@@ -2340,7 +2366,8 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 			std::reverse(page.begin(), page.end());
 
 			for (const AggregateChatEntry &entry : page) {
-				*response.add_messages() = protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID);
+				*response.add_messages() =
+					protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID, resolvedAuthorName(entry.message));
 			}
 		}
 
@@ -2375,7 +2402,8 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	}
 
 	for (const ::msdb::DBChatMessage &currentMessage : messages) {
-		*response.add_messages() = protoChatMessageFromDB(currentMessage, scope, scopeID);
+		*response.add_messages() =
+			protoChatMessageFromDB(currentMessage, scope, scopeID, resolvedAuthorName(currentMessage));
 	}
 
 	const std::optional< unsigned int > userID = persistedUserID(uSource);
@@ -2927,6 +2955,16 @@ void Server::msgVersion(ServerUser *uSource, MumbleProto::Version &msg) {
 					 .arg(uSource->qsOS)
 					 .arg(uSource->qsOSVersion)
 					 .arg(uSource->qsRelease));
+	if (uSource->bSupportsScreenShareSignaling) {
+		screenShareDiagnosticLog(QStringLiteral("Client %1 advertised screen-share support capture=%2 view=%3 codecs=%4 max=%5x%6@%7")
+									 .arg(uSource->uiSession)
+									 .arg(uSource->bSupportsScreenShareCapture)
+									 .arg(uSource->bSupportsScreenShareView)
+									 .arg(Mumble::ScreenShare::codecPreferenceString(uSource->qlSupportedScreenShareCodecs))
+									 .arg(uSource->uiMaxScreenShareWidth)
+									 .arg(uSource->uiMaxScreenShareHeight)
+									 .arg(uSource->uiMaxScreenShareFps));
+	}
 }
 
 void Server::msgUserList(ServerUser *uSource, MumbleProto::UserList &msg) {
@@ -3304,6 +3342,10 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 	MSG_SETUP(ServerUser::Authenticated);
 
 	auto deny = [&](const QString &reason) {
+		screenShareDiagnosticLog(QStringLiteral("Denied create from session %1 in channel %2: %3")
+									 .arg(uSource->uiSession)
+									 .arg(uSource->cChannel ? uSource->cChannel->iId : 0)
+									 .arg(reason));
 		MumbleProto::PermissionDenied denied;
 		denied.set_session(uSource->uiSession);
 		denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
@@ -3411,6 +3453,16 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 
 	ScreenShareStream &storedStream = qhScreenShareStreams[stream.qsStreamID];
 	sendScreenShareStateToAudience(storedStream);
+	screenShareDiagnosticLog(QStringLiteral("Created stream %1 owner=%2 channel=%3 codec=%4 size=%5x%6@%7 bitrate=%8 relay=%9")
+								 .arg(storedStream.qsStreamID)
+								 .arg(storedStream.uiOwnerSession)
+								 .arg(storedStream.uiScopeID)
+								 .arg(Mumble::ScreenShare::codecToConfigToken(storedStream.codec))
+								 .arg(storedStream.uiWidth)
+								 .arg(storedStream.uiHeight)
+								 .arg(storedStream.uiFps)
+								 .arg(storedStream.uiBitrateKbps)
+								 .arg(Mumble::ScreenShare::relayTransportToConfigToken(storedStream.relayTransport)));
 	log(uSource, QString::fromLatin1("Started screen share %1 (%2 %3x%4@%5 %6 kbps)")
 					   .arg(storedStream.qsStreamID)
 					   .arg(Mumble::ScreenShare::codecToConfigToken(storedStream.codec))
@@ -3474,6 +3526,12 @@ void Server::msgScreenShareOffer(ServerUser *uSource, MumbleProto::ScreenShareOf
 	if (!stream.qsRelayRoomID.isEmpty()) {
 		msg.set_relay_room_id(u8(stream.qsRelayRoomID));
 	}
+	screenShareDiagnosticLog(QStringLiteral("Forwarding offer stream=%1 from=%2 to=%3 viewer=%4 sdp_bytes=%5")
+								 .arg(stream.qsStreamID)
+								 .arg(uSource->uiSession)
+								 .arg(target ? target->uiSession : 0)
+								 .arg(msg.has_viewer_session() ? msg.viewer_session() : 0)
+								 .arg(msg.has_sdp() ? msg.sdp().size() : 0));
 	sendMessage(target, msg);
 }
 
@@ -3526,6 +3584,12 @@ void Server::msgScreenShareAnswer(ServerUser *uSource, MumbleProto::ScreenShareA
 	if (!stream.qsRelayRoomID.isEmpty()) {
 		msg.set_relay_room_id(u8(stream.qsRelayRoomID));
 	}
+	screenShareDiagnosticLog(QStringLiteral("Forwarding answer stream=%1 from=%2 to=%3 viewer=%4 sdp_bytes=%5")
+								 .arg(stream.qsStreamID)
+								 .arg(uSource->uiSession)
+								 .arg(target ? target->uiSession : 0)
+								 .arg(msg.has_viewer_session() ? msg.viewer_session() : 0)
+								 .arg(msg.has_sdp() ? msg.sdp().size() : 0));
 	sendMessage(target, msg);
 }
 
@@ -3575,6 +3639,12 @@ void Server::msgScreenShareIceCandidate(ServerUser *uSource, MumbleProto::Screen
 
 	msg.set_stream_id(u8(stream.qsStreamID));
 	msg.set_owner_session(stream.uiOwnerSession);
+	screenShareDiagnosticLog(QStringLiteral("Forwarding ICE stream=%1 from=%2 to=%3 viewer=%4 candidate_bytes=%5")
+								 .arg(stream.qsStreamID)
+								 .arg(uSource->uiSession)
+								 .arg(target ? target->uiSession : 0)
+								 .arg(msg.has_viewer_session() ? msg.viewer_session() : 0)
+								 .arg(msg.has_candidate() ? msg.candidate().size() : 0));
 	sendMessage(target, msg);
 }
 
@@ -3597,6 +3667,10 @@ void Server::msgScreenShareStop(ServerUser *uSource, MumbleProto::ScreenShareSto
 		return;
 	}
 
+	screenShareDiagnosticLog(QStringLiteral("Stopping stream %1 by owner %2 reason=%3")
+								 .arg(streamID)
+								 .arg(uSource->uiSession)
+								 .arg(msg.has_reason() ? u8(msg.reason()) : QStringLiteral("Screen share stopped by publisher")));
 	stopScreenShare(streamID, uSource->uiSession, MumbleProto::ScreenShareLifecycleStateStopped,
 					msg.has_reason() ? u8(msg.reason()) : QStringLiteral("Screen share stopped by publisher"));
 }

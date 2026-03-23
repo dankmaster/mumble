@@ -1070,7 +1070,8 @@ std::vector< ::msdb::DBTextChannel > DBWrapper::getTextChannels(unsigned int ser
 
 ::msdb::DBChatMessage DBWrapper::addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
 												 std::optional< unsigned int > authorUserID,
-												 std::optional< unsigned int > authorSession) {
+												 std::optional< unsigned int > authorSession,
+												 std::optional< std::string > authorName) {
 	WRAPPER_BEGIN
 
 	assertValidID(serverID);
@@ -1081,6 +1082,7 @@ std::vector< ::msdb::DBTextChannel > DBWrapper::getTextChannels(unsigned int ser
 	::msdb::DBChatMessage message(serverID, m_serverDB.getChatMessageTable().getFreeMessageID(serverID), threadID);
 	message.authorUserID  = authorUserID;
 	message.authorSession = authorSession;
+	message.authorName    = authorName;
 	message.body          = body;
 	message.createdAt     = std::chrono::system_clock::now();
 

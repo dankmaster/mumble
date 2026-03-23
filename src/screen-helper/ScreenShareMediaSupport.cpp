@@ -59,15 +59,23 @@ ScreenShareMediaSupport::CapabilitySummary ScreenShareMediaSupport::probe() {
 	const bool pipeWireAvailable = pipeWireRuntimeAvailable(&libraryName);
 	const bool x11CaptureAvailable =
 		runtimeSupport.ffmpegAvailable && runtimeSupport.x11GrabAvailable && runtimeSupport.x11DisplayAvailable;
+	const bool browserCaptureAvailable = runtimeSupport.browserWebRtcAvailable;
 
-	summary.captureSupported = x11CaptureAvailable || testPatternEnabled;
-	summary.viewSupported = runtimeSupport.ffplayAvailable || runtimeSupport.ffmpegAvailable;
-	summary.captureBackend = testPatternEnabled ? QStringLiteral("lavfi-test-pattern")
-												: (x11CaptureAvailable ? QStringLiteral("x11grab") : QStringLiteral("unavailable"));
+	summary.captureSupported = x11CaptureAvailable || browserCaptureAvailable || testPatternEnabled;
+	summary.viewSupported =
+		runtimeSupport.ffplayAvailable || runtimeSupport.ffmpegAvailable || runtimeSupport.browserWebRtcAvailable;
+	summary.captureBackend =
+		testPatternEnabled ? QStringLiteral("lavfi-test-pattern")
+						   : (x11CaptureAvailable ? QStringLiteral("x11grab")
+												 : (browserCaptureAvailable ? QStringLiteral("browser-webrtc")
+																			: QStringLiteral("unavailable")));
 	if (summary.captureSupported) {
 		if (testPatternEnabled) {
 			summary.statusMessage =
 				QStringLiteral("ffmpeg test-pattern mode is enabled for headless screen-share verification.");
+		} else if (browserCaptureAvailable && !x11CaptureAvailable) {
+			summary.statusMessage =
+				QStringLiteral("A graphical browser runtime is available for WebRTC relay screen sharing.");
 		} else if (pipeWireAvailable) {
 			summary.statusMessage =
 				QStringLiteral("PipeWire runtime %1 detected, but the executable helper path currently uses ffmpeg x11grab capture.")
@@ -81,25 +89,33 @@ ScreenShareMediaSupport::CapabilitySummary ScreenShareMediaSupport::probe() {
 	}
 #elif defined(Q_OS_WIN)
 	const bool gdiCaptureAvailable = runtimeSupport.ffmpegAvailable && runtimeSupport.gdigrabAvailable;
-	summary.captureSupported = gdiCaptureAvailable || testPatternEnabled;
+	const bool browserCaptureAvailable = runtimeSupport.browserWebRtcAvailable;
+
+	summary.captureSupported = gdiCaptureAvailable || browserCaptureAvailable || testPatternEnabled;
 	summary.viewSupported =
-		runtimeSupport.windowedViewerAvailable ? runtimeSupport.ffplayAvailable : runtimeSupport.ffmpegAvailable;
-	summary.captureBackend = testPatternEnabled ? QStringLiteral("lavfi-test-pattern")
-												: (gdiCaptureAvailable ? QStringLiteral("gdigrab") : QStringLiteral("unavailable"));
+		runtimeSupport.ffplayAvailable || runtimeSupport.ffmpegAvailable || runtimeSupport.browserWebRtcAvailable;
+	summary.captureBackend =
+		testPatternEnabled ? QStringLiteral("lavfi-test-pattern")
+						   : (gdiCaptureAvailable ? QStringLiteral("gdigrab")
+												 : (browserCaptureAvailable ? QStringLiteral("browser-webrtc")
+																			: QStringLiteral("unavailable")));
 	if (summary.captureSupported) {
-		summary.statusMessage = testPatternEnabled
-			? QStringLiteral("ffmpeg test-pattern mode is enabled for Windows screen-share verification.")
-			: QStringLiteral("ffmpeg gdigrab desktop capture is available for the helper runtime.");
+		summary.statusMessage =
+			testPatternEnabled
+				? QStringLiteral("ffmpeg test-pattern mode is enabled for headless screen-share verification.")
+				: (gdiCaptureAvailable
+					   ? QStringLiteral("Windows helper runtime can capture the desktop via ffmpeg gdigrab and prefers H.264-first encoding.")
+					   : QStringLiteral("Windows helper runtime can execute WebRTC screen sharing through a dedicated browser runtime."));
 	} else {
 		summary.statusMessage =
-			QStringLiteral("No executable Windows desktop capture path is available. Install an ffmpeg build with gdigrab support or set MUMBLE_SCREENSHARE_TEST_PATTERN=1 for verification.");
+			QStringLiteral("No executable Windows capture path is available. Install an ffmpeg build with gdigrab support or enable MUMBLE_SCREENSHARE_TEST_PATTERN=1 for verification.");
 	}
 #else
 	summary.captureBackend = QStringLiteral("unsupported");
 	summary.statusMessage =
-		QStringLiteral("Screen-share media helper currently has only a Linux PipeWire capture stub.");
+		QStringLiteral("Screen-share media helper has no executable capture backend on this platform yet.");
 	summary.viewSupported =
-		runtimeSupport.windowedViewerAvailable ? runtimeSupport.ffplayAvailable : runtimeSupport.ffmpegAvailable;
+		runtimeSupport.ffplayAvailable || runtimeSupport.ffmpegAvailable || runtimeSupport.browserWebRtcAvailable;
 #endif
 
 	return summary;

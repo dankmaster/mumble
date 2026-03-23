@@ -27,6 +27,8 @@ public:
 	~ScreenShareHelperServer() override;
 
 	bool start(QString *errorMessage = nullptr);
+	QJsonObject capabilityPayload() const;
+	QJsonObject runSelfTest();
 
 	struct ManagedSession {
 		QJsonObject payload;
@@ -41,7 +43,7 @@ private slots:
 
 private:
 	QJsonObject dispatchRequest(const QJsonObject &request);
-	QJsonObject handleQueryCapabilities();
+	QJsonObject handleQueryCapabilities() const;
 	QJsonObject handleStartPublish(const QJsonObject &payload);
 	QJsonObject handleStopPublish(const QJsonObject &payload);
 	QJsonObject handleStartView(const QJsonObject &payload);

@@ -107,7 +107,8 @@ public:
 	std::vector< ::mumble::server::db::DBTextChannel > getTextChannels(unsigned int serverID);
 	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
 													 std::optional< unsigned int > authorUserID = std::nullopt,
-													 std::optional< unsigned int > authorSession = std::nullopt);
+													 std::optional< unsigned int > authorSession = std::nullopt,
+													 std::optional< std::string > authorName = std::nullopt);
 	std::vector< ::mumble::server::db::DBChatMessage > getChatMessages(unsigned int serverID, unsigned int threadID,
 																	   unsigned int startOffset = 0, int amount = -1);
 	void setChatReadState(const ::mumble::server::db::DBChatReadState &readState);

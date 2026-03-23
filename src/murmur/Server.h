@@ -136,6 +136,9 @@ public:
 	unsigned int uiScreenShareMaxHeight = 1080;
 	unsigned int uiScreenShareMaxFps = 60;
 	QString qsScreenShareRelayUrl;
+	QString qsScreenShareRelayAPIKey;
+	QString qsScreenShareRelayAPISecret;
+	bool bScreenShareDiagnosticsLogging = false;
 	QString qsPassword;
 	QString qsWelcomeText;
 	QString qsWelcomeTextFile;
@@ -417,8 +420,11 @@ public:
 	bool supportsScreenShareCapture(const ServerUser *user) const;
 	bool supportsScreenShareView(const ServerUser *user) const;
 	Channel *screenShareScopeChannel(MumbleProto::ScreenShareScope scope, unsigned int scopeID) const;
+	bool hasLiveKitScreenShareRelayConfig() const;
 	void ensureFreshScreenShareRelayCredentials(ScreenShareStream &stream);
 	QString screenShareRelayTokenForRecipient(const ScreenShareStream &stream, const ServerUser *recipient) const;
+	QString liveKitScreenShareTokenForRecipient(const ScreenShareStream &stream, const ServerUser *recipient,
+												  quint64 expiresAt) const;
 	MumbleProto::ScreenShareRelayRole screenShareRelayRoleForRecipient(const ScreenShareStream &stream,
 																		 const ServerUser *recipient) const;
 	void populateScreenShareStateMessage(MumbleProto::ScreenShareState &msg, ScreenShareStream &stream,
@@ -435,6 +441,7 @@ public:
 
 	void log(const QString &) const;
 	void log(ServerUser *u, const QString &) const;
+	void screenShareDiagnosticLog(const QString &msg) const;
 
 	void removeChannel(unsigned int id);
 	void removeChannel(Channel *c, Channel *dest = nullptr);

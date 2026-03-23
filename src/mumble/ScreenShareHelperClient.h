@@ -54,6 +54,8 @@ signals:
 
 private:
 	static QString defaultHelperExecutablePath();
+	static QString diagnosticsLogPath();
+	static QStringList helperLaunchArguments();
 	static CapabilitySnapshot capabilitySnapshotFromPayload(const QJsonObject &payload, const QString &helperExecutable);
 	static QJsonObject payloadFromSession(const ScreenShareSession &session);
 	static QJsonObject sendRequest(Mumble::ScreenShare::IPC::Command command, const QJsonObject &payload,

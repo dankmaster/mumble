@@ -99,7 +99,8 @@
 	PROCESS(network, CONNECTION_TIMEOUT_KEY, iConnectionTimeoutDurationMsec) \
 	PROCESS(network, FORCE_UDP_BIND_TO_TCP_ADDRESS_KEY, bUdpForceTcpAddr)    \
 	PROCESS(network, SSL_CIPHERS_KEY, qsSslCiphers)                          \
-	PROCESS(network, ENABLE_LINK_PREVIEWS_KEY, bEnableLinkPreviews)
+	PROCESS(network, ENABLE_LINK_PREVIEWS_KEY, bEnableLinkPreviews)          \
+	PROCESS(network, SCREEN_SHARE_DIAGNOSTICS_KEY, bScreenShareDiagnostics)
 
 
 #define AUDIO_BACKEND_SETTINGS                                        \

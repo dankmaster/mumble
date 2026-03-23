@@ -47,6 +47,7 @@ class VoiceRecorderDialog;
 class PositionalAudioViewer;
 class PTTButtonWidget;
 class QFrame;
+class QLabel;
 class QListWidget;
 class QListWidgetItem;
 
@@ -162,6 +163,7 @@ public:
 	struct PersistentChatTarget {
 		bool valid          = false;
 		bool directMessage  = false;
+		bool legacyTextPath = false;
 		bool readOnly       = false;
 		ClientUser *user    = nullptr;
 		Channel *channel    = nullptr;
@@ -194,13 +196,15 @@ public:
 
 	struct PersistentChatRenderRequest {
 		QString statusMessage;
-		bool scrollToBottom         = true;
+		bool scrollToBottom      = true;
 		bool preserveScrollPosition = false;
 	};
 
 	void loadState(bool minimalView);
 	void storeState(bool minimalView);
 
+	bool hasPersistentChatCapabilities() const;
+	PersistentChatTarget legacyChatTarget() const;
 	PersistentChatTarget currentPersistentChatTarget() const;
 	void refreshPersistentChatView(bool forceReload = false);
 	void requestOlderPersistentChatHistory();
@@ -236,6 +240,7 @@ public:
 	void handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg);
 	void syncPersistentChatInputState(bool baseEnabled);
 	void markPersistentChatRead();
+	void updatePersistentChatChrome(const PersistentChatTarget &target);
 	void updateChatBar();
 	void openTextMessageDialog(ClientUser *p);
 	void openUserLocalNicknameDialog(const ClientUser &p);
@@ -289,6 +294,10 @@ protected:
 	qt_unique_ptr< UserLocalVolumeSlider > m_userLocalVolumeSlider;
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
 	QWidget *m_persistentChatContainer = nullptr;
+	QFrame *m_persistentChatHeaderFrame = nullptr;
+	QLabel *m_persistentChatHeaderTitle = nullptr;
+	QLabel *m_persistentChatHeaderSubtitle = nullptr;
+	QLabel *m_persistentChatChannelListLabel = nullptr;
 	QListWidget *m_persistentChatChannelList = nullptr;
 	LogTextBrowser *m_persistentChatWelcome = nullptr;
 	QFrame *m_persistentChatDivider = nullptr;
