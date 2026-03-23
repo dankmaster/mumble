@@ -5,13 +5,13 @@
 
 #include "ScreenShareManager.h"
 
+#include "ClientUser.h"
 #include "Global.h"
 #include "Log.h"
 #include "ProtoUtils.h"
 #include "QtUtils.h"
 #include "ScreenShare.h"
 #include "ServerHandler.h"
-#include "User.h"
 
 #include <algorithm>
 
