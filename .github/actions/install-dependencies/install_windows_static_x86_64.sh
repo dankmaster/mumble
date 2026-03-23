@@ -27,6 +27,11 @@ extract_with_progress "WixSharp.7z" "C:/WixSharp"
 git clone "https://github.com/nathan818fr/vcvars-bash.git" "C:/vcvars-bash"
 
 
+if [[ "${MUMBLE_SKIP_DATABASE_SETUP:-}" = "ON" ]]; then
+	echo "Skipping local database setup for Windows dependencies"
+	exit 0
+fi
+
 # Configure database tables for Mumble tests
 echo -e "[mysqld]\nlog-bin-trust-function-creators = 1" >> "C:/Windows/my.ini"
 

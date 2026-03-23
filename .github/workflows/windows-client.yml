@@ -54,6 +54,8 @@ jobs:
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
 
       - uses: ./.github/actions/install-dependencies
+        env:
+          MUMBLE_SKIP_DATABASE_SETUP: ON
         with:
           type: static
           os: windows-2025-vs2026

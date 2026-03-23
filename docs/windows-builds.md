@@ -32,3 +32,28 @@ workflow:
 - This workflow uses `${{ github.run_number }}` as the local build number.
 - It does not sign the installer.
 - It disables tests to keep the manual client build faster.
+
+## Local Windows build
+
+If you want to build the unsigned Windows installer on your own PC instead of
+GitHub Actions, use:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\build-local-windows-client.ps1 -InstallDependencies
+```
+
+Optional runtime verification of the screen-share helper:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\build-local-windows-client.ps1 `
+  -InstallDependencies `
+  -InstallFfmpeg `
+  -VerifyHelperRuntime
+```
+
+Notes for local use:
+
+- The script mirrors the `Windows Client` workflow's configure/build path.
+- It builds an unsigned installer.
+- It skips local MySQL setup because that workflow has tests disabled.
+- Artifacts are written into the repo's `build\` directory.
