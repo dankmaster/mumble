@@ -2,6 +2,12 @@ name: Windows Client
 
 on:
   workflow_dispatch:
+    inputs:
+      SIGN_WINDOWS_INSTALLER:
+        description: 'Sign Windows Installer'
+        required: true
+        type: boolean
+        default: false
 
 env:
   BUILD_TYPE: Release
@@ -10,7 +16,26 @@ env:
   MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE: ON
 
 jobs:
+  fetch_build_number:
+    runs-on: ubuntu-latest
+    outputs:
+      build_number: ${{ steps.fetch.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - id: fetch
+        shell: bash
+        run: |
+          build_version="$("${{ github.workspace }}/scripts/mumble-version.py")"
+          build_number="$("${{ github.workspace }}/scripts/mumble-build-number.py" \
+            --commit "${{ github.sha }}" --version "${build_version}" \
+            --password "${{ secrets.BUILD_NUMBER_TOKEN }}" --default 0)"
+          echo "Build Number: ${build_version}.${build_number}"
+          echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
+
   build-windows-client:
+    needs: [ fetch_build_number ]
     runs-on: windows-2025-vs2026
 
     steps:
@@ -23,7 +48,7 @@ jobs:
         run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "static" "x86_64" "${{ github.workspace }}"
         shell: bash
 
-      - uses: actions/cache@v5
+      - uses: actions/cache/restore@v5
         with:
           path: ${{ env.MUMBLE_ENVIRONMENT_DIR }}
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
@@ -56,22 +81,37 @@ jobs:
         run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
         shell: bash
         env:
-          MUMBLE_BUILD_NUMBER: ${{ github.run_number }}
+          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
           MUMBLE_CI_PHASE: configure
 
       - name: Build
         run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
         shell: bash
         env:
-          MUMBLE_BUILD_NUMBER: ${{ github.run_number }}
+          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
           MUMBLE_CI_PHASE: build
 
-      - name: Publish
+      - if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
+        uses: ./.github/actions/sign-binaries
+        with:
+          signpath-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          build-number: ${{ needs.fetch_build_number.outputs.build_number }}
+          type: static
+          os: windows-2025-vs2026
+          arch: x86_64
+
+      - if: ${{ !inputs.SIGN_WINDOWS_INSTALLER }}
+        name: Publish
         uses: actions/upload-artifact@v6
         with:
-          name: Mumble-windows-client-${{ github.run_number }}
+          name: Mumble-windows-client-${{ needs.fetch_build_number.outputs.build_number }}
           compression-level: 9
           path: |
             build/mumble
             build/**/mumble*.msi
             build/**/mumble*.exe
+
+      - uses: actions/cache/save@v5
+        with:
+          path: ${{ env.MUMBLE_ENVIRONMENT_DIR }}
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
