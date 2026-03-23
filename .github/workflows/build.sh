@@ -122,10 +122,15 @@ if [[ "$run_build" == "yes" ]]; then
 	rm -f "$build_log"
 	rm -f "$normalized_build_log"
 
+	saved_err_trap=$(trap -p ERR || true)
+	trap - ERR
 	set +e
 	cmake --build . --config $BUILD_TYPE --verbose 2>&1 | tee "$build_log"
 	build_status=${PIPESTATUS[0]}
 	set -e
+	if [[ -n "$saved_err_trap" ]]; then
+		eval "$saved_err_trap"
+	fi
 
 	if [[ "$build_status" -ne 0 ]]; then
 		echo "::group::Build tool diagnostics"
