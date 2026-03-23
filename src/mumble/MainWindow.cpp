@@ -251,14 +251,29 @@ namespace {
 																			 QLatin1Char('\n'));
 	}
 
-	void insertPersistentChatContent(QTextCursor &cursor, const QString &content) {
+	QString persistentChatContentHtml(const QString &content) {
 		const QString normalizedContent = normalizedPersistentChatText(content);
 		if (!Qt::mightBeRichText(normalizedContent)) {
-			cursor.insertText(normalizedContent);
-			return;
+			return normalizedContent.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
 		}
 
-		Log::validHtml(normalizedContent, &cursor);
+		const QString sanitizedHtml = Log::validHtml(normalizedContent);
+		static const QRegularExpression bodyPattern(QLatin1String("<body[^>]*>(.*)</body>"),
+													QRegularExpression::DotMatchesEverythingOption
+														| QRegularExpression::CaseInsensitiveOption);
+		const QRegularExpressionMatch bodyMatch = bodyPattern.match(sanitizedHtml);
+		if (bodyMatch.hasMatch()) {
+			return bodyMatch.captured(1);
+		}
+
+		return sanitizedHtml;
+	}
+
+	void insertPersistentChatContent(QTextCursor &cursor, const QString &content) {
+		const QString fragmentHtml = persistentChatContentHtml(content);
+		if (!fragmentHtml.isEmpty()) {
+			cursor.insertHtml(fragmentHtml);
+		}
 	}
 
 	QString trimTrailingUrlPunctuation(QString url) {
@@ -2072,9 +2087,12 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 	const QSignalBlocker historySignalBlocker(m_persistentChatHistory);
 	const QSignalBlocker historyScrollSignalBlocker(m_persistentChatHistory->verticalScrollBar());
 	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
+	const PersistentChatTarget target = currentPersistentChatTarget();
+	const bool showInlinePreviews =
+		Global::get().s.bEnableLinkPreviews && target.scope != MumbleProto::Aggregate;
 	QSet< QString > previewKeysToEnsure;
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
-		if ((message.has_deleted_at() && message.deleted_at() > 0) || !Global::get().s.bEnableLinkPreviews) {
+		if ((message.has_deleted_at() && message.deleted_at() > 0) || !showInlinePreviews) {
 			continue;
 		}
 
@@ -2095,7 +2113,6 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 	QTextCursor cursor(m_persistentChatHistory->document());
 	cursor.movePosition(QTextCursor::End);
 
-	const PersistentChatTarget target = currentPersistentChatTarget();
 	QString targetDescription;
 	switch (target.scope) {
 		case MumbleProto::Channel:
@@ -2244,11 +2261,13 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 		}
 
 		if (!message.has_deleted_at() || message.deleted_at() == 0) {
-			if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
-				const QString previewHtml = persistentChatPreviewHtml(*previewKey);
-				if (!previewHtml.isEmpty()) {
-					cursor.insertHtml(QString::fromLatin1("<br/>"));
-					cursor.insertHtml(previewHtml);
+			if (showInlinePreviews) {
+				if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
+					const QString previewHtml = persistentChatPreviewHtml(*previewKey);
+					if (!previewHtml.isEmpty()) {
+						cursor.insertHtml(QString::fromLatin1("<br/>"));
+						cursor.insertHtml(previewHtml);
+					}
 				}
 			}
 		}
