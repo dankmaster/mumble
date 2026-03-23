@@ -49,6 +49,11 @@ namespace {
 
 		return transports;
 	}
+
+	unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int hardMax) {
+		const int rawValue = payload.value(QLatin1String(key)).toInt();
+		return Mumble::ScreenShare::sanitizeLimit(static_cast< unsigned int >(qMax(rawValue, 0)), 0, hardMax);
+	}
 } // namespace
 
 ScreenShareHelperClient::ScreenShareHelperClient(QObject *parent)
@@ -106,15 +111,9 @@ ScreenShareHelperClient::CapabilitySnapshot
 	snapshot.supportedCodecs = Mumble::ScreenShare::IPC::codecListFromJson(payload.value(QStringLiteral("supported_codecs")));
 	snapshot.runtimeRelayTransports =
 		relayTransportListFromJson(payload.value(QStringLiteral("runtime_relay_transports")));
-	snapshot.maxWidth =
-		Mumble::ScreenShare::sanitizeLimit(payload.value(QStringLiteral("max_width")).toInt(), 0,
-										   Mumble::ScreenShare::HARD_MAX_WIDTH);
-	snapshot.maxHeight =
-		Mumble::ScreenShare::sanitizeLimit(payload.value(QStringLiteral("max_height")).toInt(), 0,
-										   Mumble::ScreenShare::HARD_MAX_HEIGHT);
-	snapshot.maxFps =
-		Mumble::ScreenShare::sanitizeLimit(payload.value(QStringLiteral("max_fps")).toInt(), 0,
-										   Mumble::ScreenShare::HARD_MAX_FPS);
+	snapshot.maxWidth  = limitFromPayload(payload, "max_width", Mumble::ScreenShare::HARD_MAX_WIDTH);
+	snapshot.maxHeight = limitFromPayload(payload, "max_height", Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	snapshot.maxFps    = limitFromPayload(payload, "max_fps", Mumble::ScreenShare::HARD_MAX_FPS);
 
 	if (snapshot.supportedCodecs.isEmpty()) {
 		snapshot.supportedCodecs = Mumble::ScreenShare::defaultCodecPreferenceList();
