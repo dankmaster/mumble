@@ -7,6 +7,7 @@ env:
   BUILD_TYPE: Release
   CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
   MUMBLE_ENABLE_WINDOWS_PACKAGING: ON
+  MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE: ON
 
 jobs:
   build-windows-client:

@@ -49,6 +49,12 @@ case "$os" in
 			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dpackaging=ON"
 		fi
 
+		if [[ "${MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE:-}" = "ON" ]]; then
+			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Doverlay-xcompile=ON"
+		else
+			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Doverlay-xcompile=OFF"
+		fi
+
 		if [[ "${MUMBLE_SKIP_MSI_REBUILD:-}" = "ON" ]]; then
 			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dskip-msi-rebuild=ON"
 		fi

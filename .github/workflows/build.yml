@@ -91,6 +91,8 @@ jobs:
       shell: bash
       env:
           MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
+          MUMBLE_ENABLE_WINDOWS_PACKAGING: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' && inputs.SIGN_WINDOWS_INSTALLER && 'ON' || '' }}
+          MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' && inputs.SIGN_WINDOWS_INSTALLER && 'ON' || '' }}
 
     - name: Test
       working-directory: ${{ github.workspace }}/build
