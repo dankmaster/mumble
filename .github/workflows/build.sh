@@ -175,6 +175,21 @@ if [[ "$run_build" == "yes" ]]; then
 					line=${line//$'\n'/'%0A'}
 					echo "::error file=.github/workflows/build.sh,title=Build log excerpt::${line}"
 				done <<< "$error_excerpt"
+			elif [[ "$os" == "windows" ]]; then
+				fallback_excerpt=$(tail -n 40 "$normalized_build_log" | sed '/^[[:space:]]*$/d' | tail -n 20 || true)
+				if [[ -n "$fallback_excerpt" ]]; then
+					echo "::group::Build tail excerpt"
+					printf '%s\n' "$fallback_excerpt"
+					echo "::endgroup::"
+
+					while IFS= read -r line; do
+						[[ -z "$line" ]] && continue
+						line=${line//'%'/'%25'}
+						line=${line//$'\r'/'%0D'}
+						line=${line//$'\n'/'%0A'}
+						echo "::notice file=.github/workflows/build.sh,title=Build tail::${line}"
+					done <<< "$fallback_excerpt"
+				fi
 			fi
 		fi
 
