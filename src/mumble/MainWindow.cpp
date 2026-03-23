@@ -1334,31 +1334,31 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 			static_cast< MumbleProto::ChatScope >(item->data(PersistentChatScopeRole).toInt());
 		const unsigned int scopeID = item->data(PersistentChatScopeIDRole).toUInt();
 
-		QString label;
+		QString scopeLabel;
 		switch (scope) {
 			case MumbleProto::Aggregate:
-				label = tr("All chats");
+				scopeLabel = tr("All chats");
 				break;
 			case MumbleProto::TextChannel: {
 				const auto it = m_persistentTextChannels.constFind(scopeID);
-				label         = it == m_persistentTextChannels.cend() ? tr("#text-%1").arg(scopeID)
-																	 : tr("#%1").arg(it->name);
+				scopeLabel    = it == m_persistentTextChannels.cend() ? tr("#text-%1").arg(scopeID)
+																	  : tr("#%1").arg(it->name);
 				break;
 			}
 			case MumbleProto::Channel:
 			case MumbleProto::ServerGlobal:
 			default:
-				label = persistentChatScopeLabel(scope, scopeID);
+				scopeLabel = persistentChatScopeLabel(scope, scopeID);
 				break;
 		}
 
 		const std::size_t unreadCount = scope == MumbleProto::Aggregate ? totalCachedPersistentChatUnreadCount()
 																		: cachedPersistentChatUnreadCount(scope, scopeID);
 		if (unreadCount > 0) {
-			label = tr("%1 [%2]").arg(label).arg(unreadCount);
+			scopeLabel = tr("%1 [%2]").arg(scopeLabel).arg(unreadCount);
 		}
 
-		item->setText(label);
+		item->setText(scopeLabel);
 	}
 }
 
