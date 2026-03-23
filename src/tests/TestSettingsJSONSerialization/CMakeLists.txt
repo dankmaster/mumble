@@ -40,3 +40,8 @@ add_test(
 	# Specifying the working directory is necessary, to make sure the dependent DLLs are found (on Windows)
 	WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+
+set_tests_properties(
+	TestSettingsJSONSerialization
+	PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
