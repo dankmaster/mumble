@@ -151,14 +151,16 @@ runs:
           build\**\link_tester.*
           build\**\mumble.exe
           build\**\mumble.pdb
+          build\**\mumble-screen-helper.exe
+          build\**\mumble-screen-helper.pdb
           build\**\mumble-g15*.*
           build\**\mumble_ol*.exe
           build\**\mumble_ol*.pdb
           build\**\mumble-server.exe
           build\**\mumble-server.pdb
-          build\**\rnnoise.exe
+          build\**\rnnoise.dll
           build\**\rnnoise.pdb
-          build\**\speexdsp.exe
+          build\**\speexdsp.dll
           build\**\speexdsp.pdb
 
     - name: Submit Bundle Signing Request to SignPath
@@ -172,4 +174,3 @@ runs:
         artifact-configuration-slug: 'sign-bundle'
         github-artifact-id: ${{ steps.upload-unsigned-bundle.outputs.artifact-id }}
         wait-for-completion: true
-

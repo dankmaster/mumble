@@ -125,6 +125,14 @@ namespace {
 #endif
 	}
 
+	bool hasWindowedViewerSurface() {
+#ifdef Q_OS_WIN
+		return true;
+#else
+		return !qEnvironmentVariable("DISPLAY").trimmed().isEmpty();
+#endif
+	}
+
 	QStringList candidateBackendOrder(const ScreenShareExternalProcess::RuntimeSupport &support,
 									  const MumbleProto::ScreenShareCodec codec, const QString &plannedBackend) {
 		QStringList candidates;
@@ -284,6 +292,43 @@ namespace {
 			}
 			return true;
 		}
+
+#ifdef Q_OS_WIN
+		if (forcedSource == QLatin1String("gdigrab") || forcedSource == QLatin1String("windows")
+			|| forcedSource == QLatin1String("desktop") || forcedSource.isEmpty()) {
+			if (!support.gdigrabAvailable) {
+				if (errorMessage) {
+					*errorMessage = QStringLiteral("ffmpeg on this host has no gdigrab input support.");
+				}
+				return false;
+			}
+
+			if (captureSource) {
+				*captureSource = QStringLiteral("gdigrab");
+			}
+			if (arguments) {
+				const int width  = qMax(1, arguments->takeFirst().toInt());
+				const int height = qMax(1, arguments->takeFirst().toInt());
+				const int fps    = qMax(1, arguments->takeFirst().toInt());
+				arguments->clear();
+				arguments->append(QStringLiteral("-f"));
+				arguments->append(QStringLiteral("gdigrab"));
+				arguments->append(QStringLiteral("-draw_mouse"));
+				arguments->append(QStringLiteral("1"));
+				arguments->append(QStringLiteral("-framerate"));
+				arguments->append(QString::number(fps));
+				arguments->append(QStringLiteral("-offset_x"));
+				arguments->append(QStringLiteral("0"));
+				arguments->append(QStringLiteral("-offset_y"));
+				arguments->append(QStringLiteral("0"));
+				arguments->append(QStringLiteral("-video_size"));
+				arguments->append(QStringLiteral("%1x%2").arg(width).arg(height));
+				arguments->append(QStringLiteral("-i"));
+				arguments->append(QStringLiteral("desktop"));
+			}
+			return true;
+		}
+#endif
 
 		if (forcedSource == QLatin1String("x11") || forcedSource.isEmpty()) {
 			if (!support.x11GrabAvailable) {
@@ -501,15 +546,21 @@ ScreenShareExternalProcess::RuntimeSupport ScreenShareExternalProcess::probeRunt
 	support.ffmpegAvailable = !support.ffmpegPath.isEmpty();
 	support.ffplayAvailable = !support.ffplayPath.isEmpty();
 	support.x11DisplayAvailable = !qEnvironmentVariable("DISPLAY").trimmed().isEmpty();
+	support.windowedViewerAvailable = hasWindowedViewerSurface();
 
 	if (support.ffmpegAvailable) {
 		const QString encoders  = runProbeCommand(support.ffmpegPath, { QStringLiteral("-hide_banner"), QStringLiteral("-encoders") });
 		const QString devices   = runProbeCommand(support.ffmpegPath, { QStringLiteral("-hide_banner"), QStringLiteral("-devices") });
 		const QString protocols = runProbeCommand(support.ffmpegPath, { QStringLiteral("-hide_banner"), QStringLiteral("-protocols") });
 
+		support.gdigrabAvailable  = devices.contains(QLatin1String("gdigrab"));
 		support.x11GrabAvailable   = devices.contains(QLatin1String("x11grab"));
 		support.lavfiAvailable     = devices.contains(QLatin1String("lavfi"));
+#ifdef Q_OS_LINUX
 		const bool nvidiaDeviceAvailable = anyNvidiaDevicePresent();
+#else
+		const bool nvidiaDeviceAvailable = true;
+#endif
 
 		support.h264NvencAvailable = encoders.contains(QLatin1String("h264_nvenc")) && nvidiaDeviceAvailable;
 		support.h264VaapiAvailable = encoders.contains(QLatin1String("h264_vaapi"));
@@ -531,9 +582,11 @@ QJsonObject ScreenShareExternalProcess::runtimeSupportToJson(const RuntimeSuppor
 	QJsonObject payload;
 	payload.insert(QStringLiteral("ffmpeg_available"), support.ffmpegAvailable);
 	payload.insert(QStringLiteral("ffplay_available"), support.ffplayAvailable);
+	payload.insert(QStringLiteral("gdigrab_available"), support.gdigrabAvailable);
 	payload.insert(QStringLiteral("x11_display_available"), support.x11DisplayAvailable);
 	payload.insert(QStringLiteral("x11grab_available"), support.x11GrabAvailable);
 	payload.insert(QStringLiteral("lavfi_available"), support.lavfiAvailable);
+	payload.insert(QStringLiteral("windowed_viewer_available"), support.windowedViewerAvailable);
 	payload.insert(QStringLiteral("h264_nvenc_available"), support.h264NvencAvailable);
 	payload.insert(QStringLiteral("h264_vaapi_available"), support.h264VaapiAvailable);
 	payload.insert(QStringLiteral("libx264_available"), support.libx264Available);
@@ -696,7 +749,7 @@ ScreenShareExternalProcess::LaunchResult ScreenShareExternalProcess::startView(c
 		}
 		return launch;
 	}
-	const bool headlessView = !support.x11DisplayAvailable || envFlagEnabled("MUMBLE_SCREENSHARE_HEADLESS_VIEW");
+	const bool headlessView = envFlagEnabled("MUMBLE_SCREENSHARE_HEADLESS_VIEW") || !support.windowedViewerAvailable;
 	if (headlessView ? !support.ffmpegAvailable : !support.ffplayAvailable) {
 		launch.errorMessage =
 			headlessView ? QStringLiteral("ffmpeg is not installed on this host for headless viewer mode.")

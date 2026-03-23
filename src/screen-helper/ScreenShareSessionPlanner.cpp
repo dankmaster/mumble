@@ -311,7 +311,7 @@ namespace {
 		planPayload.insert(QStringLiteral("planned_encoder_detail"), selectedBackend->detail);
 		planPayload.insert(QStringLiteral("planned_renderer_backend"),
 						   publish ? QStringLiteral("ffmpeg-publish")
-								   : (runtimeSupport.x11DisplayAvailable ? QStringLiteral("ffplay-view")
+								   : (runtimeSupport.windowedViewerAvailable ? QStringLiteral("ffplay-view")
 																		: QStringLiteral("ffmpeg-view")));
 		planPayload.insert(QStringLiteral("warnings"), warnings);
 

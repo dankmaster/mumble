@@ -1228,6 +1228,12 @@ if(packaging AND WIN32)
 		)
 	endif()
 
+	if(screen-helper)
+		list(APPEND installer_vars
+			"--screen-share-helper"
+		)
+	endif()
+
 	if(skip-msi-rebuild)
 		message(STATUS "Skip MSI rebuild")
 		list(APPEND installer_vars

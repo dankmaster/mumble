@@ -14,6 +14,12 @@ option(zeroconf "Build support for zeroconf (mDNS/DNS-SD)." ON)
 
 option(tracy "Enable the tracy profiler." OFF)
 
+set(SCREEN_HELPER_DEFAULT OFF)
+if(client AND (WIN32 OR (UNIX AND NOT APPLE)))
+	set(SCREEN_HELPER_DEFAULT ON)
+endif()
+option(screen-helper "Build the external screen-share helper." ${SCREEN_HELPER_DEFAULT})
+
 option(bundled-json "Build the included version of nlohmann_json instead of looking for one on the system" ON)
 option(bundled-spdlog "Use the bundled spdlog version instead of looking for one on the system" ON)
 option(bundled-cli11 "Use the bundled CLI11 version instead of looking for one on the system" ON)
@@ -237,13 +243,16 @@ endif()
 if(client)
 	add_subdirectory(mumble)
 
-	if(UNIX AND NOT APPLE)
+	if(screen-helper)
 		add_subdirectory(screen-helper)
+		add_dependencies(mumble mumble-screen-helper)
+	endif()
 
+	if(UNIX AND NOT APPLE)
 		install(FILES "${CMAKE_SOURCE_DIR}/icons/mumble.svg" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
 		install(FILES "${CMAKE_SOURCE_DIR}/icons/mumble_256x256.png" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps" RENAME "mumble.png")
 	endif()
-elseif(UNIX AND NOT APPLE)
+elseif(screen-helper)
 	add_subdirectory(screen-helper)
 endif()
 

@@ -20,9 +20,11 @@ public:
 		QString ffplayPath;
 		bool ffmpegAvailable       = false;
 		bool ffplayAvailable       = false;
+		bool gdigrabAvailable      = false;
 		bool x11GrabAvailable      = false;
 		bool lavfiAvailable        = false;
 		bool x11DisplayAvailable   = false;
+		bool windowedViewerAvailable = false;
 		bool h264NvencAvailable    = false;
 		bool h264VaapiAvailable    = false;
 		bool libx264Available      = false;

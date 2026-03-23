@@ -22,6 +22,7 @@ public struct Features {
 	public bool overlay;
 	public bool g15;
 	public bool rnnoise;
+	public bool screenShareHelper;
 }
 
 public class ClientInstaller : MumbleInstall {
@@ -105,6 +106,10 @@ public class ClientInstaller : MumbleInstall {
 				binaries.Add("rnnoise.dll");
 			}
 
+			if (features.screenShareHelper) {
+				binaries.Add("mumble-screen-helper.exe");
+			}
+
 			if (features.overlay) {
 				binaries.Add("mumble_ol.dll");
 				binaries.Add("mumble_ol_helper.exe");
@@ -125,6 +130,10 @@ public class ClientInstaller : MumbleInstall {
 
 			if (features.rnnoise) {
 				binaries.Add("rnnoise.dll");
+			}
+
+			if (features.screenShareHelper) {
+				binaries.Add("mumble-screen-helper.exe");
 			}
 
 			if (features.overlay) {
@@ -240,6 +249,10 @@ class BuildInstaller
 
 			if (args[i] == "--rnnoise") {
 				features.rnnoise = true;
+			}
+
+			if (args[i] == "--screen-share-helper") {
+				features.screenShareHelper = true;
 			}
 
 			if (args[i] == "--skip-msi-rebuild") {

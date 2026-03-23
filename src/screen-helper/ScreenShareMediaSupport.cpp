@@ -79,11 +79,27 @@ ScreenShareMediaSupport::CapabilitySummary ScreenShareMediaSupport::probe() {
 		summary.statusMessage =
 			QStringLiteral("No executable Linux capture path is available. A graphical X11 session or MUMBLE_SCREENSHARE_TEST_PATTERN=1 is required.");
 	}
+#elif defined(Q_OS_WIN)
+	const bool gdiCaptureAvailable = runtimeSupport.ffmpegAvailable && runtimeSupport.gdigrabAvailable;
+	summary.captureSupported = gdiCaptureAvailable || testPatternEnabled;
+	summary.viewSupported =
+		runtimeSupport.windowedViewerAvailable ? runtimeSupport.ffplayAvailable : runtimeSupport.ffmpegAvailable;
+	summary.captureBackend = testPatternEnabled ? QStringLiteral("lavfi-test-pattern")
+												: (gdiCaptureAvailable ? QStringLiteral("gdigrab") : QStringLiteral("unavailable"));
+	if (summary.captureSupported) {
+		summary.statusMessage = testPatternEnabled
+			? QStringLiteral("ffmpeg test-pattern mode is enabled for Windows screen-share verification.")
+			: QStringLiteral("ffmpeg gdigrab desktop capture is available for the helper runtime.");
+	} else {
+		summary.statusMessage =
+			QStringLiteral("No executable Windows desktop capture path is available. Install an ffmpeg build with gdigrab support or set MUMBLE_SCREENSHARE_TEST_PATTERN=1 for verification.");
+	}
 #else
 	summary.captureBackend = QStringLiteral("unsupported");
 	summary.statusMessage =
 		QStringLiteral("Screen-share media helper currently has only a Linux PipeWire capture stub.");
-	summary.viewSupported = runtimeSupport.ffplayAvailable || runtimeSupport.ffmpegAvailable;
+	summary.viewSupported =
+		runtimeSupport.windowedViewerAvailable ? runtimeSupport.ffplayAvailable : runtimeSupport.ffmpegAvailable;
 #endif
 
 	return summary;
