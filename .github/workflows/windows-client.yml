@@ -91,6 +91,17 @@ jobs:
           MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
           MUMBLE_CI_PHASE: build
 
+      - name: Validate signing configuration
+        if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
+        shell: bash
+        env:
+          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          if [[ -z "${SIGNPATH_TOKEN}" ]]; then
+            echo "::error title=Missing SignPath token::SIGN_WINDOWS_INSTALLER=true but repository secret SIGNPATH_API_TOKEN is not configured."
+            exit 1
+          fi
+
       - if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
         uses: ./.github/actions/sign-binaries
         with:
