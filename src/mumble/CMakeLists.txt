@@ -362,6 +362,12 @@ list(APPEND MUMBLE_SOURCES "${CMAKE_BINARY_DIR}/mumble_flags.qrc")
 add_library(mumble_client_object_lib OBJECT ${MUMBLE_SOURCES})
 target_link_libraries(mumble_client_object_lib PUBLIC smallft)
 
+if(WIN32)
+	# The Windows client pulls in a large, macro-heavy source set (WinSDK, ASIO, G15, overlay).
+	# Building it outside of unity mode avoids batch-sensitive MSVC failures on the preview runner image.
+	set_target_properties(mumble_client_object_lib PROPERTIES UNITY_BUILD OFF)
+endif()
+
 if(WIN32 AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
 	# We don't want the console to appear in release builds.
 	add_executable(mumble WIN32 "main.cpp")

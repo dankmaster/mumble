@@ -138,6 +138,31 @@ if [[ "$run_build" == "yes" ]]; then
 			if [[ -n "$missing_command" ]]; then
 				echo "::error file=.github/workflows/build.sh,title=Likely missing tool::${missing_command}"
 			fi
+
+			error_excerpt=$(grep -E '(^FAILED:|: error:| fatal error | error C[0-9]+:| fatal error C[0-9]+:|ninja: build stopped:)' "$build_log" | tail -n 20 || true)
+			if [[ -n "$error_excerpt" ]]; then
+				echo "::group::Build error excerpt"
+				printf '%s\n' "$error_excerpt"
+				echo "::endgroup::"
+
+				if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+					{
+						echo "### Build error excerpt"
+						echo
+						echo '```text'
+						printf '%s\n' "$error_excerpt"
+						echo '```'
+					} >> "$GITHUB_STEP_SUMMARY"
+				fi
+
+				while IFS= read -r line; do
+					[[ -z "$line" ]] && continue
+					line=${line//'%'/'%25'}
+					line=${line//$'\r'/'%0D'}
+					line=${line//$'\n'/'%0A'}
+					echo "::error file=.github/workflows/build.sh,title=Build log excerpt::${line}"
+				done <<< "$error_excerpt"
+			fi
 		fi
 
 		exit "$build_status"
