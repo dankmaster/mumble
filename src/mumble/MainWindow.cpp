@@ -140,6 +140,9 @@ namespace {
 		switch (scope) {
 			case MumbleProto::TextChannel:
 				return QString::fromLatin1("mumble-chat://scope/text/%1").arg(scopeID);
+			case MumbleProto::Channel:
+			case MumbleProto::ServerGlobal:
+			case MumbleProto::Aggregate:
 			default:
 				return QString();
 		}
@@ -1342,6 +1345,8 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 																	 : tr("#%1").arg(it->name);
 				break;
 			}
+			case MumbleProto::Channel:
+			case MumbleProto::ServerGlobal:
 			default:
 				label = persistentChatScopeLabel(scope, scopeID);
 				break;
