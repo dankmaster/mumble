@@ -1,0 +1,17 @@
+{
+	"v6": {
+		"table_name": "chat_messages",
+		"column_names": [
+			"server_id",
+			"message_id",
+			"thread_id",
+			"author_user_id",
+			"author_session",
+			"body",
+			"created_at",
+			"edited_at",
+			"deleted_at"
+		],
+		"rows": []
+	}
+}

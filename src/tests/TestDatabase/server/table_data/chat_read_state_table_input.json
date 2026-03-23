@@ -1,0 +1,14 @@
+{
+	"v6": {},
+	"v12": {
+		"table_name": "chat_read_state",
+		"column_names": [
+			"server_id",
+			"thread_id",
+			"user_id",
+			"last_read_message_id",
+			"updated_at"
+		],
+		"rows": []
+	}
+}

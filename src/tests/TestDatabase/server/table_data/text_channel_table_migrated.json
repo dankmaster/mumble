@@ -1,0 +1,14 @@
+{
+	"v6": {
+		"table_name": "text_channels",
+		"column_names": [
+			"server_id",
+			"text_channel_id",
+			"name",
+			"description",
+			"acl_channel_id",
+			"position"
+		],
+		"rows": []
+	}
+}

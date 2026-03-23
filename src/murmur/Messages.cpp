@@ -293,9 +293,9 @@ namespace {
 		return Mumble::ScreenShare::sanitizeCodecList(codecs);
 	}
 
-	constexpr quint64 SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
+	constexpr quint64 MESSAGE_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
 
-	QString randomRelayCredential() {
+	QString randomMessageRelayCredential() {
 		return QUuid::createUuid().toString(QUuid::WithoutBraces)
 			+ QUuid::createUuid().toString(QUuid::WithoutBraces);
 	}
@@ -3383,10 +3383,10 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 		QStringLiteral("screen-share-%1-%2").arg(iServerNum).arg(stream.qsStreamID);
 	stream.qsRelayUrl       = qsScreenShareRelayUrl;
 	stream.qsRelaySessionID = QUuid::createUuid().toString(QUuid::WithoutBraces);
-	stream.qsRelayPublishToken = randomRelayCredential();
-	stream.qsRelayViewToken    = randomRelayCredential();
+	stream.qsRelayPublishToken = randomMessageRelayCredential();
+	stream.qsRelayViewToken    = randomMessageRelayCredential();
 	stream.uiRelayTokenExpiresAt =
-		static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch()) + SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
+		static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch()) + MESSAGE_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
 	stream.relayTransport = Mumble::ScreenShare::relayTransportFromUrl(stream.qsRelayUrl);
 	stream.uiCreatedAt = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
 	stream.state       = MumbleProto::ScreenShareLifecycleStateActive;

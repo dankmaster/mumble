@@ -22,6 +22,7 @@ set_target_properties(mumble-screen-helper
 		AUTOMOC ON
 		OUTPUT_NAME "mumble-screen-helper"
 		RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+		UNITY_BUILD OFF
 )
 
 target_link_libraries(mumble-screen-helper

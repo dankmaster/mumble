@@ -1,0 +1,15 @@
+{
+	"v6": {
+		"table_name": "chat_threads",
+		"column_names": [
+			"server_id",
+			"thread_id",
+			"thread_scope",
+			"scope_key",
+			"created_by_user_id",
+			"created_at",
+			"updated_at"
+		],
+		"rows": []
+	}
+}

@@ -66,10 +66,10 @@
 #endif
 
 namespace {
-	constexpr quint64 SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
+	constexpr quint64 SERVER_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
 	constexpr quint64 SCREEN_SHARE_RELAY_TOKEN_REFRESH_SKEW_MSEC = 60ULL * 1000ULL;
 
-	QString randomRelayCredential() {
+	QString randomServerRelayCredential() {
 		return QUuid::createUuid().toString(QUuid::WithoutBraces)
 			+ QUuid::createUuid().toString(QUuid::WithoutBraces);
 	}
@@ -834,9 +834,9 @@ void Server::ensureFreshScreenShareRelayCredentials(ScreenShareStream &stream) {
 	if (stream.qsRelaySessionID.isEmpty()) {
 		stream.qsRelaySessionID = QUuid::createUuid().toString(QUuid::WithoutBraces);
 	}
-	stream.qsRelayPublishToken   = randomRelayCredential();
-	stream.qsRelayViewToken      = randomRelayCredential();
-	stream.uiRelayTokenExpiresAt = now + SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
+	stream.qsRelayPublishToken   = randomServerRelayCredential();
+	stream.qsRelayViewToken      = randomServerRelayCredential();
+	stream.uiRelayTokenExpiresAt = now + SERVER_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
 }
 
 void Server::populateScreenShareStateMessage(MumbleProto::ScreenShareState &msg,
