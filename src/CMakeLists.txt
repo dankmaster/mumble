@@ -237,13 +237,13 @@ endif()
 if(client)
 	add_subdirectory(mumble)
 
-	add_subdirectory(screen-helper)
-
 	if(UNIX AND NOT APPLE)
+		add_subdirectory(screen-helper)
+
 		install(FILES "${CMAKE_SOURCE_DIR}/icons/mumble.svg" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
 		install(FILES "${CMAKE_SOURCE_DIR}/icons/mumble_256x256.png" DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps" RENAME "mumble.png")
 	endif()
-else()
+elseif(UNIX AND NOT APPLE)
 	add_subdirectory(screen-helper)
 endif()
 
