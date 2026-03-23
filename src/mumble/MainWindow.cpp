@@ -78,6 +78,7 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QLocale>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QSignalBlocker>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QUrlQuery>
 #include <QtGui/QClipboard>
@@ -1467,6 +1468,7 @@ MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const
 
 void MainWindow::clearPersistentChatView(const QString &message) {
 	m_persistentChatMessages.clear();
+	m_pendingPersistentChatRender.reset();
 	m_visiblePersistentChatScope.reset();
 	m_visiblePersistentChatScopeID         = 0;
 	m_visiblePersistentChatLastReadMessageID = 0;
@@ -1478,6 +1480,8 @@ void MainWindow::clearPersistentChatView(const QString &message) {
 		return;
 	}
 
+	const QSignalBlocker historySignalBlocker(m_persistentChatHistory);
+	const QSignalBlocker historyScrollSignalBlocker(m_persistentChatHistory->verticalScrollBar());
 	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
 	m_persistentChatHistory->clear();
 	QTextCursor cursor(m_persistentChatHistory->document());
@@ -1866,10 +1870,45 @@ void MainWindow::updatePersistentChatPreviewViewIfVisible(const QString &preview
 
 void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scrollToBottom,
 										  bool preserveScrollPosition) {
+	m_pendingPersistentChatRender = PersistentChatRenderRequest { statusMessage, scrollToBottom, preserveScrollPosition };
+	if (m_persistentChatRenderQueued) {
+		return;
+	}
+
+	m_persistentChatRenderQueued = true;
+	QPointer< MainWindow > guardedThis(this);
+	QMetaObject::invokeMethod(
+		this,
+		[guardedThis]() {
+			if (!guardedThis) {
+				return;
+			}
+
+			guardedThis->flushPersistentChatRender();
+		},
+		Qt::QueuedConnection);
+}
+
+void MainWindow::flushPersistentChatRender() {
+	m_persistentChatRenderQueued = false;
+	if (!m_pendingPersistentChatRender) {
+		return;
+	}
+
+	const PersistentChatRenderRequest request = *m_pendingPersistentChatRender;
+	m_pendingPersistentChatRender.reset();
+	renderPersistentChatViewImmediately(request.statusMessage, request.scrollToBottom,
+										request.preserveScrollPosition);
+}
+
+void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessage, bool scrollToBottom,
+													 bool preserveScrollPosition) {
 	if (!m_persistentChatHistory) {
 		return;
 	}
 
+	const QSignalBlocker historySignalBlocker(m_persistentChatHistory);
+	const QSignalBlocker historyScrollSignalBlocker(m_persistentChatHistory->verticalScrollBar());
 	m_persistentChatHistory->document()->setDefaultStyleSheet(qApp->styleSheet());
 	QSet< QString > previewKeysToEnsure;
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
@@ -2780,6 +2819,8 @@ void MainWindow::showLogContextMenu(LogTextBrowser *browser, const QPoint &mpos)
 		return;
 	}
 
+	m_selectedLogImage = QImage();
+
 	QString link = browser->anchorAt(mpos);
 	if (!link.isEmpty()) {
 		QUrl l(link);
@@ -2797,14 +2838,14 @@ void MainWindow::showLogContextMenu(LogTextBrowser *browser, const QPoint &mpos)
 
 	QTextCursor cursor = browser->imageCursorAt(mpos);
 	if (!cursor.isNull()) {
-		menu->addSeparator();
-		menu->addAction(tr("Save Image As..."), this, SLOT(saveImageAs(void)));
+		m_selectedLogImage = imageFromLogBrowser(browser, cursor);
+		if (!m_selectedLogImage.isNull()) {
+			menu->addSeparator();
+			menu->addAction(tr("Save Image As..."), this, SLOT(saveImageAs(void)));
 
-		QAction *testItem = menu->addAction(tr("Open Image"));
-		connect(testItem, &QAction::triggered, this, &MainWindow::showImageDialog);
-
-		qtcSaveImageCursor = cursor;
-		m_imageSourceBrowser = browser;
+			QAction *testItem = menu->addAction(tr("Open Image"));
+			connect(testItem, &QAction::triggered, this, &MainWindow::showImageDialog);
+		}
 	}
 
 	if (browser == qteLog) {
@@ -2834,11 +2875,7 @@ QImage MainWindow::imageFromLogBrowser(const LogTextBrowser *browser, const QTex
 	return resource.value< QImage >();
 }
 
-void MainWindow::openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor) {
-	m_imageSourceBrowser = browser;
-	qtcSaveImageCursor   = cursor;
-
-	const QImage image = imageFromLogBrowser(browser, cursor);
+void MainWindow::openImageDialog(const QImage &image) {
 	if (image.isNull()) {
 		QMessageBox::warning(this, tr("Error"), tr("Failed to decode image."));
 		return;
@@ -2847,6 +2884,11 @@ void MainWindow::openImageDialog(LogTextBrowser *browser, const QTextCursor &cur
 	const QPixmap pixmap = QPixmap::fromImage(image);
 	ResponsiveImageDialog dialog(pixmap, this);
 	dialog.exec();
+}
+
+void MainWindow::openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor) {
+	m_selectedLogImage = imageFromLogBrowser(browser, cursor);
+	openImageDialog(m_selectedLogImage);
 }
 
 void MainWindow::saveImageAs() {
@@ -2860,7 +2902,7 @@ void MainWindow::saveImageAs() {
 		return;
 	}
 
-	QImage img = imageFromLogBrowser(m_imageSourceBrowser ? m_imageSourceBrowser.data() : qteLog, qtcSaveImageCursor);
+	const QImage img = m_selectedLogImage;
 	if (img.isNull()) {
 		QMessageBox::warning(this, tr("Error"), tr("Failed to decode image."));
 		return;
@@ -6219,5 +6261,5 @@ void MainWindow::on_muteCuePopup_triggered() {
 }
 
 void MainWindow::showImageDialog() {
-	openImageDialog(m_imageSourceBrowser ? m_imageSourceBrowser.data() : qteLog, qtcSaveImageCursor);
+	openImageDialog(m_selectedLogImage);
 }

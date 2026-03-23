@@ -713,14 +713,13 @@ QString Log::validHtml(const QString &html, QTextCursor *tc) {
 		}
 	}
 
+	const QString sanitizedHtml = qtd.toHtml();
 	if (tc) {
-		QTextCursor tcNew(&qtd);
-		tcNew.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
-		tc->insertFragment(tcNew.selection());
+		tc->insertHtml(sanitizedHtml);
 		return QString();
-	} else {
-		return qtd.toHtml();
 	}
+
+	return sanitizedHtml;
 }
 
 void Log::log(MsgType mt, const QString &console, const QString &terse, bool ownMessage, const QString &overrideTTS,

@@ -9,6 +9,7 @@
 #include <QtCore/QPointer>
 #include <QtCore/QtGlobal>
 #include <QtCore/QHash>
+#include <QtGui/QImage>
 #include <QtNetwork/QAbstractSocket>
 #include <QtWidgets/QMainWindow>
 
@@ -139,10 +140,8 @@ public:
 	/// Restart the client after shutdown
 	bool restartOnQuit;
 
-	/// Contains the cursor whose position is immediately before the image to
-	/// save when activating the "Save Image As..." context menu item.
-	QTextCursor qtcSaveImageCursor;
-	QPointer< LogTextBrowser > m_imageSourceBrowser;
+	/// Cached copy of the image currently targeted by the log/persistent-chat image actions.
+	QImage m_selectedLogImage;
 	std::unique_ptr< ScreenShareManager > m_screenShareManager;
 
 	QPointer< Channel > cContextChannel;
@@ -193,6 +192,12 @@ public:
 		bool failed           = false;
 	};
 
+	struct PersistentChatRenderRequest {
+		QString statusMessage;
+		bool scrollToBottom         = true;
+		bool preserveScrollPosition = false;
+	};
+
 	void loadState(bool minimalView);
 	void storeState(bool minimalView);
 
@@ -217,7 +222,11 @@ public:
 	bool navigateToPersistentChatScope(MumbleProto::ChatScope scope, unsigned int scopeID);
 	void showLogContextMenu(LogTextBrowser *browser, const QPoint &position);
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
+	void openImageDialog(const QImage &image);
 	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
+	void flushPersistentChatRender();
+	void renderPersistentChatViewImmediately(const QString &statusMessage = QString(), bool scrollToBottom = true,
+											 bool preserveScrollPosition = false);
 	void renderPersistentChatView(const QString &statusMessage = QString(), bool scrollToBottom = true,
 								  bool preserveScrollPosition = false);
 	bool canMarkPersistentChatRead() const;
@@ -292,11 +301,13 @@ protected:
 	QHash< QString, PersistentChatPreview > m_persistentChatPreviews;
 	QHash< QString, unsigned int > m_persistentChatLastReadByScope;
 	QHash< QString, int > m_persistentChatUnreadByScope;
+	std::optional< PersistentChatRenderRequest > m_pendingPersistentChatRender;
 	std::optional< MumbleProto::ChatScope > m_visiblePersistentChatScope;
 	unsigned int m_visiblePersistentChatScopeID = 0;
 	unsigned int m_visiblePersistentChatLastReadMessageID = 0;
 	bool m_visiblePersistentChatHasMore = false;
 	bool m_persistentChatLoadingOlder = false;
+	bool m_persistentChatRenderQueued = false;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
@@ -486,13 +497,13 @@ public slots:
 	void onResetAudio();
 	void showRaiseWindow();
 	void on_qaFilterToggle_triggered();
-	/// Opens a save dialog for the image referenced by qtcSaveImageCursor.
+	/// Opens a save dialog for the image selected from the log or persistent chat history.
 	void saveImageAs();
 	/// Returns the path to the user's image directory, optionally with a
 	/// filename included.
 	QString getImagePath(QString filename = QString()) const;
 
-	/// Shows a dialog with the image from the context menu as a QPixmap
+	/// Shows a dialog with the currently selected log or chat image.
 	void showImageDialog();
 	/// Updates the user's image directory to the given path (any included
 	/// filename is discarded).
