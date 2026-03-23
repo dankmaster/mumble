@@ -1411,26 +1411,25 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 			static_cast< MumbleProto::ChatScope >(item->data(PersistentChatScopeRole).toInt());
 		const unsigned int scopeID = item->data(PersistentChatScopeIDRole).toUInt();
 
-		QString scopeLabel;
-		switch (scope) {
-			case MumbleProto::Aggregate:
-				scopeLabel = tr("All chats");
-				break;
-			case MumbleProto::ServerGlobal:
-				label = tr("Server-wide");
-				break;
-			case MumbleProto::TextChannel: {
-				const auto it = m_persistentTextChannels.constFind(scopeID);
-				scopeLabel    = it == m_persistentTextChannels.cend() ? tr("#text-%1").arg(scopeID)
-																	  : tr("#%1").arg(it->name);
-				break;
+			QString scopeLabel;
+			switch (scope) {
+				case MumbleProto::Aggregate:
+					scopeLabel = tr("All chats");
+					break;
+				case MumbleProto::ServerGlobal:
+					scopeLabel = tr("Server-wide");
+					break;
+				case MumbleProto::TextChannel: {
+					const auto it = m_persistentTextChannels.constFind(scopeID);
+					scopeLabel    = it == m_persistentTextChannels.cend() ? tr("#text-%1").arg(scopeID)
+																		  : tr("#%1").arg(it->name);
+					break;
+				}
+				case MumbleProto::Channel:
+				default:
+					scopeLabel = persistentChatScopeLabel(scope, scopeID);
+					break;
 			}
-			case MumbleProto::Channel:
-			case MumbleProto::ServerGlobal:
-			default:
-				scopeLabel = persistentChatScopeLabel(scope, scopeID);
-				break;
-		}
 
 		const std::size_t unreadCount = scope == MumbleProto::Aggregate ? totalCachedPersistentChatUnreadCount()
 																		: cachedPersistentChatUnreadCount(scope, scopeID);
