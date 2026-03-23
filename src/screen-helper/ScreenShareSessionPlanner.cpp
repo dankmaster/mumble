@@ -41,10 +41,18 @@ namespace {
 		return Mumble::ScreenShare::IPC::codecFromJson(payload.value(QStringLiteral("codec")));
 	}
 
+	unsigned int nonNegativePayloadValue(const QJsonObject &payload, const char *key) {
+		const int rawValue = payload.value(QLatin1String(key)).toInt();
+		if (rawValue <= 0) {
+			return 0;
+		}
+
+		return static_cast< unsigned int >(rawValue);
+	}
+
 	unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int fallback,
 								  const unsigned int hardMax) {
-		return Mumble::ScreenShare::sanitizeLimit(static_cast< unsigned int >(payload.value(QLatin1String(key)).toInt()),
-												  fallback, hardMax);
+		return Mumble::ScreenShare::sanitizeLimit(nonNegativePayloadValue(payload, key), fallback, hardMax);
 	}
 
 	QString codecBackendToken(const QString &backendID, const MumbleProto::ScreenShareCodec codec) {
@@ -237,8 +245,9 @@ namespace {
 			limitFromPayload(payload, "height", capabilities.maxHeight, Mumble::ScreenShare::HARD_MAX_HEIGHT);
 		const unsigned int fps =
 			limitFromPayload(payload, "fps", capabilities.maxFps, Mumble::ScreenShare::HARD_MAX_FPS);
-		const unsigned int bitrate = Mumble::ScreenShare::sanitizeBitrateKbps(
-			static_cast< unsigned int >(payload.value(QStringLiteral("bitrate_kbps")).toInt()), codec, width, height, fps);
+		const unsigned int bitrate =
+			Mumble::ScreenShare::sanitizeBitrateKbps(nonNegativePayloadValue(payload, "bitrate_kbps"), codec, width,
+													 height, fps);
 
 		const bool preferHardware = payload.value(QStringLiteral("prefer_hardware_encoding")).toBool(true);
 		const QList< EncoderBackend > backends = probeEncoderBackends();

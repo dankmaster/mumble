@@ -50,9 +50,17 @@ namespace {
 		return transports;
 	}
 
-	unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int hardMax) {
+	unsigned int nonNegativePayloadValue(const QJsonObject &payload, const char *key) {
 		const int rawValue = payload.value(QLatin1String(key)).toInt();
-		return Mumble::ScreenShare::sanitizeLimit(static_cast< unsigned int >(qMax(rawValue, 0)), 0, hardMax);
+		if (rawValue <= 0) {
+			return 0;
+		}
+
+		return static_cast< unsigned int >(rawValue);
+	}
+
+	unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int hardMax) {
+		return Mumble::ScreenShare::sanitizeLimit(nonNegativePayloadValue(payload, key), 0U, hardMax);
 	}
 } // namespace
 
