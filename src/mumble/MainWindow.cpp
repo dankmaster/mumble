@@ -246,6 +246,21 @@ namespace {
 		return QObject::tr("Unknown user").toHtmlEscaped();
 	}
 
+	QString normalizedPersistentChatText(QString text) {
+		return text.replace(QLatin1String("\r\n"), QLatin1String("\n")).replace(QLatin1Char('\r'),
+																			 QLatin1Char('\n'));
+	}
+
+	void insertPersistentChatContent(QTextCursor &cursor, const QString &content) {
+		const QString normalizedContent = normalizedPersistentChatText(content);
+		if (!Qt::mightBeRichText(normalizedContent)) {
+			cursor.insertText(normalizedContent);
+			return;
+		}
+
+		Log::validHtml(normalizedContent, &cursor);
+	}
+
 	QString trimTrailingUrlPunctuation(QString url) {
 		while (!url.isEmpty()) {
 			const QChar last = url.back();
@@ -2114,7 +2129,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			cursor.insertHtml(QString::fromLatin1("<em>%1</em>")
 								  .arg(tr("Hidden for now. Click Show to expand it again.").toHtmlEscaped()));
 		} else {
-			Log::validHtml(m_persistentChatWelcomeText, &cursor);
+			insertPersistentChatContent(cursor, m_persistentChatWelcomeText);
 		}
 		cursor.insertHtml(QString::fromLatin1("</td></tr></table><br/>"));
 	}
@@ -2193,9 +2208,10 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 		const bool startGroup = startsPersistentChatGroup(previousMessage, previousCreatedAt, message, createdAt);
 		cursor.insertHtml(QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%'><tr><td>"));
 		if (startGroup) {
-			cursor.insertHtml(persistentChatActorLabel(message));
-			cursor.insertHtml(QString::fromLatin1(" "));
-			cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()), Log::Time));
+			cursor.insertHtml(QString::fromLatin1("%1&nbsp;%2")
+								  .arg(persistentChatActorLabel(message),
+									   Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()),
+													 Log::Time)));
 		} else {
 			cursor.insertHtml(Log::msgColor(QString::fromLatin1("[%1]").arg(timeString.toHtmlEscaped()), Log::Time));
 		}
@@ -2220,7 +2236,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 		if (message.has_deleted_at() && message.deleted_at() > 0) {
 			cursor.insertHtml(QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped()));
 		} else {
-			Log::validHtml(u8(message.message()), &cursor);
+			insertPersistentChatContent(cursor, u8(message.message()));
 		}
 
 		if (message.has_edited_at() && message.edited_at() > 0) {
