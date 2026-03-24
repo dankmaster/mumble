@@ -49,8 +49,10 @@ public:
 
 	ScreenShareHelperClient &helperClient();
 	const ScreenShareHelperClient &helperClient() const;
+	void logLocalShareAvailabilityDiagnostic(const QString &context = QString()) const;
 
 	bool canRequestLocalShare() const;
+	QString localShareUnavailableReason() const;
 	bool canViewSession(const QString &streamID) const;
 	bool isPublishingSession(const QString &streamID) const;
 	bool isViewingSession(const QString &streamID) const;
@@ -91,6 +93,8 @@ private:
 	QSet< QString > m_activePublishSessions;
 	QSet< QString > m_activeViewSessions;
 	QSet< QString > m_announcedViewableSessions;
+	mutable QString m_lastLoggedAvailabilityContext;
+	mutable QString m_lastLoggedAvailabilityReason;
 };
 
 #endif // MUMBLE_MUMBLE_SCREENSHAREMANAGER_H_

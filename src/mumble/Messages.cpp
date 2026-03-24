@@ -74,6 +74,10 @@ namespace {
 
 		return Mumble::ScreenShare::sanitizeCodecList(codecs);
 	}
+
+	QString boolToken(const bool value) {
+		return value ? QStringLiteral("true") : QStringLiteral("false");
+	}
 } // namespace
 
 /// The authenticate message is being used by the client to send the authentication credentials to the server. Therefore
@@ -220,6 +224,7 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 /// @param msg The message object
 void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 	bool persistentGlobalChanged = false;
+	bool screenShareConfigChanged = false;
 	if (msg.has_welcome_text()) {
 		QString str = u8(msg.welcome_text());
 		setPersistentChatWelcomeText(str);
@@ -244,31 +249,54 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 	}
 	if (msg.has_screen_share_enabled()) {
 		Global::get().bScreenShareEnabled = msg.screen_share_enabled();
+		screenShareConfigChanged          = true;
 	}
 	if (msg.has_screen_share_recording_enabled()) {
 		Global::get().bScreenShareRecordingEnabled = msg.screen_share_recording_enabled();
+		screenShareConfigChanged                   = true;
 	}
 	if (msg.has_screen_share_helper_required()) {
 		Global::get().bScreenShareHelperRequired = msg.screen_share_helper_required();
+		screenShareConfigChanged                 = true;
 	}
 	if (msg.preferred_screen_share_codecs_size() > 0) {
 		Global::get().qlPreferredScreenShareCodecs = preferredScreenShareCodecsFromConfig(msg);
+		screenShareConfigChanged                   = true;
 	}
 	if (msg.has_screen_share_max_width()) {
 		Global::get().uiScreenShareMaxWidth =
 			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_width(), 0, Mumble::ScreenShare::HARD_MAX_WIDTH);
+		screenShareConfigChanged = true;
 	}
 	if (msg.has_screen_share_max_height()) {
 		Global::get().uiScreenShareMaxHeight =
 			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_height(), 0, Mumble::ScreenShare::HARD_MAX_HEIGHT);
+		screenShareConfigChanged = true;
 	}
 	if (msg.has_screen_share_max_fps()) {
 		Global::get().uiScreenShareMaxFps =
 			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_fps(), 0, Mumble::ScreenShare::HARD_MAX_FPS);
+		screenShareConfigChanged = true;
 	}
 	if (msg.has_screen_share_relay_url()) {
 		Global::get().qsScreenShareRelayUrl =
 			Mumble::ScreenShare::normalizeRelayUrl(u8(msg.screen_share_relay_url()));
+		screenShareConfigChanged = true;
+	}
+	if (screenShareConfigChanged && Global::get().s.bScreenShareDiagnostics) {
+		qInfo().noquote()
+			<< QStringLiteral("MainWindow: received screen-share ServerConfig enabled=%1 recording=%2 helper_required=%3 "
+							  "max=%4x%5@%6 relay_url=%7")
+				   .arg(boolToken(Global::get().bScreenShareEnabled), boolToken(Global::get().bScreenShareRecordingEnabled),
+						boolToken(Global::get().bScreenShareHelperRequired),
+						QString::number(Global::get().uiScreenShareMaxWidth),
+						QString::number(Global::get().uiScreenShareMaxHeight),
+						QString::number(Global::get().uiScreenShareMaxFps),
+						Global::get().qsScreenShareRelayUrl.isEmpty() ? QStringLiteral("-")
+																	  : Global::get().qsScreenShareRelayUrl);
+		if (m_screenShareManager) {
+			m_screenShareManager->logLocalShareAvailabilityDiagnostic(QStringLiteral("server-config"));
+		}
 	}
 	if (persistentGlobalChanged) {
 		rebuildPersistentChatChannelList();
