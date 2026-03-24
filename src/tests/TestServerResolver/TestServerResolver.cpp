@@ -24,6 +24,7 @@ private slots:
 	void simpleA();
 	void simpleAAAA();
 	void simpleCNAME();
+	void literalIPv4();
 };
 
 void TestServerResolver::simpleSrv() {
@@ -232,6 +233,33 @@ void TestServerResolver::simpleAAAA() {
 	QCOMPARE(record.priority(), static_cast< qint64 >(0));
 
 	HostAddress want(QHostAddress(QLatin1String("::1")));
+	HostAddress got = record.addresses().at(0);
+	QCOMPARE(want, got);
+}
+
+void TestServerResolver::literalIPv4() {
+	ServerResolver r;
+	QSignalSpy spy(&r, SIGNAL(resolved()));
+
+	QString hostname = QString::fromLatin1("127.0.0.1");
+	quint16 port     = 64738;
+
+	r.resolve(hostname, port);
+
+	signalSpyWait(spy);
+
+	QCOMPARE(spy.count(), 1);
+
+	QList< ServerResolverRecord > records = r.records();
+	QCOMPARE(records.size(), 1);
+
+	ServerResolverRecord record = records.at(0);
+	QCOMPARE(record.hostname(), hostname);
+	QCOMPARE(record.port(), port);
+	QCOMPARE(record.addresses().size(), 1);
+	QCOMPARE(record.priority(), static_cast< qint64 >(0));
+
+	HostAddress want(QHostAddress(QLatin1String("127.0.0.1")));
 	HostAddress got = record.addresses().at(0);
 	QCOMPARE(want, got);
 }

@@ -5,6 +5,7 @@
 
 #include "ServerResolver.h"
 
+#include <QtCore/QTimer>
 #include <QtNetwork/QDnsLookup>
 #include <QtNetwork/QHostInfo>
 
@@ -46,6 +47,23 @@ ServerResolverPrivate::ServerResolverPrivate(QObject *parent) : QObject(parent),
 void ServerResolverPrivate::resolve(QString hostname, quint16 port) {
 	m_origHostname = hostname;
 	m_origPort     = port;
+	m_resolved.clear();
+	m_srvQueue.clear();
+	m_hostInfoIdToIndexMap.clear();
+	m_srvQueueRemain = 0;
+
+	QString literalHostname = hostname.trimmed();
+	if (literalHostname.startsWith(QLatin1Char('[')) && literalHostname.endsWith(QLatin1Char(']'))
+		&& literalHostname.size() > 2) {
+		literalHostname = literalHostname.mid(1, literalHostname.size() - 2);
+	}
+
+	QHostAddress literalAddress;
+	if (literalAddress.setAddress(literalHostname)) {
+		m_resolved << ServerResolverRecord(m_origHostname, m_origPort, 0, { HostAddress(literalAddress) });
+		QTimer::singleShot(0, this, [this]() { emit resolved(); });
+		return;
+	}
 
 	QDnsLookup *resolver = new QDnsLookup(this);
 	connect(resolver, SIGNAL(finished()), this, SLOT(srvResolved()));

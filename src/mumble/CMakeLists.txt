@@ -406,6 +406,10 @@ add_custom_command(
 target_sources(mumble PRIVATE "ApplicationPalette.h")
 target_include_directories(mumble PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
+if(bundled-spdlog)
+	target_include_directories(mumble BEFORE PRIVATE "${3RDPARTY_DIR}/spdlog/include")
+endif()
+
 target_link_libraries(mumble PRIVATE mumble_client_object_lib shared spdlog::spdlog)
 target_link_libraries(mumble PRIVATE CLI11::CLI11)
 

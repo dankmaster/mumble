@@ -48,6 +48,8 @@ private:
 	QJsonObject handleStopPublish(const QJsonObject &payload);
 	QJsonObject handleStartView(const QJsonObject &payload);
 	QJsonObject handleStopView(const QJsonObject &payload);
+	void logSessionPlanSummary(const QJsonObject &payload, const QString &label, const QString &phase) const;
+	static void logPayloadWarnings(const QJsonObject &payload, const QString &label, const QString &streamID);
 	void stopAllSessions();
 	void stopSession(QHash< QString, ManagedSession > &sessions, const QString &streamID);
 	void attachProcessLogging(const QString &streamID, bool publish, const QString &label);

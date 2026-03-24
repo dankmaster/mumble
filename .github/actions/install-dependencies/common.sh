@@ -23,6 +23,25 @@ verify_required_env_variables_set() {
 	fi
 }
 
+download_file() {
+	local url="$1"
+	local output_file="$2"
+
+	if [[ -z "$url" || -z "$output_file" ]]; then
+		echo "download_file requires a URL and output file" 1>&2
+		exit 1
+	fi
+
+	if command -v aria2c > /dev/null 2>&1; then
+		aria2c "$url" --out "$output_file"
+	elif command -v curl > /dev/null 2>&1; then
+		curl -L --fail --output "$output_file" "$url"
+	else
+		echo "Neither aria2c nor curl is available for downloading dependencies" 1>&2
+		exit 1
+	fi
+}
+
 extract_with_progress() {
 	local fromFile="$1"
 	local targetDir="$2"
@@ -53,6 +72,7 @@ extract_with_progress() {
 	fi
 
 	tmp_dir="__extract_root__"
+	rm -rf "$tmp_dir"
 	mkdir "$tmp_dir"
 
 	if [[ "$fromFile" = *.7z || "$fromFile"  = *.zip ]]; then
@@ -123,7 +143,7 @@ make_build_env_available() {
 
 		local env_archive="$MUMBLE_ENVIRONMENT_VERSION.$env_file_extension"
 
-		aria2c "$MUMBLE_ENVIRONMENT_SOURCE/$env_archive" --out="$env_archive"
+		download_file "$MUMBLE_ENVIRONMENT_SOURCE/$env_archive" "$env_archive"
 
 		echo "Extracting archive..."
 		if [[ ! -d "$env_dir" ]]; then

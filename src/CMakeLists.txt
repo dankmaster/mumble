@@ -229,6 +229,11 @@ target_link_libraries(shared PUBLIC Tracy::TracyClient)
 if(bundled-spdlog)
 	set(SPDLOG_SYSTEM_INCLUDES ON)
 	add_subdirectory("${3RDPARTY_DIR}/spdlog" "${CMAKE_CURRENT_BINARY_DIR}/spdlog" EXCLUDE_FROM_ALL)
+	# The Windows build environment also ships a newer spdlog/fmt pair.
+	# Force our bundled headers to win the include-order battle so consumers
+	# don't compile against the external headers while linking against the
+	# bundled spdlog library.
+	target_include_directories(shared BEFORE PUBLIC "${3RDPARTY_DIR}/spdlog/include")
 else()
 	find_pkg("spdlog" REQUIRED)
 endif()

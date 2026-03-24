@@ -5,26 +5,34 @@ set -x
 
 source "$( dirname "$0" )/common.sh"
 
-# All of these are already installed on the runner
-# choco install cmake ninja vswhere
-choco install aria2 7zip
-
 verify_required_env_variables_set
+
+if ! command -v 7z > /dev/null 2>&1; then
+	echo "7z is required for the local Windows dependency bootstrap" 1>&2
+	exit 1
+fi
 
 make_build_env_available "7z"
 
-aria2c "https://dl.mumble.info/build/extra/asio_sdk.zip" --out "asio_sdk.zip"
+rm -rf "${GITHUB_WORKSPACE}/3rdparty/asio"
+download_file "https://dl.mumble.info/build/extra/asio_sdk.zip" "asio_sdk.zip"
 extract_with_progress "asio_sdk.zip" "${GITHUB_WORKSPACE}/3rdparty/asio"
 
-aria2c "https://dl.mumble.info/build/extra/g15_sdk.zip" --out "g15_sdk.zip"
+rm -rf "${GITHUB_WORKSPACE}/3rdparty/g15"
+rm -rf "g15_sdk"
+download_file "https://dl.mumble.info/build/extra/g15_sdk.zip" "g15_sdk.zip"
 extract_with_progress "g15_sdk.zip" "g15_sdk"
 mv "g15_sdk/LCDSDK" "${GITHUB_WORKSPACE}/3rdparty/g15"
 rm -rf "g15_sdk"
 
-aria2c "https://github.com/oleg-shilo/wixsharp/releases/download/v1.19.0.0/WixSharp.1.19.0.0.7z" --out "WixSharp.7z"
+rm -rf "C:/WixSharp"
+download_file "https://github.com/oleg-shilo/wixsharp/releases/download/v1.19.0.0/WixSharp.1.19.0.0.7z" "WixSharp.7z"
 extract_with_progress "WixSharp.7z" "C:/WixSharp"
 
-git clone "https://github.com/nathan818fr/vcvars-bash.git" "C:/vcvars-bash"
+if [[ ! -d "C:/vcvars-bash/.git" ]]; then
+	rm -rf "C:/vcvars-bash"
+	git clone "https://github.com/nathan818fr/vcvars-bash.git" "C:/vcvars-bash"
+fi
 
 
 if [[ "${MUMBLE_SKIP_DATABASE_SETUP:-}" = "ON" ]]; then
