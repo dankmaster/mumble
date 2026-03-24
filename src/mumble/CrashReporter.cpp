@@ -5,106 +5,20 @@
 
 #include "CrashReporter.h"
 
-#include "EnvUtils.h"
-#include "NetworkConfig.h"
 #include "OSInfo.h"
 #include "Global.h"
 
-#include <QtCore/QProcess>
-#include <QtCore/QTemporaryFile>
+#include <QtCore/QDateTime>
+#include <QtCore/QDir>
+#include <QtCore/QFileInfo>
 #include <QtNetwork/QHostAddress>
 #include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
+#include <QtWidgets/QApplication>
 
 CrashReporter::CrashReporter(QWidget *p) : QDialog(p) {
-	setWindowTitle(tr("Mumble Crash Report"));
-
-	QVBoxLayout *vbl = new QVBoxLayout(this);
-
-	QLabel *l;
-
-	l = new QLabel(tr("<p><b>We're terribly sorry, but it seems Mumble has crashed. Do you want to send a crash report "
-					  "to the Mumble developers?</b></p>"
-					  "<p>The crash report contains a partial copy of Mumble's memory at the time it crashed, and will "
-					  "help the developers fix the problem.</p>"));
-
-	vbl->addWidget(l);
-
-	QHBoxLayout *hbl = new QHBoxLayout();
-
-	qleEmail = new QLineEdit(Global::get().s.crashReportEmail);
-	l        = new QLabel(tr("Email address (optional)"));
-	l->setBuddy(qleEmail);
-
-	hbl->addWidget(l);
-	hbl->addWidget(qleEmail, 1);
-	vbl->addLayout(hbl);
-
-	qteDescription = new QTextEdit();
-	l->setBuddy(qteDescription);
-	l = new QLabel(tr("Please describe briefly, in English, what you were doing at the time of the crash"));
-
-	vbl->addWidget(l);
-	vbl->addWidget(qteDescription, 1);
-
-	QPushButton *pbOk = new QPushButton(tr("Send Report"));
-	pbOk->setDefault(true);
-
-	QPushButton *pbCancel = new QPushButton(tr("Don't send report"));
-	pbCancel->setAutoDefault(false);
-
-	QDialogButtonBox *dbb = new QDialogButtonBox(Qt::Horizontal);
-	dbb->addButton(pbOk, QDialogButtonBox::AcceptRole);
-	dbb->addButton(pbCancel, QDialogButtonBox::RejectRole);
-	connect(dbb, SIGNAL(accepted()), this, SLOT(accept()));
-	connect(dbb, SIGNAL(rejected()), this, SLOT(reject()));
-	vbl->addWidget(dbb);
-
-	qelLoop     = new QEventLoop(this);
-	qpdProgress = nullptr;
-	qnrReply    = nullptr;
 }
 
 CrashReporter::~CrashReporter() {
-	Global::get().s.crashReportEmail = qleEmail->text();
-	delete qnrReply;
-}
-
-void CrashReporter::uploadFinished() {
-	qpdProgress->reset();
-
-	QVariant varStatus = qnrReply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
-	if (!varStatus.isValid()) {
-		qWarning() << "CrashReporter.cpp: Invalid HTTP code attribute";
-	}
-
-	int httpStatusCode = varStatus.toInt();
-
-	if (httpStatusCode != 0) {
-		// The 2xx HTTP status codes are considered success
-		if (httpStatusCode >= 200 && httpStatusCode < 300) {
-			QMessageBox::information(nullptr, tr("Crash upload successful"),
-									 tr("Thank you for helping make Mumble better!"));
-		} else {
-			QMessageBox::critical(nullptr, tr("Crash upload failed"),
-								  tr("HTTP error %1: \"%2\"")
-									  .arg(httpStatusCode)
-									  .arg(qnrReply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString()));
-		}
-	} else {
-		QMessageBox::critical(nullptr, tr("Crash upload failed"),
-							  tr("Internal error encountered in CrashReporter.cpp: Received network reply does not "
-								 "contain an HTTP status code."
-								 " Please inform a developer about error code %1")
-								  .arg(qnrReply->error()));
-	}
-
-	qelLoop->exit(0);
-}
-
-void CrashReporter::uploadProgress(qint64 sent, qint64 total) {
-	qpdProgress->setMaximum(static_cast< int >(total));
-	qpdProgress->setValue(static_cast< int >(sent));
 }
 
 void CrashReporter::run() {
@@ -166,36 +80,7 @@ void CrashReporter::run() {
 
 	QString details;
 #ifdef Q_OS_WIN
-	{
-		QTemporaryFile qtf;
-		if (qtf.open()) {
-			qtf.close();
-
-			QProcess qp;
-			QStringList qsl;
-
-			qsl << QLatin1String("/t");
-			qsl << qtf.fileName();
-
-			QString app        = QLatin1String("dxdiag.exe");
-			QString systemRoot = EnvUtils::getenv(QLatin1String("SystemRoot"));
-
-			if (!systemRoot.isEmpty()) {
-				app = QDir::fromNativeSeparators(systemRoot + QLatin1String("/System32/dxdiag.exe"));
-			}
-
-			qp.start(app, qsl);
-			if (qp.waitForFinished(30000)) {
-				if (qtf.open()) {
-					QByteArray qba = qtf.readAll();
-					details        = QString::fromLocal8Bit(qba);
-				}
-			} else {
-				details = QLatin1String("Failed to run dxdiag");
-			}
-			qp.kill();
-		}
-	}
+	details = QLatin1String("Windows minidump archived locally. No crash data was uploaded.");
 #endif
 
 	if (qbaDumpContents.isEmpty()) {
@@ -203,51 +88,46 @@ void CrashReporter::run() {
 		return;
 	}
 
-	if (exec() == QDialog::Accepted) {
-		qpdProgress = new QProgressDialog(tr("Uploading crash report"), tr("Abort upload"), 0, 100, this);
-		qpdProgress->setMinimumDuration(500);
-		qpdProgress->setValue(0);
-		connect(qpdProgress, SIGNAL(canceled()), qelLoop, SLOT(quit()));
+	const QString timestamp = QDateTime::currentDateTime().toString(QLatin1String("yyyyMMdd-HHmmss"));
+	QDir crashRoot(Global::get().qdBasePath.filePath(QLatin1String("crash-reports")));
+	if (!crashRoot.mkpath(QLatin1String("."))) {
+		qWarning("CrashReporter: Unable to create crash report directory");
+		return;
+	}
 
-		QString boundary =
-			QString::fromLatin1("---------------------------%1").arg(QDateTime::currentDateTime().toSecsSinceEpoch());
+	const QString archiveDirPath = crashRoot.filePath(timestamp);
+	if (!crashRoot.mkpath(timestamp)) {
+		qWarning("CrashReporter: Unable to create crash report archive");
+		return;
+	}
 
-		QString os = QString::fromLatin1("--%1\r\nContent-Disposition: form-data; "
-										 "name=\"os\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%2 %3\r\n")
-						 .arg(boundary, OSInfo::getOS(), OSInfo::getOSVersion());
-		QString ver = QString::fromLatin1("--%1\r\nContent-Disposition: form-data; "
-										  "name=\"ver\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%2\r\n")
-						  .arg(boundary, Version::getRelease());
-		QString email = QString::fromLatin1("--%1\r\nContent-Disposition: form-data; "
-											"name=\"email\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%2\r\n")
-							.arg(boundary, qleEmail->text());
-		QString descr = QString::fromLatin1("--%1\r\nContent-Disposition: form-data; "
-											"name=\"desc\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%2\r\n")
-							.arg(boundary, qteDescription->toPlainText());
-		QString det = QString::fromLatin1("--%1\r\nContent-Disposition: form-data; "
-										  "name=\"details\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%2\r\n")
-						  .arg(boundary, details);
-		QString head = QString::fromLatin1("--%1\r\nContent-Disposition: form-data; name=\"dump\"; "
-										   "filename=\"mumble.dmp\"\r\nContent-Type: binary/octet-stream\r\n\r\n")
-						   .arg(boundary);
-		QString end = QString::fromLatin1("\r\n--%1--\r\n").arg(boundary);
+	QFile archivedDump(QDir(archiveDirPath).filePath(QLatin1String("mumble.dmp")));
+	if (!archivedDump.open(QIODevice::WriteOnly)) {
+		qWarning("CrashReporter: Unable to write archived dump");
+		return;
+	}
+	archivedDump.write(qbaDumpContents);
+	archivedDump.close();
 
-		QByteArray post = os.toUtf8() + ver.toUtf8() + email.toUtf8() + descr.toUtf8() + det.toUtf8() + head.toUtf8()
-						  + qbaDumpContents + end.toUtf8();
-
-		QUrl url(QLatin1String("https://crash-report.mumble.info/v1/report"));
-		QNetworkRequest req(url);
-		req.setHeader(QNetworkRequest::ContentTypeHeader,
-					  QString::fromLatin1("multipart/form-data; boundary=%1").arg(boundary));
-		req.setHeader(QNetworkRequest::ContentLengthHeader, QString::number(post.size()));
-		Network::prepareRequest(req);
-		qnrReply = Global::get().nam->post(req, post);
-		connect(qnrReply, SIGNAL(finished()), this, SLOT(uploadFinished()));
-		connect(qnrReply, SIGNAL(uploadProgress(qint64, qint64)), this, SLOT(uploadProgress(qint64, qint64)));
-
-		qelLoop->exec(QEventLoop::DialogExec);
+	QFile metadata(QDir(archiveDirPath).filePath(QLatin1String("metadata.txt")));
+	if (metadata.open(QIODevice::WriteOnly | QIODevice::Text)) {
+		QStringList lines;
+		lines << QString::fromLatin1("timestamp=%1").arg(QDateTime::currentDateTime().toString(Qt::ISODate));
+		lines << QString::fromLatin1("version=%1").arg(Version::getRelease());
+		lines << QString::fromLatin1("os=%1 %2").arg(OSInfo::getOS(), OSInfo::getOSVersion());
+		lines << QString::fromLatin1("app=%1").arg(QFileInfo(qApp->applicationFilePath()).fileName());
+		if (!details.isEmpty()) {
+			lines << QString();
+			lines << details;
+		}
+		metadata.write(lines.join(QLatin1Char('\n')).toUtf8());
+		metadata.close();
 	}
 
 	if (!qfCrashDump.remove())
 		qWarning("CrashReporeter: Unable to remove crash file.");
+
+	QMessageBox::information(nullptr, tr("Crash archived"),
+							 tr("Crash data was written locally to:\n%1\n\nNo crash data was uploaded.")
+								 .arg(QDir::toNativeSeparators(archiveDirPath)));
 }

@@ -420,7 +420,7 @@ struct Settings {
 	QByteArray qbaMinimalViewGeometry    = {};
 	QByteArray qbaMinimalViewState       = {};
 	QByteArray qbaConfigGeometry         = {};
-	WindowLayout wlWindowLayout          = LayoutClassic;
+	WindowLayout wlWindowLayout          = LayoutHybrid;
 	ChannelExpand ceExpand               = ChannelsWithUsers;
 	ChannelDrag ceChannelDrag            = Ask;
 	ChannelDrag ceUserDrag               = Move;
@@ -432,7 +432,7 @@ struct Settings {
 	bool bLockLayout                     = false;
 	bool bHideInTray                     = false;
 	bool bStateInTray                    = true;
-	bool bUsage                          = true;
+	bool bUsage                          = false;
 	bool bShowUserCount                  = false;
 	bool bShowVolumeAdjustments          = true;
 	bool bShowNicknamesOnly              = false;
@@ -459,7 +459,7 @@ struct Settings {
 
 	QString qsImagePath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
 
-	bool bUpdateCheck      = true;
+	bool bUpdateCheck      = false;
 	bool bPluginCheck      = true;
 	bool bPluginAutoUpdate = false;
 
@@ -473,7 +473,7 @@ struct Settings {
 	bool bAutoConnect = false;
 	bool bQoS         = true;
 	/// Disables the "Public Internet" section in the connect dialog if set.
-	bool bDisablePublicList    = false;
+	bool bDisablePublicList    = true;
 	ProxyType ptProxyType      = NoProxy;
 	QString qsProxyHost        = {};
 	QString qsProxyUsername    = {};
