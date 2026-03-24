@@ -2511,7 +2511,94 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 	}
 }
 
-void Server::msgTextChannelSync(ServerUser *, MumbleProto::TextChannelSync &) {
+void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSync &msg) {
+	MSG_SETUP(ServerUser::Authenticated);
+
+	Channel *rootChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+	if (!rootChannel) {
+		return;
+	}
+
+	const MumbleProto::TextChannelSync_Action action =
+		msg.has_action() ? msg.action() : MumbleProto::TextChannelSync_Action_Sync;
+	if (action == MumbleProto::TextChannelSync_Action_Sync) {
+		sendTextChannelSync(uSource);
+		return;
+	}
+
+	if (!hasPermission(uSource, rootChannel, ChanACL::Write)) {
+		PERM_DENIED(uSource, rootChannel, ChanACL::Write);
+		return;
+	}
+
+	auto broadcastTextChannelSync = [this]() {
+		for (ServerUser *currentUser : qhUsers) {
+			if (currentUser && currentUser->sState == ServerUser::Authenticated) {
+				sendTextChannelSync(currentUser);
+			}
+		}
+	};
+
+	if (action == MumbleProto::TextChannelSync_Action_Delete) {
+		if (!msg.has_target_text_channel_id()) {
+			return;
+		}
+
+		const unsigned int textChannelID = msg.target_text_channel_id();
+		if (!m_dbWrapper.getTextChannel(iServerNum, textChannelID)) {
+			return;
+		}
+
+		m_dbWrapper.removeTextChannel(iServerNum, textChannelID);
+		broadcastTextChannelSync();
+		return;
+	}
+
+	if (msg.channels_size() <= 0) {
+		return;
+	}
+
+	const MumbleProto::TextChannelInfo &channelInfo = msg.channels(0);
+	if (!channelInfo.has_name()) {
+		return;
+	}
+
+	const QString name = u8(channelInfo.name()).trimmed();
+	if (name.isEmpty() || !validateChannelName(name)) {
+		return;
+	}
+
+	const unsigned int aclChannelID =
+		channelInfo.has_acl_channel_id() ? channelInfo.acl_channel_id() : Mumble::ROOT_CHANNEL_ID;
+	Channel *permissionChannel = qhChannels.value(aclChannelID);
+	if (!permissionChannel) {
+		return;
+	}
+
+	const QString description = channelInfo.has_description() ? u8(channelInfo.description()) : QString();
+	const unsigned int position = channelInfo.has_position() ? channelInfo.position() : 0;
+
+	if (action == MumbleProto::TextChannelSync_Action_Create) {
+		m_dbWrapper.addTextChannel(iServerNum, u8(name), u8(description), aclChannelID, position);
+		broadcastTextChannelSync();
+		return;
+	}
+
+	if (action != MumbleProto::TextChannelSync_Action_Update || !msg.has_target_text_channel_id()) {
+		return;
+	}
+
+	std::optional< ::msdb::DBTextChannel > existing = m_dbWrapper.getTextChannel(iServerNum, msg.target_text_channel_id());
+	if (!existing) {
+		return;
+	}
+
+	existing->name         = u8(name);
+	existing->description  = u8(description);
+	existing->aclChannelID = aclChannelID;
+	existing->position     = position;
+	m_dbWrapper.updateTextChannel(*existing);
+	broadcastTextChannelSync();
 }
 
 /// Helper function to log the groups of the given channel.

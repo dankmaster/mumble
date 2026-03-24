@@ -1094,6 +1094,29 @@ void ServerHandler::sendChatMessage(MumbleProto::ChatScope scope, unsigned int s
 	sendMessage(message);
 }
 
+void ServerHandler::upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
+									  unsigned int aclChannelID, unsigned int position, bool create) {
+	MumbleProto::TextChannelSync sync;
+	sync.set_action(create ? MumbleProto::TextChannelSync_Action_Create : MumbleProto::TextChannelSync_Action_Update);
+	sync.set_target_text_channel_id(textChannelID);
+
+	MumbleProto::TextChannelInfo *channel = sync.add_channels();
+	channel->set_text_channel_id(textChannelID);
+	channel->set_name(u8(name));
+	channel->set_description(u8(description));
+	channel->set_acl_channel_id(aclChannelID);
+	channel->set_position(position);
+
+	sendMessage(sync);
+}
+
+void ServerHandler::removeTextChannel(unsigned int textChannelID) {
+	MumbleProto::TextChannelSync sync;
+	sync.set_action(MumbleProto::TextChannelSync_Action_Delete);
+	sync.set_target_text_channel_id(textChannelID);
+	sendMessage(sync);
+}
+
 void ServerHandler::requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int startOffset,
 									   unsigned int limit) {
 	MumbleProto::ChatHistoryRequest request;

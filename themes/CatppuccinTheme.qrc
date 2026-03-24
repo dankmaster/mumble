@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<qresource prefix="themes/Catppuccin">
+    <file alias="theme.ini">Catppuccin/theme.ini</file>
+    <file alias="Mocha.qss">Catppuccin/Mocha.qss</file>
+</qresource>
+</RCC>
