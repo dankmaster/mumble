@@ -1255,13 +1255,14 @@ void MainWindow::setupServerNavigator() {
 	headerLayout->addWidget(m_serverNavigatorEyebrow);
 	headerLayout->addWidget(m_serverNavigatorTitle);
 	headerLayout->addWidget(m_serverNavigatorSubtitle);
+	m_serverNavigatorHeaderFrame->hide();
 
 	qtvUsers->setParent(m_serverNavigatorContainer);
 	qtvUsers->setObjectName(QLatin1String("qtvUsers"));
 	qtvUsers->setFrameShape(QFrame::NoFrame);
 	qtvUsers->setUniformRowHeights(true);
 	qtvUsers->setAnimated(true);
-	qtvUsers->setIndentation(18);
+	qtvUsers->setIndentation(14);
 	qtvUsers->setExpandsOnDoubleClick(false);
 	qtvUsers->setAllColumnsShowFocus(false);
 	qtvUsers->setMinimumWidth(184);
@@ -1276,6 +1277,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorFooter->setWordWrap(true);
 	m_serverNavigatorFooter->setTextFormat(Qt::PlainText);
 	m_serverNavigatorFooter->setTextInteractionFlags(Qt::NoTextInteraction);
+	m_serverNavigatorFooter->hide();
 
 	layout->addWidget(m_serverNavigatorHeaderFrame);
 	layout->addWidget(qtvUsers, 1);
@@ -1333,6 +1335,7 @@ void MainWindow::setupPersistentChatDock() {
 	headerLayout->addWidget(m_persistentChatHeaderEyebrow);
 	headerLayout->addWidget(m_persistentChatHeaderTitle);
 	headerLayout->addWidget(m_persistentChatHeaderSubtitle);
+	m_persistentChatHeaderFrame->hide();
 
 	layout->addWidget(m_persistentChatHeaderFrame);
 
@@ -1354,15 +1357,15 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHistory->setReadOnly(true);
 	m_persistentChatHistory->setOpenLinks(false);
 	m_persistentChatHistory->setContextMenuPolicy(Qt::CustomContextMenu);
-	m_persistentChatHistory->document()->setDocumentMargin(14);
-	qteChat->setMinimumHeight(96);
+	m_persistentChatHistory->document()->setDocumentMargin(10);
+	qteChat->setMinimumHeight(60);
 
 	m_persistentChatSidebarContainer = new QWidget(m_persistentChatContainer);
 	m_persistentChatSidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
-	m_persistentChatSidebarContainer->setMinimumWidth(224);
+	m_persistentChatSidebarContainer->setMinimumWidth(208);
 	QVBoxLayout *sidebarLayout = new QVBoxLayout(m_persistentChatSidebarContainer);
 	sidebarLayout->setContentsMargins(0, 0, 0, 0);
-	sidebarLayout->setSpacing(8);
+	sidebarLayout->setSpacing(0);
 
 	m_persistentChatChannelToolbar = new QFrame(m_persistentChatSidebarContainer);
 	m_persistentChatChannelToolbar->setObjectName(QLatin1String("qfPersistentChatSidebarHeader"));
@@ -1397,6 +1400,7 @@ void MainWindow::setupPersistentChatDock() {
 	sidebarHeaderLayout->addWidget(m_persistentChatSidebarEyebrow);
 	sidebarHeaderLayout->addWidget(m_persistentChatChannelListLabel);
 	sidebarHeaderLayout->addWidget(m_persistentChatSidebarSubtitle);
+	m_persistentChatChannelToolbar->hide();
 
 	m_persistentChatChannelMenu = new QMenu(tr("Text rooms"), this);
 	m_persistentChatAddRoomAction = m_persistentChatChannelMenu->addAction(tr("Create text room"));
@@ -1405,7 +1409,6 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatChannelMenu->addSeparator();
 	m_persistentChatAclRoomAction = m_persistentChatChannelMenu->addAction(tr("Edit ACL source for text room"));
 
-	sidebarLayout->addWidget(m_persistentChatChannelToolbar);
 	sidebarLayout->addWidget(m_persistentChatChannelList, 1);
 
 	m_persistentChatSidebarFooter =
@@ -1414,13 +1417,13 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatSidebarFooter->setWordWrap(true);
 	m_persistentChatSidebarFooter->setTextFormat(Qt::PlainText);
 	m_persistentChatSidebarFooter->setTextInteractionFlags(Qt::NoTextInteraction);
-	sidebarLayout->addWidget(m_persistentChatSidebarFooter);
-
+	m_persistentChatSidebarFooter->hide();
 	QWidget *chatPanel = new QWidget(m_persistentChatContainer);
+	chatPanel->setObjectName(QLatin1String("qwPersistentChatPanel"));
 	chatPanel->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *chatLayout = new QVBoxLayout();
 	chatLayout->setContentsMargins(0, 0, 0, 0);
-	chatLayout->setSpacing(6);
+	chatLayout->setSpacing(2);
 	chatLayout->addWidget(m_persistentChatHistory, 1);
 	chatLayout->addWidget(qteChat);
 	chatPanel->setLayout(chatLayout);
@@ -1432,13 +1435,14 @@ void MainWindow::setupPersistentChatDock() {
 	contentSplitter->addWidget(chatPanel);
 	contentSplitter->setStretchFactor(0, 0);
 	contentSplitter->setStretchFactor(1, 1);
-	contentSplitter->setSizes({ 224, 876 });
+	contentSplitter->setHandleWidth(8);
+	contentSplitter->setSizes({ 208, 892 });
 
 	QWidget *contentSurface = new QWidget(m_persistentChatContainer);
 	contentSurface->setObjectName(QLatin1String("qwPersistentChatSurface"));
 	contentSurface->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *contentSurfaceLayout = new QVBoxLayout(contentSurface);
-	contentSurfaceLayout->setContentsMargins(10, 10, 10, 10);
+	contentSurfaceLayout->setContentsMargins(0, 0, 0, 0);
 	contentSurfaceLayout->setSpacing(0);
 	contentSurfaceLayout->addWidget(contentSplitter, 1);
 
@@ -1502,22 +1506,21 @@ void MainWindow::refreshServerNavigatorStyles() {
 		darkTheme ? mixColors(navPalette.color(QPalette::Highlight), titleColor, 0.10)
 				  : mixColors(navPalette.color(QPalette::Highlight), baseColor, 0.08);
 	const QColor railBackground =
-		darkTheme ? mixColors(mixColors(windowColor, accentColor, 0.18), baseColor, 0.38)
-				  : mixColors(mixColors(windowColor, accentColor, 0.10), baseColor, 0.12);
+		darkTheme ? mixColors(windowColor, baseColor, 0.24) : mixColors(windowColor, baseColor, 0.08);
 	const QColor headerBackground =
-		darkTheme ? mixColors(railBackground, accentColor, 0.26)
-				  : mixColors(mixColors(railBackground, alternateColor, 0.10), accentColor, 0.12);
+		darkTheme ? mixColors(railBackground, baseColor, 0.20)
+				  : mixColors(mixColors(railBackground, baseColor, 0.14), alternateColor, 0.06);
 	const QColor treeBackground =
-		darkTheme ? mixColors(baseColor, accentColor, 0.14) : mixColors(baseColor, accentColor, 0.05);
+		darkTheme ? mixColors(baseColor, railBackground, 0.38) : mixColors(baseColor, railBackground, 0.22);
 	const QColor borderColor =
-		darkTheme ? mixColors(navPalette.color(QPalette::Mid), accentColor, 0.24)
-				  : mixColors(navPalette.color(QPalette::Mid), accentColor, 0.14);
+		darkTheme ? mixColors(navPalette.color(QPalette::Mid), railBackground, 0.18)
+				  : mixColors(navPalette.color(QPalette::Mid), railBackground, 0.10);
 	const QColor mutedTextColor = mixColors(titleColor, railBackground, darkTheme ? 0.46 : 0.34);
 	const QColor eyebrowColor   = mixColors(accentColor, titleColor, darkTheme ? 0.18 : 0.28);
-	const QColor hoverColor     = mixColors(treeBackground, accentColor, darkTheme ? 0.26 : 0.16);
-	const QColor selectedColor  = mixColors(treeBackground, accentColor, darkTheme ? 0.74 : 0.34);
+	const QColor hoverColor     = mixColors(treeBackground, accentColor, darkTheme ? 0.18 : 0.10);
+	const QColor selectedColor  = mixColors(treeBackground, accentColor, darkTheme ? 0.52 : 0.22);
 	const QColor selectedBorderColor =
-		darkTheme ? mixColors(selectedColor, accentColor, 0.20) : mixColors(selectedColor, accentColor, 0.30);
+		darkTheme ? mixColors(selectedColor, accentColor, 0.14) : mixColors(selectedColor, accentColor, 0.18);
 
 	QPalette treePalette = qtvUsers->palette();
 	treePalette.setColor(QPalette::Base, treeBackground);
@@ -1544,7 +1547,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QFrame#qfServerNavigatorHeader {"
 			" background-color: %2;"
 			" border: 1px solid %6;"
-			" border-radius: 14px;"
+			" border-radius: 10px;"
 			"}"
 			"QLabel#qlServerNavigatorEyebrow {"
 			" color: %3;"
@@ -1559,11 +1562,11 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"}"
 			"QTreeView#qtvUsers {"
 			" border: 1px solid %6;"
-			" border-radius: 14px;"
+			" border-radius: 8px;"
 			" background-color: %7;"
 			" alternate-background-color: %7;"
 			" color: %4;"
-			" padding: 10px 8px 12px 6px;"
+			" padding: 8px;"
 			" outline: none;"
 			" show-decoration-selected: 1;"
 			"}"
@@ -1576,18 +1579,27 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QTreeView#qtvUsers::branch:hover, QTreeView#qtvUsers::branch:selected {"
 			" background: transparent;"
 			"}"
+			"QTreeView#qtvUsers::branch:has-siblings:!adjoins-item, "
+			"QTreeView#qtvUsers::branch:has-siblings:adjoins-item, "
+			"QTreeView#qtvUsers::branch:!has-children:!has-siblings:adjoins-item, "
+			"QTreeView#qtvUsers::branch:closed:has-children:has-siblings, "
+			"QTreeView#qtvUsers::branch:open:has-children:has-siblings, "
+			"QTreeView#qtvUsers::branch:closed:has-children:!has-siblings, "
+			"QTreeView#qtvUsers::branch:open:has-children:!has-siblings {"
+			" margin-left: 4px;"
+			" }"
 			"QTreeView#qtvUsers::item {"
 			" min-height: 24px;"
-			" padding: 5px 8px;"
+			" padding: 4px 8px;"
 			" border: 1px solid transparent;"
-			" border-radius: 9px;"
-			" margin: 1px 4px 1px 0px;"
+			" border-radius: 5px;"
+			" margin: 1px 0px;"
 			"}"
 			"QTreeView#qtvUsers::item:hover {"
 			" background-color: %8;"
 			"}"
 			"QTreeView#qtvUsers::item:selected {"
-			" border-radius: 9px;"
+			" border-radius: 5px;"
 			" background-color: %9;"
 			" color: %10;"
 			" border-color: %11;"
@@ -1611,31 +1623,29 @@ void MainWindow::refreshPersistentChatStyles() {
 	const bool darkTheme           = isDarkPalette(chatPalette);
 	const QColor windowColor       = chatPalette.color(QPalette::Window);
 	const QColor baseColor         = chatPalette.color(QPalette::Base);
+	const QColor alternateColor    = chatPalette.color(QPalette::AlternateBase);
 	const QColor textColor         = chatPalette.color(QPalette::WindowText);
 	const QColor accentColor =
-		darkTheme ? mixColors(chatPalette.color(QPalette::Highlight), textColor, 0.08)
-				  : mixColors(chatPalette.color(QPalette::Highlight), baseColor, 0.05);
+		darkTheme ? mixColors(chatPalette.color(QPalette::Highlight), textColor, 0.10)
+				  : mixColors(chatPalette.color(QPalette::Highlight), baseColor, 0.08);
+	const QColor railColor =
+		darkTheme ? mixColors(windowColor, baseColor, 0.24) : mixColors(windowColor, baseColor, 0.08);
 	const QColor borderColor =
-		darkTheme ? mixColors(chatPalette.color(QPalette::Mid), baseColor, 0.18)
-				  : mixColors(chatPalette.color(QPalette::Mid), baseColor, 0.08);
-	const QColor surfaceColor =
-		darkTheme ? mixColors(windowColor, baseColor, 0.34) : mixColors(windowColor, baseColor, 0.10);
+		darkTheme ? mixColors(chatPalette.color(QPalette::Mid), railColor, 0.18)
+				  : mixColors(chatPalette.color(QPalette::Mid), railColor, 0.10);
 	const QColor headerSurfaceColor =
-		darkTheme ? mixColors(surfaceColor, accentColor, 0.12) : mixColors(surfaceColor, accentColor, 0.06);
-	const QColor sidebarRailColor =
-		darkTheme ? mixColors(mixColors(windowColor, accentColor, 0.16), baseColor, 0.34)
-				  : mixColors(mixColors(windowColor, accentColor, 0.08), baseColor, 0.10);
+		darkTheme ? mixColors(railColor, baseColor, 0.20)
+				  : mixColors(mixColors(railColor, baseColor, 0.14), alternateColor, 0.06);
+	const QColor sidebarRailColor = railColor;
 	const QColor sidebarListColor =
-		darkTheme ? mixColors(baseColor, accentColor, 0.10) : mixColors(baseColor, accentColor, 0.04);
-	const QColor historyColor =
-		darkTheme ? mixColors(baseColor, surfaceColor, 0.18) : mixColors(baseColor, surfaceColor, 0.08);
-	const QColor inputColor =
-		darkTheme ? mixColors(baseColor, windowColor, 0.14) : mixColors(baseColor, surfaceColor, 0.04);
-	const QColor mutedTextColor = mixColors(textColor, surfaceColor, darkTheme ? 0.42 : 0.34);
+		darkTheme ? mixColors(baseColor, railColor, 0.38) : mixColors(baseColor, railColor, 0.22);
+	const QColor historyColor = sidebarListColor;
+	const QColor inputColor   = sidebarListColor;
+	const QColor mutedTextColor = mixColors(textColor, railColor, darkTheme ? 0.46 : 0.34);
 	const QColor sidebarMutedTextColor = mixColors(textColor, sidebarRailColor, darkTheme ? 0.42 : 0.32);
 	const QColor sidebarEyebrowColor   = mixColors(accentColor, textColor, darkTheme ? 0.10 : 0.20);
-	const QColor sidebarHoverColor     = mixColors(sidebarListColor, accentColor, darkTheme ? 0.20 : 0.12);
-	const QColor sidebarSelectedColor  = mixColors(sidebarListColor, accentColor, darkTheme ? 0.62 : 0.26);
+	const QColor sidebarHoverColor     = mixColors(sidebarListColor, accentColor, darkTheme ? 0.18 : 0.10);
+	const QColor sidebarSelectedColor  = mixColors(sidebarListColor, accentColor, darkTheme ? 0.52 : 0.22);
 	const QColor selectedTextColor     = chatPalette.color(QPalette::HighlightedText);
 
 	if (m_persistentChatSidebarContainer) {
@@ -1644,6 +1654,18 @@ void MainWindow::refreshPersistentChatStyles() {
 		sidebarPalette.setColor(QPalette::Window, sidebarRailColor);
 		m_persistentChatSidebarContainer->setPalette(sidebarPalette);
 	}
+
+	m_persistentChatContainer->setAutoFillBackground(true);
+	QPalette containerPalette = m_persistentChatContainer->palette();
+	containerPalette.setColor(QPalette::Window, railColor);
+	m_persistentChatContainer->setPalette(containerPalette);
+
+	qdwChat->setAutoFillBackground(true);
+	QPalette chatDockPalette = qdwChat->palette();
+	chatDockPalette.setColor(QPalette::Window, railColor);
+	qdwChat->setPalette(chatDockPalette);
+	qdwChat->setStyleSheet(QString::fromLatin1("QDockWidget#qdwChat { background-color: %1; border: none; }")
+						   .arg(railColor.name()));
 
 	if (m_persistentChatChannelList) {
 		QPalette listPalette = m_persistentChatChannelList->palette();
@@ -1655,18 +1677,61 @@ void MainWindow::refreshPersistentChatStyles() {
 		listPalette.setColor(QPalette::HighlightedText, selectedTextColor);
 		m_persistentChatChannelList->setAutoFillBackground(true);
 		m_persistentChatChannelList->setPalette(listPalette);
+		m_persistentChatChannelList->viewport()->setAutoFillBackground(true);
+		m_persistentChatChannelList->viewport()->setPalette(listPalette);
+		m_persistentChatChannelList->viewport()->setStyleSheet(
+			QString::fromLatin1("background-color: %1;").arg(sidebarListColor.name()));
+	}
+
+	if (m_persistentChatHistory) {
+		QPalette historyPalette = m_persistentChatHistory->palette();
+		historyPalette.setColor(QPalette::Base, historyColor);
+		historyPalette.setColor(QPalette::AlternateBase, historyColor);
+		historyPalette.setColor(QPalette::Window, historyColor);
+		historyPalette.setColor(QPalette::Text, textColor);
+		historyPalette.setColor(QPalette::Highlight, sidebarSelectedColor);
+		historyPalette.setColor(QPalette::HighlightedText, selectedTextColor);
+		m_persistentChatHistory->setAutoFillBackground(true);
+		m_persistentChatHistory->setPalette(historyPalette);
+		m_persistentChatHistory->viewport()->setAutoFillBackground(true);
+		m_persistentChatHistory->viewport()->setPalette(historyPalette);
+		m_persistentChatHistory->viewport()->setStyleSheet(
+			QString::fromLatin1("background-color: %1;").arg(historyColor.name()));
+	}
+
+	if (qteChat) {
+		QPalette inputPalette = qteChat->palette();
+		inputPalette.setColor(QPalette::Base, inputColor);
+		inputPalette.setColor(QPalette::AlternateBase, inputColor);
+		inputPalette.setColor(QPalette::Window, inputColor);
+		inputPalette.setColor(QPalette::Text, textColor);
+		inputPalette.setColor(QPalette::Highlight, sidebarSelectedColor);
+		inputPalette.setColor(QPalette::HighlightedText, selectedTextColor);
+		qteChat->setAutoFillBackground(true);
+		qteChat->setPalette(inputPalette);
+		qteChat->viewport()->setAutoFillBackground(true);
+		qteChat->viewport()->setPalette(inputPalette);
+		qteChat->viewport()->setStyleSheet(QString::fromLatin1("background-color: %1;").arg(inputColor.name()));
 	}
 
 	m_persistentChatContainer->setStyleSheet(
 		QString::fromLatin1(
+			"QWidget#qwPersistentChat {"
+			" background-color: %2;"
+			"}"
 			"QFrame#qfPersistentChatHeader {"
 			" border: 1px solid %1;"
-			" border-radius: 14px;"
+			" border-radius: 8px;"
 			" background-color: %12;"
 			"}"
 			"QWidget#qwPersistentChatSurface {"
-			" border: 1px solid %1;"
-			" border-radius: 16px;"
+			" border: none;"
+			" border-radius: 0px;"
+			" background-color: %2;"
+			"}"
+			"QWidget#qwPersistentChatPanel {"
+			" border: none;"
+			" border-radius: 0px;"
 			" background-color: %2;"
 			"}"
 			"QFrame#qfPersistentChatSidebarHeader {"
@@ -1694,17 +1759,17 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QListWidget#qlwPersistentTextChannels {"
 			" border: 1px solid %1;"
-			" border-radius: 14px;"
+			" border-radius: 8px;"
 			" background-color: %8;"
 			" alternate-background-color: %8;"
 			" color: %7;"
-			" padding: 10px 7px 12px 7px;"
+			" padding: 8px;"
 			" outline: none;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item {"
 			" min-height: 24px;"
 			" padding: 4px 8px;"
-			" border-radius: 8px;"
+			" border-radius: 5px;"
 			" margin: 1px 0px;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item:hover {"
@@ -1719,25 +1784,27 @@ void MainWindow::refreshPersistentChatStyles() {
 			" color: %11;"
 			"}"
 			"QTextBrowser#qtePersistentChatHistory {"
-			" border: none;"
+			" border: 1px solid %1;"
+			" border-radius: 8px;"
 			" background-color: %4;"
-			" padding: 0px 0px 8px 0px;"
+			" padding: 0px;"
 			"}"
 			"ChatbarTextEdit#qteChat {"
 			" border: 1px solid %1;"
-			" border-radius: 12px;"
+			" border-radius: 8px;"
 			" background-color: %5;"
-			" padding: 9px 12px;"
+			" padding: 8px 12px;"
 			"}"
 			"QSplitter#qsPersistentChatContent::handle {"
 			" background: %1;"
-			" width: 3px;"
-			" margin: 10px 5px;"
+			" width: 8px;"
+			" margin: 8px 3px;"
+			" border-radius: 1px;"
 			"}"
 			"QLabel#qlPersistentChatHeaderTitle {"
 			" color: %7;"
 			"}")
-			.arg(borderColor.name(), surfaceColor.name(), mutedTextColor.name(), historyColor.name(), inputColor.name(),
+			.arg(borderColor.name(), railColor.name(), mutedTextColor.name(), historyColor.name(), inputColor.name(),
 				 accentColor.name(), textColor.name(), sidebarListColor.name(), sidebarHoverColor.name(),
 				 sidebarSelectedColor.name(), selectedTextColor.name(), headerSurfaceColor.name(),
 				 sidebarEyebrowColor.name(), sidebarMutedTextColor.name()));
