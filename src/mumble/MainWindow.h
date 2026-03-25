@@ -46,10 +46,12 @@ class UserInformation;
 class VoiceRecorderDialog;
 class PositionalAudioViewer;
 class PTTButtonWidget;
+class QAction;
 class QFrame;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QMenu;
 
 namespace Search {
 class SearchDialog;
@@ -237,6 +239,7 @@ public:
 	void editPersistentTextChannel();
 	void removePersistentTextChannel();
 	void editPersistentTextChannelACL();
+	void showPersistentTextChannelContextMenu(const QPoint &position);
 	void updatePersistentTextChannelControls();
 	void showLogContextMenu(LogTextBrowser *browser, const QPoint &position);
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
@@ -319,13 +322,18 @@ protected:
 	QLabel *m_persistentChatHeaderEyebrow = nullptr;
 	QLabel *m_persistentChatHeaderTitle = nullptr;
 	QLabel *m_persistentChatHeaderSubtitle = nullptr;
+	QWidget *m_persistentChatSidebarContainer = nullptr;
+	QLabel *m_persistentChatSidebarEyebrow = nullptr;
 	QLabel *m_persistentChatChannelListLabel = nullptr;
+	QLabel *m_persistentChatSidebarSubtitle = nullptr;
+	QLabel *m_persistentChatSidebarFooter = nullptr;
 	QWidget *m_persistentChatChannelToolbar = nullptr;
+	QMenu *m_persistentChatChannelMenu = nullptr;
 	QListWidget *m_persistentChatChannelList = nullptr;
-	QToolButton *m_persistentChatAddRoomButton = nullptr;
-	QToolButton *m_persistentChatEditRoomButton = nullptr;
-	QToolButton *m_persistentChatRemoveRoomButton = nullptr;
-	QToolButton *m_persistentChatAclRoomButton = nullptr;
+	QAction *m_persistentChatAddRoomAction = nullptr;
+	QAction *m_persistentChatEditRoomAction = nullptr;
+	QAction *m_persistentChatRemoveRoomAction = nullptr;
+	QAction *m_persistentChatAclRoomAction = nullptr;
 	LogTextBrowser *m_persistentChatWelcome = nullptr;
 	QFrame *m_persistentChatDivider = nullptr;
 	LogTextBrowser *m_persistentChatHistory = nullptr;
@@ -415,6 +423,7 @@ public slots:
 	void on_qaUserFriendRemove_triggered();
 	void on_qaUserFriendUpdate_triggered();
 	void qmChannel_aboutToShow();
+	void qmPersistentTextChannel_aboutToShow();
 	void on_qaChannelJoin_triggered();
 	void on_qaUserJoin_triggered();
 	void on_qaUserMove_triggered();

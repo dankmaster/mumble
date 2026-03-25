@@ -200,6 +200,68 @@ namespace {
 								baseColor.blueF() * baseRatio + overlayColor.blueF() * clampedRatio, 1.0);
 	}
 
+#ifdef Q_OS_WIN
+	using DwmSetWindowAttributeFn = HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD);
+
+	constexpr DWORD DwmUseImmersiveDarkModeAttribute       = 20;
+	constexpr DWORD DwmUseImmersiveDarkModeLegacyAttribute = 19;
+	constexpr DWORD DwmBorderColorAttribute                = 34;
+	constexpr DWORD DwmCaptionColorAttribute               = 35;
+	constexpr DWORD DwmTextColorAttribute                  = 36;
+
+	COLORREF colorRefFromQColor(const QColor &color) {
+		return RGB(color.red(), color.green(), color.blue());
+	}
+
+	void applyNativeTitleBarTheme(QWidget *widget) {
+		if (!widget) {
+			return;
+		}
+
+		const HWND hwnd = reinterpret_cast< HWND >(widget->winId());
+		if (!hwnd) {
+			return;
+		}
+
+		static const HMODULE dwmapiModule = GetModuleHandleW(L"dwmapi.dll");
+		if (!dwmapiModule) {
+			return;
+		}
+
+		static const DwmSetWindowAttributeFn setWindowAttribute =
+			reinterpret_cast< DwmSetWindowAttributeFn >(GetProcAddress(dwmapiModule, "DwmSetWindowAttribute"));
+		if (!setWindowAttribute) {
+			return;
+		}
+
+		const QPalette palette      = widget->palette();
+		const bool darkTheme        = isDarkPalette(palette);
+		const QColor windowColor    = palette.color(QPalette::Window);
+		const QColor baseColor      = palette.color(QPalette::Base);
+		const QColor accentColor    = palette.color(QPalette::Highlight);
+		const QColor titleTextColor = palette.color(QPalette::WindowText);
+		const QColor captionColor =
+			darkTheme ? mixColors(windowColor, baseColor, 0.22) : mixColors(windowColor, accentColor, 0.08);
+		const QColor borderColor =
+			darkTheme ? mixColors(captionColor, accentColor, 0.18) : mixColors(captionColor, accentColor, 0.26);
+
+		const BOOL immersiveDarkMode = darkTheme ? TRUE : FALSE;
+		HRESULT result =
+			setWindowAttribute(hwnd, DwmUseImmersiveDarkModeAttribute, &immersiveDarkMode, sizeof(immersiveDarkMode));
+		if (FAILED(result)) {
+			setWindowAttribute(hwnd, DwmUseImmersiveDarkModeLegacyAttribute, &immersiveDarkMode,
+							   sizeof(immersiveDarkMode));
+		}
+
+		const COLORREF captionColorRef = colorRefFromQColor(captionColor);
+		const COLORREF textColorRef    = colorRefFromQColor(titleTextColor);
+		const COLORREF borderColorRef  = colorRefFromQColor(borderColor);
+		setWindowAttribute(hwnd, DwmCaptionColorAttribute, &captionColorRef, sizeof(captionColorRef));
+		setWindowAttribute(hwnd, DwmTextColorAttribute, &textColorRef, sizeof(textColorRef));
+		setWindowAttribute(hwnd, DwmBorderColorAttribute, &borderColorRef, sizeof(borderColorRef));
+	}
+#endif
+
 	bool samePersistentChatActor(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
 		if (lhs.has_actor() || rhs.has_actor()) {
 			return lhs.has_actor() && rhs.has_actor() && lhs.actor() == rhs.actor();
@@ -1278,13 +1340,13 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatChannelList->setObjectName(QLatin1String("qlwPersistentTextChannels"));
 	m_persistentChatChannelList->setAccessibleName(tr("Text channels"));
 	m_persistentChatChannelList->setFrameShape(QFrame::NoFrame);
-	m_persistentChatChannelList->setAlternatingRowColors(true);
+	m_persistentChatChannelList->setAlternatingRowColors(false);
 	m_persistentChatChannelList->setUniformItemSizes(true);
 	m_persistentChatChannelList->setSpacing(2);
 	m_persistentChatChannelList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_persistentChatChannelList->setSelectionMode(QAbstractItemView::SingleSelection);
-	m_persistentChatChannelList->setMinimumWidth(148);
-	m_persistentChatChannelList->setMaximumWidth(192);
+	m_persistentChatChannelList->setContextMenuPolicy(Qt::CustomContextMenu);
+	m_persistentChatChannelList->setMinimumWidth(184);
 	m_persistentChatHistory = new LogTextBrowser(m_persistentChatContainer);
 	m_persistentChatHistory->setObjectName(QLatin1String("qtePersistentChatHistory"));
 	m_persistentChatHistory->setAccessibleName(tr("Persistent chat history"));
@@ -1295,58 +1357,66 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHistory->document()->setDocumentMargin(14);
 	qteChat->setMinimumHeight(96);
 
-	QWidget *sidebarContainer = new QWidget(m_persistentChatContainer);
-	sidebarContainer->setObjectName(QLatin1String("qwPersistentChatSidebar"));
-	sidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
-	QVBoxLayout *sidebarLayout = new QVBoxLayout(sidebarContainer);
+	m_persistentChatSidebarContainer = new QWidget(m_persistentChatContainer);
+	m_persistentChatSidebarContainer->setAttribute(Qt::WA_StyledBackground, true);
+	m_persistentChatSidebarContainer->setMinimumWidth(224);
+	QVBoxLayout *sidebarLayout = new QVBoxLayout(m_persistentChatSidebarContainer);
 	sidebarLayout->setContentsMargins(0, 0, 0, 0);
 	sidebarLayout->setSpacing(8);
 
-	m_persistentChatChannelToolbar = new QWidget(sidebarContainer);
-	m_persistentChatChannelToolbar->setObjectName(QLatin1String("qwPersistentChatSidebarHeader"));
-	QHBoxLayout *sidebarHeaderLayout = new QHBoxLayout(m_persistentChatChannelToolbar);
-	sidebarHeaderLayout->setContentsMargins(0, 0, 0, 0);
-	sidebarHeaderLayout->setSpacing(4);
+	m_persistentChatChannelToolbar = new QFrame(m_persistentChatSidebarContainer);
+	m_persistentChatChannelToolbar->setObjectName(QLatin1String("qfPersistentChatSidebarHeader"));
+	m_persistentChatChannelToolbar->setAttribute(Qt::WA_StyledBackground, true);
+	QVBoxLayout *sidebarHeaderLayout = new QVBoxLayout(m_persistentChatChannelToolbar);
+	sidebarHeaderLayout->setContentsMargins(12, 9, 12, 9);
+	sidebarHeaderLayout->setSpacing(3);
 
-	m_persistentChatChannelListLabel = new QLabel(tr("Text rooms"), m_persistentChatChannelToolbar);
+	m_persistentChatSidebarEyebrow = new QLabel(tr("Text"), m_persistentChatChannelToolbar);
+	m_persistentChatSidebarEyebrow->setObjectName(QLatin1String("qlPersistentChatSidebarEyebrow"));
+	QFont sidebarEyebrowFont = m_persistentChatSidebarEyebrow->font();
+	sidebarEyebrowFont.setCapitalization(QFont::AllUppercase);
+	sidebarEyebrowFont.setBold(true);
+	sidebarEyebrowFont.setPointSizeF(std::max(sidebarEyebrowFont.pointSizeF() - 1.0, 8.0));
+	m_persistentChatSidebarEyebrow->setFont(sidebarEyebrowFont);
+
+	m_persistentChatChannelListLabel = new QLabel(tr("Rooms"), m_persistentChatChannelToolbar);
 	m_persistentChatChannelListLabel->setObjectName(QLatin1String("qlPersistentChatSidebarTitle"));
 	m_persistentChatChannelListLabel->setTextFormat(Qt::PlainText);
 	QFont sidebarFont = m_persistentChatChannelListLabel->font();
 	sidebarFont.setBold(true);
+	sidebarFont.setPointSizeF(sidebarFont.pointSizeF() + 3.0);
 	m_persistentChatChannelListLabel->setFont(sidebarFont);
 
+	m_persistentChatSidebarSubtitle =
+		new QLabel(tr("Rooms and unread activity."), m_persistentChatChannelToolbar);
+	m_persistentChatSidebarSubtitle->setObjectName(QLatin1String("qlPersistentChatSidebarSubtitle"));
+	m_persistentChatSidebarSubtitle->setWordWrap(true);
+	m_persistentChatSidebarSubtitle->setTextFormat(Qt::PlainText);
+	m_persistentChatSidebarSubtitle->setTextInteractionFlags(Qt::NoTextInteraction);
+
+	sidebarHeaderLayout->addWidget(m_persistentChatSidebarEyebrow);
 	sidebarHeaderLayout->addWidget(m_persistentChatChannelListLabel);
-	sidebarHeaderLayout->addStretch(1);
+	sidebarHeaderLayout->addWidget(m_persistentChatSidebarSubtitle);
 
-	auto configureTextChannelButton = [](QToolButton *button, const QString &text, const QString &tooltip) {
-		button->setText(text);
-		button->setAutoRaise(true);
-		button->setToolButtonStyle(Qt::ToolButtonTextOnly);
-		button->setToolTip(tooltip);
-		button->setCursor(Qt::PointingHandCursor);
-	};
-
-	m_persistentChatAddRoomButton = new QToolButton(m_persistentChatChannelToolbar);
-	configureTextChannelButton(m_persistentChatAddRoomButton, tr("+"), tr("Create text room"));
-	sidebarHeaderLayout->addWidget(m_persistentChatAddRoomButton);
-
-	m_persistentChatEditRoomButton = new QToolButton(m_persistentChatChannelToolbar);
-	configureTextChannelButton(m_persistentChatEditRoomButton, tr("Edit"), tr("Edit text room"));
-	sidebarHeaderLayout->addWidget(m_persistentChatEditRoomButton);
-
-	m_persistentChatRemoveRoomButton = new QToolButton(m_persistentChatChannelToolbar);
-	configureTextChannelButton(m_persistentChatRemoveRoomButton, tr("Delete"), tr("Delete text room"));
-	sidebarHeaderLayout->addWidget(m_persistentChatRemoveRoomButton);
-
-	m_persistentChatAclRoomButton = new QToolButton(m_persistentChatChannelToolbar);
-	configureTextChannelButton(m_persistentChatAclRoomButton, tr("ACL"), tr("Edit ACL source for text room"));
-	sidebarHeaderLayout->addWidget(m_persistentChatAclRoomButton);
+	m_persistentChatChannelMenu = new QMenu(tr("Text rooms"), this);
+	m_persistentChatAddRoomAction = m_persistentChatChannelMenu->addAction(tr("Create text room"));
+	m_persistentChatEditRoomAction = m_persistentChatChannelMenu->addAction(tr("Edit text room"));
+	m_persistentChatRemoveRoomAction = m_persistentChatChannelMenu->addAction(tr("Delete text room"));
+	m_persistentChatChannelMenu->addSeparator();
+	m_persistentChatAclRoomAction = m_persistentChatChannelMenu->addAction(tr("Edit ACL source for text room"));
 
 	sidebarLayout->addWidget(m_persistentChatChannelToolbar);
 	sidebarLayout->addWidget(m_persistentChatChannelList, 1);
 
+	m_persistentChatSidebarFooter =
+		new QLabel(tr("Right-click a room for options."), m_persistentChatSidebarContainer);
+	m_persistentChatSidebarFooter->setObjectName(QLatin1String("qlPersistentChatSidebarFooter"));
+	m_persistentChatSidebarFooter->setWordWrap(true);
+	m_persistentChatSidebarFooter->setTextFormat(Qt::PlainText);
+	m_persistentChatSidebarFooter->setTextInteractionFlags(Qt::NoTextInteraction);
+	sidebarLayout->addWidget(m_persistentChatSidebarFooter);
+
 	QWidget *chatPanel = new QWidget(m_persistentChatContainer);
-	chatPanel->setObjectName(QLatin1String("qwPersistentChatPanel"));
 	chatPanel->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *chatLayout = new QVBoxLayout();
 	chatLayout->setContentsMargins(0, 0, 0, 0);
@@ -1358,11 +1428,11 @@ void MainWindow::setupPersistentChatDock() {
 	QSplitter *contentSplitter = new QSplitter(Qt::Horizontal, m_persistentChatContainer);
 	contentSplitter->setObjectName(QLatin1String("qsPersistentChatContent"));
 	contentSplitter->setChildrenCollapsible(false);
-	contentSplitter->addWidget(sidebarContainer);
+	contentSplitter->addWidget(m_persistentChatSidebarContainer);
 	contentSplitter->addWidget(chatPanel);
 	contentSplitter->setStretchFactor(0, 0);
 	contentSplitter->setStretchFactor(1, 1);
-	contentSplitter->setSizes({ 184, 916 });
+	contentSplitter->setSizes({ 224, 876 });
 
 	QWidget *contentSurface = new QWidget(m_persistentChatContainer);
 	contentSurface->setObjectName(QLatin1String("qwPersistentChatSurface"));
@@ -1379,6 +1449,8 @@ void MainWindow::setupPersistentChatDock() {
 	refreshPersistentChatStyles();
 
 	connect(m_persistentChatChannelList, SIGNAL(currentRowChanged(int)), this, SLOT(on_persistentChatScopeChanged(int)));
+	connect(m_persistentChatChannelList, &QListWidget::customContextMenuRequested, this,
+			&MainWindow::showPersistentTextChannelContextMenu);
 	connect(m_persistentChatHistory, &LogTextBrowser::anchorClicked, this, &MainWindow::on_qteLog_anchorClicked);
 	connect(m_persistentChatHistory, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
 			&MainWindow::on_qteLog_highlighted);
@@ -1394,12 +1466,11 @@ void MainWindow::setupPersistentChatDock() {
 		}
 	});
 	connect(this, &MainWindow::windowActivated, this, [this]() { markPersistentChatRead(); });
-	connect(m_persistentChatAddRoomButton, &QToolButton::clicked, this, [this]() { createPersistentTextChannel(); });
-	connect(m_persistentChatEditRoomButton, &QToolButton::clicked, this, [this]() { editPersistentTextChannel(); });
-	connect(m_persistentChatRemoveRoomButton, &QToolButton::clicked, this,
-			[this]() { removePersistentTextChannel(); });
-	connect(m_persistentChatAclRoomButton, &QToolButton::clicked, this,
-			[this]() { editPersistentTextChannelACL(); });
+	connect(m_persistentChatChannelMenu, &QMenu::aboutToShow, this, &MainWindow::qmPersistentTextChannel_aboutToShow);
+	connect(m_persistentChatAddRoomAction, &QAction::triggered, this, [this]() { createPersistentTextChannel(); });
+	connect(m_persistentChatEditRoomAction, &QAction::triggered, this, [this]() { editPersistentTextChannel(); });
+	connect(m_persistentChatRemoveRoomAction, &QAction::triggered, this, [this]() { removePersistentTextChannel(); });
+	connect(m_persistentChatAclRoomAction, &QAction::triggered, this, [this]() { editPersistentTextChannelACL(); });
 
 	rebuildPersistentChatChannelList();
 	updatePersistentChatScopeSelectorLabels();
@@ -1410,6 +1481,9 @@ void MainWindow::setupPersistentChatDock() {
 void MainWindow::refreshCustomChromeStyles() {
 	refreshServerNavigatorStyles();
 	refreshPersistentChatStyles();
+#ifdef Q_OS_WIN
+	applyNativeTitleBarTheme(this);
+#endif
 }
 
 void MainWindow::refreshServerNavigatorStyles() {
@@ -1428,19 +1502,22 @@ void MainWindow::refreshServerNavigatorStyles() {
 		darkTheme ? mixColors(navPalette.color(QPalette::Highlight), titleColor, 0.10)
 				  : mixColors(navPalette.color(QPalette::Highlight), baseColor, 0.08);
 	const QColor railBackground =
-		darkTheme ? mixColors(windowColor, baseColor, 0.52) : mixColors(windowColor, baseColor, 0.16);
+		darkTheme ? mixColors(mixColors(windowColor, accentColor, 0.18), baseColor, 0.38)
+				  : mixColors(mixColors(windowColor, accentColor, 0.10), baseColor, 0.12);
 	const QColor headerBackground =
-		darkTheme ? mixColors(railBackground, alternateColor, 0.28)
-				  : mixColors(railBackground, alternateColor, 0.18);
+		darkTheme ? mixColors(railBackground, accentColor, 0.26)
+				  : mixColors(mixColors(railBackground, alternateColor, 0.10), accentColor, 0.12);
 	const QColor treeBackground =
-		darkTheme ? mixColors(baseColor, alternateColor, 0.18) : mixColors(baseColor, windowColor, 0.08);
+		darkTheme ? mixColors(baseColor, accentColor, 0.14) : mixColors(baseColor, accentColor, 0.05);
 	const QColor borderColor =
-		darkTheme ? mixColors(navPalette.color(QPalette::Mid), treeBackground, 0.18)
-				  : mixColors(navPalette.color(QPalette::Mid), treeBackground, 0.10);
-	const QColor mutedTextColor = mixColors(titleColor, railBackground, darkTheme ? 0.42 : 0.32);
-	const QColor eyebrowColor   = mixColors(accentColor, titleColor, darkTheme ? 0.10 : 0.20);
-	const QColor hoverColor     = mixColors(treeBackground, accentColor, darkTheme ? 0.20 : 0.12);
-	const QColor selectedColor  = mixColors(treeBackground, accentColor, darkTheme ? 0.62 : 0.26);
+		darkTheme ? mixColors(navPalette.color(QPalette::Mid), accentColor, 0.24)
+				  : mixColors(navPalette.color(QPalette::Mid), accentColor, 0.14);
+	const QColor mutedTextColor = mixColors(titleColor, railBackground, darkTheme ? 0.46 : 0.34);
+	const QColor eyebrowColor   = mixColors(accentColor, titleColor, darkTheme ? 0.18 : 0.28);
+	const QColor hoverColor     = mixColors(treeBackground, accentColor, darkTheme ? 0.26 : 0.16);
+	const QColor selectedColor  = mixColors(treeBackground, accentColor, darkTheme ? 0.74 : 0.34);
+	const QColor selectedBorderColor =
+		darkTheme ? mixColors(selectedColor, accentColor, 0.20) : mixColors(selectedColor, accentColor, 0.30);
 
 	QPalette treePalette = qtvUsers->palette();
 	treePalette.setColor(QPalette::Base, treeBackground);
@@ -1467,7 +1544,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QFrame#qfServerNavigatorHeader {"
 			" background-color: %2;"
 			" border: 1px solid %6;"
-			" border-radius: 12px;"
+			" border-radius: 14px;"
 			"}"
 			"QLabel#qlServerNavigatorEyebrow {"
 			" color: %3;"
@@ -1486,36 +1563,43 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" background-color: %7;"
 			" alternate-background-color: %7;"
 			" color: %4;"
-			" padding: 10px 7px;"
+			" padding: 10px 8px 12px 6px;"
+			" outline: none;"
 			" show-decoration-selected: 1;"
 			"}"
 			"QWidget#qtvUsersViewport {"
 			" background-color: %7;"
 			"}"
 			"QTreeView#qtvUsers::branch {"
-			" background-color: %7;"
+			" background: transparent;"
+			"}"
+			"QTreeView#qtvUsers::branch:hover, QTreeView#qtvUsers::branch:selected {"
+			" background: transparent;"
 			"}"
 			"QTreeView#qtvUsers::item {"
 			" min-height: 24px;"
-			" padding: 4px 8px;"
-			" border-radius: 8px;"
-			" margin: 1px 0px;"
+			" padding: 5px 8px;"
+			" border: 1px solid transparent;"
+			" border-radius: 9px;"
+			" margin: 1px 4px 1px 0px;"
 			"}"
 			"QTreeView#qtvUsers::item:hover {"
 			" background-color: %8;"
 			"}"
 			"QTreeView#qtvUsers::item:selected {"
-			" border-radius: 8px;"
+			" border-radius: 9px;"
 			" background-color: %9;"
 			" color: %10;"
+			" border-color: %11;"
 			"}"
 			"QTreeView#qtvUsers::item:selected:active {"
 			" background-color: %9;"
 			" color: %10;"
+			" border-color: %11;"
 			"}")
 			.arg(railBackground.name(), headerBackground.name(), eyebrowColor.name(), titleColor.name(),
 				 mutedTextColor.name(), borderColor.name(), treeBackground.name(), hoverColor.name(),
-				 selectedColor.name(), selectedTextColor.name()));
+				 selectedColor.name(), selectedTextColor.name(), selectedBorderColor.name()));
 }
 
 void MainWindow::refreshPersistentChatStyles() {
@@ -1527,7 +1611,6 @@ void MainWindow::refreshPersistentChatStyles() {
 	const bool darkTheme           = isDarkPalette(chatPalette);
 	const QColor windowColor       = chatPalette.color(QPalette::Window);
 	const QColor baseColor         = chatPalette.color(QPalette::Base);
-	const QColor alternateColor    = chatPalette.color(QPalette::AlternateBase);
 	const QColor textColor         = chatPalette.color(QPalette::WindowText);
 	const QColor accentColor =
 		darkTheme ? mixColors(chatPalette.color(QPalette::Highlight), textColor, 0.08)
@@ -1539,37 +1622,57 @@ void MainWindow::refreshPersistentChatStyles() {
 		darkTheme ? mixColors(windowColor, baseColor, 0.34) : mixColors(windowColor, baseColor, 0.10);
 	const QColor headerSurfaceColor =
 		darkTheme ? mixColors(surfaceColor, accentColor, 0.12) : mixColors(surfaceColor, accentColor, 0.06);
-	const QColor sidebarSurfaceColor =
-		darkTheme ? mixColors(surfaceColor, alternateColor, 0.26)
-				  : mixColors(surfaceColor, alternateColor, 0.14);
+	const QColor sidebarRailColor =
+		darkTheme ? mixColors(mixColors(windowColor, accentColor, 0.16), baseColor, 0.34)
+				  : mixColors(mixColors(windowColor, accentColor, 0.08), baseColor, 0.10);
+	const QColor sidebarListColor =
+		darkTheme ? mixColors(baseColor, accentColor, 0.10) : mixColors(baseColor, accentColor, 0.04);
 	const QColor historyColor =
 		darkTheme ? mixColors(baseColor, surfaceColor, 0.18) : mixColors(baseColor, surfaceColor, 0.08);
 	const QColor inputColor =
 		darkTheme ? mixColors(baseColor, windowColor, 0.14) : mixColors(baseColor, surfaceColor, 0.04);
 	const QColor mutedTextColor = mixColors(textColor, surfaceColor, darkTheme ? 0.42 : 0.34);
-	const QColor hoverColor     = mixColors(surfaceColor, accentColor, darkTheme ? 0.20 : 0.10);
-	const QColor buttonColor =
-		darkTheme ? mixColors(headerSurfaceColor, accentColor, 0.10)
-				  : mixColors(headerSurfaceColor, accentColor, 0.04);
-	const QColor selectedChipColor =
-		darkTheme ? mixColors(sidebarSurfaceColor, accentColor, 0.68)
-				  : mixColors(sidebarSurfaceColor, accentColor, 0.24);
-	const QColor selectedChipTextColor = chatPalette.color(QPalette::HighlightedText);
+	const QColor sidebarMutedTextColor = mixColors(textColor, sidebarRailColor, darkTheme ? 0.42 : 0.32);
+	const QColor sidebarEyebrowColor   = mixColors(accentColor, textColor, darkTheme ? 0.10 : 0.20);
+	const QColor sidebarHoverColor     = mixColors(sidebarListColor, accentColor, darkTheme ? 0.20 : 0.12);
+	const QColor sidebarSelectedColor  = mixColors(sidebarListColor, accentColor, darkTheme ? 0.62 : 0.26);
+	const QColor selectedTextColor     = chatPalette.color(QPalette::HighlightedText);
+
+	if (m_persistentChatSidebarContainer) {
+		m_persistentChatSidebarContainer->setAutoFillBackground(true);
+		QPalette sidebarPalette = m_persistentChatSidebarContainer->palette();
+		sidebarPalette.setColor(QPalette::Window, sidebarRailColor);
+		m_persistentChatSidebarContainer->setPalette(sidebarPalette);
+	}
+
+	if (m_persistentChatChannelList) {
+		QPalette listPalette = m_persistentChatChannelList->palette();
+		listPalette.setColor(QPalette::Base, sidebarListColor);
+		listPalette.setColor(QPalette::AlternateBase, sidebarListColor);
+		listPalette.setColor(QPalette::Window, sidebarListColor);
+		listPalette.setColor(QPalette::Text, textColor);
+		listPalette.setColor(QPalette::Highlight, sidebarSelectedColor);
+		listPalette.setColor(QPalette::HighlightedText, selectedTextColor);
+		m_persistentChatChannelList->setAutoFillBackground(true);
+		m_persistentChatChannelList->setPalette(listPalette);
+	}
+
 	m_persistentChatContainer->setStyleSheet(
 		QString::fromLatin1(
 			"QFrame#qfPersistentChatHeader {"
 			" border: 1px solid %1;"
 			" border-radius: 14px;"
-			" background-color: %9;"
+			" background-color: %12;"
 			"}"
 			"QWidget#qwPersistentChatSurface {"
 			" border: 1px solid %1;"
 			" border-radius: 16px;"
 			" background-color: %2;"
 			"}"
-			"QWidget#qwPersistentChatSidebar {"
-			" background-color: %11;"
-			" border-radius: 12px;"
+			"QFrame#qfPersistentChatSidebarHeader {"
+			" border: none;"
+			" border-radius: 0px;"
+			" background-color: transparent;"
 			"}"
 			"QLabel#qlPersistentChatHeaderEyebrow {"
 			" color: %6;"
@@ -1578,45 +1681,42 @@ void MainWindow::refreshPersistentChatStyles() {
 			"QLabel#qlPersistentChatHeaderSubtitle {"
 			" color: %3;"
 			"}"
-			"QLabel#qlPersistentChatSidebarTitle {"
-			" color: %6;"
-			"}"
-			"QToolButton {"
-			" border: 1px solid %1;"
-			" border-radius: 9px;"
-			" background-color: %10;"
-			" color: %7;"
-			" padding: 4px 9px;"
-			"}"
-			"QToolButton:hover {"
-			" background-color: %8;"
-			"}"
-			"QToolButton:pressed {"
-			" background-color: %6;"
-			" border-color: %6;"
+			"QLabel#qlPersistentChatSidebarEyebrow {"
 			" color: %13;"
+			" letter-spacing: 0.08em;"
 			"}"
-			"QToolButton:disabled {"
-			" color: %3;"
+			"QLabel#qlPersistentChatSidebarTitle {"
+			" color: %7;"
+			"}"
+			"QLabel#qlPersistentChatSidebarSubtitle, QLabel#qlPersistentChatSidebarFooter {"
+			" color: %14;"
+			" line-height: 1.35em;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels {"
-			" border: none;"
-			" border-radius: 12px;"
-			" background-color: %11;"
-			" padding: 0px;"
+			" border: 1px solid %1;"
+			" border-radius: 14px;"
+			" background-color: %8;"
+			" alternate-background-color: %8;"
+			" color: %7;"
+			" padding: 10px 7px 12px 7px;"
+			" outline: none;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item {"
 			" min-height: 24px;"
-			" padding: 6px 10px;"
-			" border-radius: 999px;"
+			" padding: 4px 8px;"
+			" border-radius: 8px;"
 			" margin: 1px 0px;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item:hover {"
-			" background-color: %8;"
+			" background-color: %9;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item:selected {"
-			" background-color: %12;"
-			" color: %13;"
+			" background-color: %10;"
+			" color: %11;"
+			"}"
+			"QListWidget#qlwPersistentTextChannels::item:selected:active {"
+			" background-color: %10;"
+			" color: %11;"
 			"}"
 			"QTextBrowser#qtePersistentChatHistory {"
 			" border: none;"
@@ -1638,9 +1738,9 @@ void MainWindow::refreshPersistentChatStyles() {
 			" color: %7;"
 			"}")
 			.arg(borderColor.name(), surfaceColor.name(), mutedTextColor.name(), historyColor.name(), inputColor.name(),
-				 accentColor.name(), textColor.name(), hoverColor.name(), headerSurfaceColor.name(),
-				 buttonColor.name(), sidebarSurfaceColor.name(), selectedChipColor.name(),
-				 selectedChipTextColor.name()));
+				 accentColor.name(), textColor.name(), sidebarListColor.name(), sidebarHoverColor.name(),
+				 sidebarSelectedColor.name(), selectedTextColor.name(), headerSurfaceColor.name(),
+				 sidebarEyebrowColor.name(), sidebarMutedTextColor.name()));
 }
 
 void MainWindow::refreshTextDocumentStylesheets() {
@@ -1722,11 +1822,6 @@ void MainWindow::rebuildPersistentChatChannelList() {
 
 	const bool oldSignalState = m_persistentChatChannelList->blockSignals(true);
 	m_persistentChatChannelList->clear();
-
-	QListWidgetItem *aggregateItem = new QListWidgetItem(m_persistentChatChannelList);
-	aggregateItem->setData(PersistentChatScopeRole, static_cast< int >(MumbleProto::Aggregate));
-	aggregateItem->setData(PersistentChatScopeIDRole, 0U);
-	aggregateItem->setToolTip(tr("Unified feed of chats you can currently read."));
 
 	QListWidgetItem *serverLogItem = new QListWidgetItem(m_persistentChatChannelList);
 	serverLogItem->setData(PersistentChatScopeRole, LocalServerLogScope);
@@ -2055,17 +2150,30 @@ void MainWindow::editPersistentTextChannelACL() {
 	cContextChannel.clear();
 }
 
+void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
+	if (!m_persistentChatChannelList || !m_persistentChatChannelMenu) {
+		return;
+	}
+
+	if (QListWidgetItem *item = m_persistentChatChannelList->itemAt(position)) {
+		m_persistentChatChannelList->setCurrentItem(item);
+	}
+
+	updatePersistentTextChannelControls();
+	m_persistentChatChannelMenu->exec(m_persistentChatChannelList->viewport()->mapToGlobal(position), nullptr);
+}
+
 void MainWindow::updatePersistentTextChannelControls() {
-	if (!m_persistentChatAddRoomButton) {
+	if (!m_persistentChatAddRoomAction) {
 		return;
 	}
 
 	const bool canManage = canManagePersistentTextChannels();
 	const bool hasSelectedTextChannel = selectedPersistentTextChannel().has_value();
-	m_persistentChatAddRoomButton->setEnabled(canManage);
-	m_persistentChatEditRoomButton->setEnabled(canManage && hasSelectedTextChannel);
-	m_persistentChatRemoveRoomButton->setEnabled(canManage && hasSelectedTextChannel);
-	m_persistentChatAclRoomButton->setEnabled(canManage && hasSelectedTextChannel);
+	m_persistentChatAddRoomAction->setEnabled(canManage);
+	m_persistentChatEditRoomAction->setEnabled(canManage && hasSelectedTextChannel);
+	m_persistentChatRemoveRoomAction->setEnabled(canManage && hasSelectedTextChannel);
+	m_persistentChatAclRoomAction->setEnabled(canManage && hasSelectedTextChannel);
 }
 
 std::size_t MainWindow::cachedPersistentChatUnreadCount(MumbleProto::ChatScope scope, unsigned int scopeID) const {
@@ -3453,6 +3561,9 @@ void MainWindow::hideEvent(QHideEvent *e) {
 
 void MainWindow::showEvent(QShowEvent *e) {
 	QMainWindow::showEvent(e);
+#ifdef Q_OS_WIN
+	applyNativeTitleBarTheme(this);
+#endif
 }
 
 void MainWindow::changeEvent(QEvent *e) {
@@ -5238,6 +5349,10 @@ void MainWindow::qmChannel_aboutToShow() {
 	qaChannelUnlinkAll->setEnabled(unlinkall);
 	qaChannelSendMessage->setEnabled(msg);
 	updateMenuPermissions();
+}
+
+void MainWindow::qmPersistentTextChannel_aboutToShow() {
+	updatePersistentTextChannelControls();
 }
 
 void MainWindow::on_qaChannelJoin_triggered() {
