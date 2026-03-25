@@ -189,6 +189,9 @@ public:
 	void sendUserTextMessage(unsigned int uiSession, const QString &message_);
 	void sendChannelTextMessage(unsigned int channel, const QString &message_, bool tree);
 	void sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_);
+	void upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
+						   unsigned int aclChannelID, unsigned int position, bool create);
+	void removeTextChannel(unsigned int textChannelID);
 	void requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID = 0, unsigned int startOffset = 0,
 							unsigned int limit = 50);
 	void updateChatReadState(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int lastReadMessageID);

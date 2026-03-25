@@ -17,12 +17,15 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QMutex>
 #include <QtCore/QMutexLocker>
+#include <QtCore/QThread>
 #include <QtCore/QTextStream>
 
 namespace {
 	QString g_diagnosticsLogFilePath;
 	QMutex g_diagnosticsLogMutex;
 	QtMessageHandler g_previousMessageHandler = nullptr;
+	constexpr qint64 DIAGNOSTICS_LOG_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+	constexpr int DIAGNOSTICS_LOG_MAX_FILES = 3;
 
 	QString messageTypeToken(QtMsgType type) {
 		switch (type) {
@@ -51,10 +54,32 @@ namespace {
 				logInfo.absoluteDir().mkpath(QStringLiteral("."));
 			}
 
+			auto rotatedPathForIndex = [](const QString &path, const int index) {
+				return QStringLiteral("%1.%2").arg(path).arg(index);
+			};
+
+			if (logInfo.exists() && logInfo.size() >= DIAGNOSTICS_LOG_MAX_SIZE_BYTES) {
+				QFile::remove(rotatedPathForIndex(g_diagnosticsLogFilePath, DIAGNOSTICS_LOG_MAX_FILES));
+				for (int index = DIAGNOSTICS_LOG_MAX_FILES - 1; index >= 1; --index) {
+					const QString sourcePath = rotatedPathForIndex(g_diagnosticsLogFilePath, index);
+					const QString destinationPath = rotatedPathForIndex(g_diagnosticsLogFilePath, index + 1);
+					if (QFileInfo::exists(sourcePath)) {
+						QFile::remove(destinationPath);
+						QFile::rename(sourcePath, destinationPath);
+					}
+				}
+
+				const QString firstRotationPath = rotatedPathForIndex(g_diagnosticsLogFilePath, 1);
+				QFile::remove(firstRotationPath);
+				QFile::rename(g_diagnosticsLogFilePath, firstRotationPath);
+			}
+
 			QFile file(g_diagnosticsLogFilePath);
 			if (file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
 				QTextStream stream(&file);
 				stream << QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) << ' '
+					   << "[pid=" << QCoreApplication::applicationPid() << "] "
+					   << "[tid=0x" << QString::number(reinterpret_cast< quintptr >(QThread::currentThreadId()), 16) << "] "
 					   << '[' << messageTypeToken(type) << "] " << msg << '\n';
 				stream.flush();
 			}

@@ -47,6 +47,8 @@ case "$os" in
 
 		if [[ "${MUMBLE_ENABLE_WINDOWS_PACKAGING:-}" = "ON" ]]; then
 			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dpackaging=ON"
+		else
+			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dpackaging=OFF"
 		fi
 
 		if [[ "${MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE:-}" = "ON" ]]; then

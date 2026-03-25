@@ -34,6 +34,38 @@ namespace {
 		return payload.value(QStringLiteral("stream_id")).toString().trimmed();
 	}
 
+	QString roleTokenFromPayload(const QJsonObject &payload) {
+		const QString roleToken = payload.value(QStringLiteral("relay_role_token")).toString().trimmed();
+		if (!roleToken.isEmpty()) {
+			return roleToken;
+		}
+
+		switch (static_cast< MumbleProto::ScreenShareRelayRole >(payload.value(QStringLiteral("relay_role")).toInt())) {
+			case MumbleProto::ScreenShareRelayRolePublisher:
+				return QStringLiteral("publisher");
+			case MumbleProto::ScreenShareRelayRoleViewer:
+				return QStringLiteral("viewer");
+			default:
+				return QStringLiteral("unknown");
+		}
+	}
+
+	QString codecTokenFromPayload(const QJsonObject &payload) {
+		const QString codecToken = payload.value(QStringLiteral("codec_token")).toString().trimmed();
+		if (!codecToken.isEmpty()) {
+			return codecToken;
+		}
+
+		return Mumble::ScreenShare::codecToConfigToken(
+			Mumble::ScreenShare::IPC::codecFromJson(payload.value(QStringLiteral("codec"))));
+	}
+
+	QString relaySchemeFromPayload(const QJsonObject &payload) {
+		const QUrl relayUrl(payload.value(QStringLiteral("relay_url")).toString());
+		const QString scheme = relayUrl.scheme().trimmed().toLower();
+		return scheme.isEmpty() ? QStringLiteral("unknown") : scheme;
+	}
+
 	QByteArray serializeReply(const QJsonObject &reply) {
 		QByteArray data = QJsonDocument(reply).toJson(QJsonDocument::Compact);
 		data.append('\n');
@@ -362,6 +394,7 @@ QJsonObject ScreenShareHelperServer::handleStartPublish(const QJsonObject &paylo
 	if (!plan.valid) {
 		return Mumble::ScreenShare::IPC::makeErrorReply(plan.errorMessage);
 	}
+	logSessionPlanSummary(plan.payload, QStringLiteral("publish"), QStringLiteral("planned"));
 
 	const QString streamID = plan.payload.value(QStringLiteral("stream_id")).toString();
 	stopSession(m_publishSessions, streamID);
@@ -387,6 +420,8 @@ QJsonObject ScreenShareHelperServer::handleStartPublish(const QJsonObject &paylo
 		session.payload.insert(QStringLiteral("active_capture_source"), launch.selectedCaptureSource);
 	}
 	appendWarnings(&session.payload, launch.warnings);
+	logSessionPlanSummary(session.payload, QStringLiteral("publish"), QStringLiteral("started"));
+	logPayloadWarnings(session.payload, QStringLiteral("publish"), streamID);
 	m_publishSessions.insert(streamID, session);
 	if (launch.process) {
 		attachProcessLogging(streamID, true, QStringLiteral("publish"));
@@ -418,6 +453,7 @@ QJsonObject ScreenShareHelperServer::handleStartView(const QJsonObject &payload)
 	if (!plan.valid) {
 		return Mumble::ScreenShare::IPC::makeErrorReply(plan.errorMessage);
 	}
+	logSessionPlanSummary(plan.payload, QStringLiteral("view"), QStringLiteral("planned"));
 
 	const QString streamID = plan.payload.value(QStringLiteral("stream_id")).toString();
 	stopSession(m_viewSessions, streamID);
@@ -440,6 +476,8 @@ QJsonObject ScreenShareHelperServer::handleStartView(const QJsonObject &payload)
 		session.payload.insert(QStringLiteral("active_renderer_backend"), launch.selectedRenderer);
 	}
 	appendWarnings(&session.payload, launch.warnings);
+	logSessionPlanSummary(session.payload, QStringLiteral("view"), QStringLiteral("started"));
+	logPayloadWarnings(session.payload, QStringLiteral("view"), streamID);
 	m_viewSessions.insert(streamID, session);
 	if (launch.process) {
 		attachProcessLogging(streamID, false, QStringLiteral("view"));
@@ -483,6 +521,41 @@ void ScreenShareHelperServer::stopSession(QHash< QString, ManagedSession > &sess
 	const ManagedSession session = sessions.take(streamID);
 	if (session.process) {
 		ScreenShareExternalProcess::stop(session.process);
+	}
+}
+
+void ScreenShareHelperServer::logSessionPlanSummary(const QJsonObject &payload, const QString &label,
+												 const QString &phase) const {
+	const QString streamID = payload.value(QStringLiteral("stream_id")).toString().trimmed();
+	const QString role = roleTokenFromPayload(payload);
+	const QString relayScheme = relaySchemeFromPayload(payload);
+	const QString codec = codecTokenFromPayload(payload);
+	const QString plannedBackend = payload.value(QStringLiteral("planned_encoder_backend")).toString().trimmed();
+	const QString actualBackend =
+		payload.value(QStringLiteral("active_encoder_backend"))
+			.toString(payload.value(QStringLiteral("active_renderer_backend")).toString())
+			.trimmed();
+	const QString captureSource = payload.value(QStringLiteral("active_capture_source")).toString().trimmed();
+	const QString executionMode = payload.value(QStringLiteral("execution_mode")).toString().trimmed();
+
+	qInfo().noquote()
+		<< QStringLiteral("ScreenShareHelper[%1:%2]: %3 summary role=%4 relay_scheme=%5 codec=%6 planned_backend=%7 actual_backend=%8 capture_source=%9 execution_mode=%10")
+			   .arg(label, streamID, phase, role, relayScheme, codec,
+					plannedBackend.isEmpty() ? QStringLiteral("-") : plannedBackend,
+					actualBackend.isEmpty() ? QStringLiteral("-") : actualBackend,
+					captureSource.isEmpty() ? QStringLiteral("-") : captureSource,
+					executionMode.isEmpty() ? QStringLiteral("-") : executionMode);
+}
+
+void ScreenShareHelperServer::logPayloadWarnings(const QJsonObject &payload, const QString &label,
+												 const QString &streamID) {
+	const QJsonArray warnings = payload.value(QStringLiteral("warnings")).toArray();
+	for (const QJsonValue &warningValue : warnings) {
+		const QString warning = warningValue.toString().trimmed();
+		if (!warning.isEmpty()) {
+			qWarning().noquote()
+				<< QStringLiteral("ScreenShareHelper[%1:%2]: warning: %3").arg(label, streamID, warning);
+		}
 	}
 }
 

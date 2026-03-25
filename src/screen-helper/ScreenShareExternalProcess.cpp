@@ -1012,7 +1012,7 @@ ScreenShareExternalProcess::LaunchResult ScreenShareExternalProcess::startPublis
 
 		arguments.append(QStringLiteral("-f"));
 		arguments.append(endpoint.outputFormat);
-		arguments.append(endpoint.endpointUrl);
+		arguments.append(endpoint.localFilePath.isEmpty() ? endpoint.endpointUrl : endpoint.localFilePath);
 
 		LaunchResult attemptLaunch = startProcess(support.ffmpegPath, arguments, parent, QStringLiteral("ffmpeg-publish"));
 		if (!attemptLaunch.started) {

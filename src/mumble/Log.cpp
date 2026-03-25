@@ -500,7 +500,7 @@ QString Log::msgName(MsgType t) const {
 	return tr(msgNames[t]);
 }
 
-const char *Log::colorClasses[] = { "time", "server", "privilege" };
+const char *Log::colorClasses[] = { "time", "server", "privilege", "source", "target" };
 
 const QStringList Log::allowedSchemes() {
 	QStringList qslAllowedSchemeNames;
@@ -525,9 +525,21 @@ const QStringList Log::allowedSchemes() {
 }
 
 QString Log::msgColor(const QString &text, LogColorType t) {
-	QString classname;
+	const auto colorClassIndex = static_cast<qsizetype>(t);
+	const auto colorClassCount = static_cast<qsizetype>(sizeof(colorClasses) / sizeof(colorClasses[0]));
 
-	return QString::fromLatin1("<span class='log-%1'>%2</span>").arg(QString::fromLatin1(colorClasses[t])).arg(text);
+	if (colorClassIndex < 0 || colorClassIndex >= colorClassCount) {
+		const QString plainText = QTextDocumentFragment::fromHtml(text).toPlainText();
+		qWarning().noquote()
+			<< QString::fromLatin1("Log::msgColor received invalid LogColorType=%1 for text='%2'")
+				   .arg(static_cast<int>(t))
+				   .arg(plainText.left(200));
+		return text;
+	}
+
+	return QString::fromLatin1("<span class='log-%1'>%2</span>")
+		.arg(QString::fromLatin1(colorClasses[colorClassIndex]))
+		.arg(text);
 }
 
 QString Log::formatChannel(::Channel *c) {

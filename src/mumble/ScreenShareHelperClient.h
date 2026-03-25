@@ -58,6 +58,8 @@ private:
 	static QStringList helperLaunchArguments();
 	static CapabilitySnapshot capabilitySnapshotFromPayload(const QJsonObject &payload, const QString &helperExecutable);
 	static QJsonObject payloadFromSession(const ScreenShareSession &session);
+	static void logReplyWarnings(const QJsonObject &reply, Mumble::ScreenShare::IPC::Command command,
+								 const QString &streamID = QString());
 	static QJsonObject sendRequest(Mumble::ScreenShare::IPC::Command command, const QJsonObject &payload,
 								   const QString &helperExecutable, QString *errorMessage, bool launchIfNeeded = true);
 	static bool ensureHelperRunning(const QString &helperExecutable, QString *errorMessage = nullptr);

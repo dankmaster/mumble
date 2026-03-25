@@ -46,6 +46,8 @@ namespace server {
 			~TextChannelTable() = default;
 
 			void addTextChannel(const DBTextChannel &textChannel);
+			void updateTextChannel(const DBTextChannel &textChannel);
+			void removeTextChannel(unsigned int serverID, unsigned int textChannelID);
 			bool textChannelExists(unsigned int serverID, unsigned int textChannelID);
 			std::optional< DBTextChannel > getTextChannel(unsigned int serverID, unsigned int textChannelID);
 			std::vector< DBTextChannel > getTextChannels(unsigned int serverID);

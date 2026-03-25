@@ -64,6 +64,23 @@ namespace {
 	unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int hardMax) {
 		return Mumble::ScreenShare::sanitizeLimit(nonNegativePayloadValue(payload, key), 0U, hardMax);
 	}
+
+	QString commandToken(const Mumble::ScreenShare::IPC::Command command) {
+		switch (command) {
+			case Mumble::ScreenShare::IPC::Command::QueryCapabilities:
+				return QStringLiteral("query-capabilities");
+			case Mumble::ScreenShare::IPC::Command::StartPublish:
+				return QStringLiteral("start-publish");
+			case Mumble::ScreenShare::IPC::Command::StopPublish:
+				return QStringLiteral("stop-publish");
+			case Mumble::ScreenShare::IPC::Command::StartView:
+				return QStringLiteral("start-view");
+			case Mumble::ScreenShare::IPC::Command::StopView:
+				return QStringLiteral("stop-view");
+		}
+
+		return QStringLiteral("unknown");
+	}
 } // namespace
 
 ScreenShareHelperClient::ScreenShareHelperClient(QObject *parent)
@@ -83,7 +100,10 @@ QString ScreenShareHelperClient::defaultHelperExecutablePath() {
 }
 
 QString ScreenShareHelperClient::diagnosticsLogPath() {
-	QString basePath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+	QString basePath = Global::get().qdBasePath.absolutePath();
+	if (basePath.trimmed().isEmpty()) {
+		basePath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+	}
 	if (basePath.trimmed().isEmpty()) {
 		basePath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 	}
@@ -159,17 +179,28 @@ ScreenShareHelperClient::CapabilitySnapshot
 }
 
 bool ScreenShareHelperClient::ensureHelperRunning(const QString &helperExecutable, QString *errorMessage) {
+	const QString socketPath = Mumble::ScreenShare::IPC::socketPath();
+	qInfo().noquote()
+		<< QStringLiteral("ScreenShareHelperClient: probing helper socket at %1 for executable %2")
+			   .arg(socketPath, helperExecutable);
 	QLocalSocket probeSocket;
-	probeSocket.connectToServer(Mumble::ScreenShare::IPC::socketPath());
+	probeSocket.connectToServer(socketPath);
 	if (probeSocket.waitForConnected(150)) {
 		probeSocket.disconnectFromServer();
+		qInfo().noquote()
+			<< QStringLiteral("ScreenShareHelperClient: helper already running at socket %1").arg(socketPath);
 		return true;
 	}
 
+	qInfo().noquote()
+		<< QStringLiteral("ScreenShareHelperClient: launching helper executable %1 with socket %2")
+			   .arg(helperExecutable, socketPath);
 	if (!QProcess::startDetached(helperExecutable, helperLaunchArguments())) {
 		if (errorMessage) {
 			*errorMessage = QStringLiteral("Failed to launch helper executable %1.").arg(helperExecutable);
 		}
+		qWarning().noquote()
+			<< QStringLiteral("ScreenShareHelperClient: helper launch failed for %1").arg(helperExecutable);
 		return false;
 	}
 
@@ -177,9 +208,11 @@ bool ScreenShareHelperClient::ensureHelperRunning(const QString &helperExecutabl
 	timer.start();
 	while (timer.elapsed() < HELPER_START_TIMEOUT_MSEC) {
 		QLocalSocket socket;
-		socket.connectToServer(Mumble::ScreenShare::IPC::socketPath());
+		socket.connectToServer(socketPath);
 		if (socket.waitForConnected(150)) {
 			socket.disconnectFromServer();
+			qInfo().noquote()
+				<< QStringLiteral("ScreenShareHelperClient: helper started successfully at socket %1").arg(socketPath);
 			return true;
 		}
 
@@ -195,6 +228,15 @@ bool ScreenShareHelperClient::ensureHelperRunning(const QString &helperExecutabl
 QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Command command, const QJsonObject &payload,
 												 const QString &helperExecutable, QString *errorMessage,
 												 const bool launchIfNeeded) {
+	const QString socketPath = Mumble::ScreenShare::IPC::socketPath();
+	const QString streamID = payload.value(QStringLiteral("stream_id")).toString().trimmed();
+	qInfo().noquote()
+		<< QStringLiteral("ScreenShareHelperClient: sending %1 stream=%2 executable=%3 socket=%4 launch_if_needed=%5")
+			   .arg(commandToken(command),
+					streamID.isEmpty() ? QStringLiteral("-") : streamID,
+					helperExecutable,
+					socketPath,
+					launchIfNeeded ? QStringLiteral("true") : QStringLiteral("false"));
 	const QFileInfo helperInfo(helperExecutable);
 	if (!helperInfo.exists() || !helperInfo.isFile() || !helperInfo.isExecutable()) {
 		if (errorMessage) {
@@ -204,14 +246,14 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 	}
 
 	QLocalSocket socket;
-	socket.connectToServer(Mumble::ScreenShare::IPC::socketPath());
+	socket.connectToServer(socketPath);
 	if (!socket.waitForConnected(150)) {
 		if (!launchIfNeeded || !ensureHelperRunning(helperExecutable, errorMessage)) {
 			return {};
 		}
 
 		socket.abort();
-		socket.connectToServer(Mumble::ScreenShare::IPC::socketPath());
+		socket.connectToServer(socketPath);
 		if (!socket.waitForConnected(HELPER_CONNECT_TIMEOUT_MSEC)) {
 			if (errorMessage) {
 				*errorMessage = socket.errorString();
@@ -271,7 +313,9 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 		return {};
 	}
 
-	return replyDoc.object();
+	const QJsonObject reply = replyDoc.object();
+	logReplyWarnings(reply, command, streamID);
+	return reply;
 }
 
 QJsonObject ScreenShareHelperClient::payloadFromSession(const ScreenShareSession &session) {
@@ -359,4 +403,19 @@ bool ScreenShareHelperClient::stopView(const QString &streamID, QString *errorMe
 void ScreenShareHelperClient::refreshCapabilities() {
 	m_capabilities = detectLocalCapabilities();
 	emit capabilitiesChanged();
+}
+
+void ScreenShareHelperClient::logReplyWarnings(const QJsonObject &reply, Mumble::ScreenShare::IPC::Command command,
+											   const QString &streamID) {
+	const QJsonArray warnings = reply.value(QStringLiteral("payload")).toObject().value(QStringLiteral("warnings")).toArray();
+	for (const QJsonValue &warningValue : warnings) {
+		const QString warning = warningValue.toString().trimmed();
+		if (!warning.isEmpty()) {
+			qWarning().noquote()
+				<< QStringLiteral("ScreenShareHelperClient: %1 stream=%2 warning=%3")
+					   .arg(commandToken(command),
+							streamID.isEmpty() ? QStringLiteral("-") : streamID,
+							warning);
+		}
+	}
 }

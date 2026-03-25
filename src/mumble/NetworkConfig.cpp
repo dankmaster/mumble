@@ -80,6 +80,13 @@ void NetworkConfig::load(const Settings &r) {
 	loadCheckBox(qcbPluginUpdateCheck, r.bPluginCheck);
 	loadCheckBox(qcbPluginAutoUpdate, r.bPluginAutoUpdate);
 	loadCheckBox(qcbUsage, r.bUsage);
+
+	qcbAutoUpdate->setChecked(false);
+	qcbAutoUpdate->setEnabled(false);
+	qcbUsage->setChecked(false);
+	qcbUsage->setEnabled(false);
+	qcbDisablePublicList->setChecked(true);
+	qcbDisablePublicList->setEnabled(false);
 }
 
 void NetworkConfig::save() const {
@@ -87,7 +94,7 @@ void NetworkConfig::save() const {
 	s.bQoS               = qcbQoS->isChecked();
 	s.bReconnect         = qcbAutoReconnect->isChecked();
 	s.bAutoConnect       = qcbAutoConnect->isChecked();
-	s.bDisablePublicList = qcbDisablePublicList->isChecked();
+	s.bDisablePublicList = true;
 	s.bSuppressIdentity  = qcbSuppressIdentity->isChecked();
 	s.bEnableLinkPreviews = qcbLinkPreviews->isChecked();
 	s.bScreenShareDiagnostics = qcbScreenShareDiagnostics->isChecked();
@@ -102,10 +109,10 @@ void NetworkConfig::save() const {
 	s.qsProxyUsername = qleUsername->text();
 	s.qsProxyPassword = qlePassword->text();
 
-	s.bUpdateCheck      = qcbAutoUpdate->isChecked();
+	s.bUpdateCheck      = false;
 	s.bPluginCheck      = qcbPluginUpdateCheck->isChecked();
 	s.bPluginAutoUpdate = qcbPluginAutoUpdate->isChecked();
-	s.bUsage            = qcbUsage->isChecked();
+	s.bUsage            = false;
 }
 
 static QNetworkProxy::ProxyType local_to_qt_proxy(Settings::ProxyType pt) {

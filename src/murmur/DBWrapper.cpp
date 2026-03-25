@@ -1013,44 +1013,10 @@ std::vector< ::msdb::DBChatThread > DBWrapper::getChatThreads(unsigned int serve
 	WRAPPER_END
 }
 
-void DBWrapper::ensureDefaultTextChannels(unsigned int serverID) {
-	WRAPPER_BEGIN
-
-	assertValidID(serverID);
-
-	if (!m_serverDB.getTextChannelTable().getTextChannels(serverID).empty()) {
-		return;
-	}
-
-	struct SeedTextChannel {
-		const char *name;
-		const char *description;
-	};
-
-	const std::array< SeedTextChannel, 3 > defaultChannels = { {
-		{ "general", "Server-wide chat for everyday conversation." },
-		{ "links", "Links, previews, and things worth sharing." },
-		{ "off-topic", "Everything else that doesn't belong in general." },
-	} };
-
-	for (std::size_t index = 0; index < defaultChannels.size(); ++index) {
-		::msdb::DBTextChannel textChannel(serverID, static_cast< unsigned int >(index));
-		textChannel.name         = defaultChannels[index].name;
-		textChannel.description  = defaultChannels[index].description;
-		textChannel.aclChannelID = Mumble::ROOT_CHANNEL_ID;
-		textChannel.position     = static_cast< unsigned int >(index);
-
-		m_serverDB.getTextChannelTable().addTextChannel(textChannel);
-	}
-
-	WRAPPER_END
-}
-
 std::optional< ::msdb::DBTextChannel > DBWrapper::getTextChannel(unsigned int serverID, unsigned int textChannelID) {
 	WRAPPER_BEGIN
 
 	assertValidID(serverID);
-	ensureDefaultTextChannels(serverID);
 
 	return m_serverDB.getTextChannelTable().getTextChannel(serverID, textChannelID);
 
@@ -1061,9 +1027,51 @@ std::vector< ::msdb::DBTextChannel > DBWrapper::getTextChannels(unsigned int ser
 	WRAPPER_BEGIN
 
 	assertValidID(serverID);
-	ensureDefaultTextChannels(serverID);
 
 	return m_serverDB.getTextChannelTable().getTextChannels(serverID);
+
+	WRAPPER_END
+}
+
+::msdb::DBTextChannel DBWrapper::addTextChannel(unsigned int serverID, const std::string &name,
+												const std::string &description, unsigned int aclChannelID,
+												unsigned int position) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(aclChannelID);
+
+	::msdb::DBTextChannel textChannel(serverID, m_serverDB.getTextChannelTable().getFreeTextChannelID(serverID));
+	textChannel.name         = name;
+	textChannel.description  = description;
+	textChannel.aclChannelID = aclChannelID;
+	textChannel.position     = position;
+
+	m_serverDB.getTextChannelTable().addTextChannel(textChannel);
+	return textChannel;
+
+	WRAPPER_END
+}
+
+void DBWrapper::updateTextChannel(const ::msdb::DBTextChannel &textChannel) {
+	WRAPPER_BEGIN
+
+	assertValidID(textChannel.serverID);
+	assertValidID(textChannel.textChannelID);
+	assertValidID(textChannel.aclChannelID);
+
+	m_serverDB.getTextChannelTable().updateTextChannel(textChannel);
+
+	WRAPPER_END
+}
+
+void DBWrapper::removeTextChannel(unsigned int serverID, unsigned int textChannelID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(textChannelID);
+
+	m_serverDB.getTextChannelTable().removeTextChannel(serverID, textChannelID);
 
 	WRAPPER_END
 }

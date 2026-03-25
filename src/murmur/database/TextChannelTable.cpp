@@ -98,6 +98,46 @@ namespace server {
 			}
 		}
 
+		void TextChannelTable::updateTextChannel(const DBTextChannel &textChannel) {
+			if (textChannel.name.empty()) {
+				throw ::mdb::FormatException("A text channel requires a non-empty name");
+			}
+
+			try {
+				::mdb::TransactionHolder transaction = ensureTransaction();
+
+				m_sql << "UPDATE \"" << NAME << "\" SET \"" << column::name << "\" = :name, \"" << column::description
+					  << "\" = :description, \"" << column::acl_channel_id << "\" = :aclChannelID, \"" << column::position
+					  << "\" = :position WHERE \"" << column::server_id << "\" = :serverID AND \"" << column::text_channel_id
+					  << "\" = :textChannelID",
+					soci::use(textChannel.name), soci::use(textChannel.description), soci::use(textChannel.aclChannelID),
+					soci::use(textChannel.position), soci::use(textChannel.serverID), soci::use(textChannel.textChannelID);
+
+				transaction.commit();
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::AccessException("Failed at updating text channel with ID "
+															  + std::to_string(textChannel.textChannelID)
+															  + " on server with ID "
+															  + std::to_string(textChannel.serverID)));
+			}
+		}
+
+		void TextChannelTable::removeTextChannel(unsigned int serverID, unsigned int textChannelID) {
+			try {
+				::mdb::TransactionHolder transaction = ensureTransaction();
+
+				m_sql << "DELETE FROM \"" << NAME << "\" WHERE \"" << column::server_id << "\" = :serverID AND \""
+					  << column::text_channel_id << "\" = :textChannelID",
+					soci::use(serverID), soci::use(textChannelID);
+
+				transaction.commit();
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::AccessException("Failed at removing text channel with ID "
+															  + std::to_string(textChannelID) + " on server with ID "
+															  + std::to_string(serverID)));
+			}
+		}
+
 		bool TextChannelTable::textChannelExists(unsigned int serverID, unsigned int textChannelID) {
 			try {
 				int exists = false;
@@ -190,8 +230,8 @@ namespace server {
 
 				::mdb::TransactionHolder transaction = ensureTransaction();
 
-				m_sql << ::mdb::utils::getLowestUnoccupiedIDStatement(m_backend, NAME, column::text_channel_id,
-																	  { ::mdb::utils::ColAlias(column::server_id, "serverID") }),
+				m_sql << "SELECT COALESCE(MAX(\"" << column::text_channel_id << "\"), -1) + 1 FROM \"" << NAME
+					  << "\" WHERE \"" << column::server_id << "\" = :serverID",
 					soci::use(serverID, "serverID"), soci::into(id);
 
 				transaction.commit();

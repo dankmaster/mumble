@@ -114,17 +114,8 @@ ServerView::ServerView(QWidget *p) : QTreeWidget(p) {
 	siLAN         = nullptr;
 #endif
 
-	if (!Global::get().s.bDisablePublicList) {
-		siPublic = new ServerItem(tr("Public Internet"), ServerItem::PublicType);
-		siPublic->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
-		addTopLevelItem(siPublic);
-
-		siPublic->setExpanded(false);
-	} else {
-		qWarning() << "Public list disabled";
-
-		siPublic = nullptr;
-	}
+	qWarning() << "Public list disabled in this build";
+	siPublic = nullptr;
 }
 
 ServerView::~ServerView() {
@@ -1398,19 +1389,7 @@ void ConnectDialog::on_qtwServers_itemCollapsed(QTreeWidgetItem *item) {
 }
 
 void ConnectDialog::initList() {
-	if (bPublicInit || (qlPublicServers.count() > 0))
-		return;
-
 	bPublicInit = true;
-
-	QUrl url;
-	url.setPath(QLatin1String("/v1/list"));
-
-	QUrlQuery query;
-	query.addQueryItem(QLatin1String("version"), Version::getRelease());
-	url.setQuery(query);
-
-	WebFetch::fetch(QLatin1String("publist"), url, this, SLOT(fetched(QByteArray, QUrl, QMap< QString, QString >)));
 }
 
 #ifdef USE_ZEROCONF

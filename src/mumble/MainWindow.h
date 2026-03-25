@@ -46,10 +46,12 @@ class UserInformation;
 class VoiceRecorderDialog;
 class PositionalAudioViewer;
 class PTTButtonWidget;
+class QAction;
 class QFrame;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QMenu;
 
 namespace Search {
 class SearchDialog;
@@ -159,12 +161,18 @@ public:
 	void focusNextMainWidget();
 	QPair< QByteArray, QImage > openImageFile();
 	void setupPersistentChatDock();
+	void setupServerNavigator();
+	void updateServerNavigatorChrome();
+	void refreshCustomChromeStyles();
+	void refreshServerNavigatorStyles();
+	void refreshPersistentChatStyles();
 
 	struct PersistentChatTarget {
 		bool valid          = false;
 		bool directMessage  = false;
 		bool legacyTextPath = false;
 		bool readOnly       = false;
+		bool serverLog      = false;
 		ClientUser *user    = nullptr;
 		Channel *channel    = nullptr;
 		MumbleProto::ChatScope scope = MumbleProto::Channel;
@@ -224,10 +232,20 @@ public:
 											unsigned int lastReadMessageID, std::size_t unreadCount);
 	std::size_t totalCachedPersistentChatUnreadCount() const;
 	bool navigateToPersistentChatScope(MumbleProto::ChatScope scope, unsigned int scopeID);
+	bool canManagePersistentTextChannels() const;
+	std::optional< PersistentTextChannel > selectedPersistentTextChannel() const;
+	bool promptForPersistentTextChannel(PersistentTextChannel &textChannel, bool isNew);
+	void createPersistentTextChannel();
+	void editPersistentTextChannel();
+	void removePersistentTextChannel();
+	void editPersistentTextChannelACL();
+	void showPersistentTextChannelContextMenu(const QPoint &position);
+	void updatePersistentTextChannelControls();
 	void showLogContextMenu(LogTextBrowser *browser, const QPoint &position);
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
 	void openImageDialog(const QImage &image);
 	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
+	void renderServerLogView(bool preserveScrollPosition = false);
 	void flushPersistentChatRender();
 	void renderPersistentChatViewImmediately(const QString &statusMessage = QString(), bool scrollToBottom = true,
 											 bool preserveScrollPosition = false);
@@ -293,17 +311,33 @@ protected:
 	qt_unique_ptr< MenuLabel > m_localVolumeLabel;
 	qt_unique_ptr< UserLocalVolumeSlider > m_userLocalVolumeSlider;
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
+	QWidget *m_serverNavigatorContainer = nullptr;
+	QFrame *m_serverNavigatorHeaderFrame = nullptr;
+	QLabel *m_serverNavigatorEyebrow = nullptr;
+	QLabel *m_serverNavigatorTitle = nullptr;
+	QLabel *m_serverNavigatorSubtitle = nullptr;
+	QLabel *m_serverNavigatorFooter = nullptr;
 	QWidget *m_persistentChatContainer = nullptr;
 	QFrame *m_persistentChatHeaderFrame = nullptr;
+	QLabel *m_persistentChatHeaderEyebrow = nullptr;
 	QLabel *m_persistentChatHeaderTitle = nullptr;
 	QLabel *m_persistentChatHeaderSubtitle = nullptr;
+	QWidget *m_persistentChatSidebarContainer = nullptr;
+	QLabel *m_persistentChatSidebarEyebrow = nullptr;
 	QLabel *m_persistentChatChannelListLabel = nullptr;
+	QLabel *m_persistentChatSidebarSubtitle = nullptr;
+	QLabel *m_persistentChatSidebarFooter = nullptr;
+	QWidget *m_persistentChatChannelToolbar = nullptr;
+	QMenu *m_persistentChatChannelMenu = nullptr;
 	QListWidget *m_persistentChatChannelList = nullptr;
+	QAction *m_persistentChatAddRoomAction = nullptr;
+	QAction *m_persistentChatEditRoomAction = nullptr;
+	QAction *m_persistentChatRemoveRoomAction = nullptr;
+	QAction *m_persistentChatAclRoomAction = nullptr;
 	LogTextBrowser *m_persistentChatWelcome = nullptr;
 	QFrame *m_persistentChatDivider = nullptr;
 	LogTextBrowser *m_persistentChatHistory = nullptr;
 	QString m_persistentChatWelcomeText;
-	bool m_persistentChatWelcomeCollapsed = false;
 	unsigned int m_defaultPersistentTextChannelID = 0;
 	QHash< unsigned int, PersistentTextChannel > m_persistentTextChannels;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
@@ -389,6 +423,7 @@ public slots:
 	void on_qaUserFriendRemove_triggered();
 	void on_qaUserFriendUpdate_triggered();
 	void qmChannel_aboutToShow();
+	void qmPersistentTextChannel_aboutToShow();
 	void on_qaChannelJoin_triggered();
 	void on_qaUserJoin_triggered();
 	void on_qaUserMove_triggered();

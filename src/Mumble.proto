@@ -840,6 +840,15 @@ message TextChannelInfo {
 }
 
 message TextChannelSync {
+	enum Action {
+		Sync = 0;
+		Create = 1;
+		Update = 2;
+		Delete = 3;
+	}
+
 	repeated TextChannelInfo channels = 1;
 	optional uint32 default_text_channel_id = 2;
+	optional Action action = 3 [default = Sync];
+	optional uint32 target_text_channel_id = 4;
 }

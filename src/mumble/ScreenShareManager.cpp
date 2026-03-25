@@ -17,6 +17,7 @@
 
 #include <QtCore/QDateTime>
 #include <QtCore/QProcessEnvironment>
+#include <QtCore/QStringList>
 
 namespace {
 	bool envFlagEnabled(const char *name) {
@@ -46,6 +47,9 @@ namespace {
 
 ScreenShareManager::ScreenShareManager(QObject *parent) : QObject(parent) {
 	m_helperClient = new ScreenShareHelperClient(this);
+	connect(m_helperClient, &ScreenShareHelperClient::capabilitiesChanged, this, [this]() {
+		logLocalShareAvailabilityDiagnostic(QStringLiteral("helper-capabilities"));
+	});
 }
 
 ScreenShareHelperClient::CapabilitySnapshot ScreenShareManager::detectAdvertisedCapabilities() {
@@ -60,25 +64,71 @@ const ScreenShareHelperClient &ScreenShareManager::helperClient() const {
 	return *m_helperClient;
 }
 
-bool ScreenShareManager::canRequestLocalShare() const {
+void ScreenShareManager::logLocalShareAvailabilityDiagnostic(const QString &context) const {
+	if (!Global::get().s.bScreenShareDiagnostics) {
+		return;
+	}
+
+	const QString reason = localShareUnavailableReason();
+	if (context == m_lastLoggedAvailabilityContext && reason == m_lastLoggedAvailabilityReason) {
+		return;
+	}
+
+	m_lastLoggedAvailabilityContext = context;
+	m_lastLoggedAvailabilityReason  = reason;
+
 	const ScreenShareHelperClient::CapabilitySnapshot &capabilities = m_helperClient->capabilities();
-	if (!Global::get().bScreenShareEnabled || !capabilities.captureSupported) {
-		return false;
+	QStringList relayTransports;
+	for (const int transport : capabilities.runtimeRelayTransports) {
+		relayTransports << QString::number(transport);
+	}
+
+	qInfo().noquote()
+		<< QStringLiteral("ScreenShareManager: availability context=%1 connected=%2 enabled=%3 helper_required=%4 "
+						  "capture_supported=%5 view_supported=%6 helper_available=%7 relay_url=%8 "
+						  "runtime_transports=[%9] reason=%10")
+			   .arg(context.isEmpty() ? QStringLiteral("-") : context, Global::get().sh ? QStringLiteral("true")
+																 : QStringLiteral("false"),
+					Global::get().bScreenShareEnabled ? QStringLiteral("true") : QStringLiteral("false"),
+					Global::get().bScreenShareHelperRequired ? QStringLiteral("true") : QStringLiteral("false"),
+					capabilities.captureSupported ? QStringLiteral("true") : QStringLiteral("false"),
+					capabilities.viewSupported ? QStringLiteral("true") : QStringLiteral("false"),
+					capabilities.helperAvailable ? QStringLiteral("true") : QStringLiteral("false"),
+					Global::get().qsScreenShareRelayUrl.isEmpty() ? QStringLiteral("-") : Global::get().qsScreenShareRelayUrl,
+					relayTransports.join(QStringLiteral(",")),
+					reason.isEmpty() ? QStringLiteral("available") : reason);
+}
+
+bool ScreenShareManager::canRequestLocalShare() const {
+	return localShareUnavailableReason().isEmpty();
+}
+
+QString ScreenShareManager::localShareUnavailableReason() const {
+	if (!Global::get().sh) {
+		return tr("Connect to a server before starting screen sharing.");
+	}
+
+	const ScreenShareHelperClient::CapabilitySnapshot &capabilities = m_helperClient->capabilities();
+	if (!Global::get().bScreenShareEnabled) {
+		return tr("Screen sharing is disabled on this server.");
+	}
+	if (!capabilities.captureSupported) {
+		return tr("No supported local capture source is available.");
 	}
 	if (!Mumble::ScreenShare::isValidRelayUrl(Global::get().qsScreenShareRelayUrl)) {
-		return false;
+		return tr("This server has no valid screen-share relay endpoint configured.");
 	}
 	const MumbleProto::ScreenShareRelayTransport relayTransport =
 		Mumble::ScreenShare::relayTransportFromUrl(Global::get().qsScreenShareRelayUrl);
 	if (!capabilities.runtimeRelayTransports.isEmpty()
 		&& !capabilities.runtimeRelayTransports.contains(static_cast< int >(relayTransport))) {
-		return false;
+		return tr("The local screen-share helper does not support this server's relay transport.");
 	}
 	if (Global::get().bScreenShareHelperRequired && !capabilities.helperAvailable) {
-		return false;
+		return tr("The local screen-share helper is required but unavailable.");
 	}
 
-	return static_cast< bool >(Global::get().sh);
+	return QString();
 }
 
 bool ScreenShareManager::canViewSession(const QString &streamID) const {
@@ -98,6 +148,7 @@ void ScreenShareManager::requestStartChannelShare(unsigned int channelID) {
 	if (!Global::get().sh) {
 		return;
 	}
+	logLocalShareAvailabilityDiagnostic(QStringLiteral("request-start"));
 	if (!Mumble::ScreenShare::isValidRelayUrl(Global::get().qsScreenShareRelayUrl)) {
 		if (Global::get().l) {
 			Global::get().l->log(Log::Warning,
@@ -203,6 +254,8 @@ void ScreenShareManager::resetState() {
 	m_activeViewSessions.clear();
 	m_announcedViewableSessions.clear();
 	m_sessions.clear();
+	m_lastLoggedAvailabilityContext.clear();
+	m_lastLoggedAvailabilityReason.clear();
 }
 
 ScreenShareSession ScreenShareManager::sessionFromState(const MumbleProto::ScreenShareState &msg) const {

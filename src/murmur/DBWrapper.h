@@ -102,9 +102,13 @@ public:
 		getChatThreadByScope(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey);
 	std::vector< ::mumble::server::db::DBChatThread > getChatThreads(unsigned int serverID, unsigned int startOffset = 0,
 																	 int amount = -1);
-	void ensureDefaultTextChannels(unsigned int serverID);
 	std::optional< ::mumble::server::db::DBTextChannel > getTextChannel(unsigned int serverID, unsigned int textChannelID);
 	std::vector< ::mumble::server::db::DBTextChannel > getTextChannels(unsigned int serverID);
+	::mumble::server::db::DBTextChannel addTextChannel(unsigned int serverID, const std::string &name,
+													   const std::string &description, unsigned int aclChannelID,
+													   unsigned int position);
+	void updateTextChannel(const ::mumble::server::db::DBTextChannel &textChannel);
+	void removeTextChannel(unsigned int serverID, unsigned int textChannelID);
 	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
 													 std::optional< unsigned int > authorUserID = std::nullopt,
 													 std::optional< unsigned int > authorSession = std::nullopt,
