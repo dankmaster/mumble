@@ -38,10 +38,14 @@ private:
 	Q_DISABLE_COPY(UserView)
 
 	int m_iconTotalDimension;
+	QModelIndex m_hoveredIndex;
 	qt_unique_ptr< UserDelegate > m_userDelegate;
 	void adjustIcons();
 
 protected:
+	void drawRow(QPainter *painter, const QStyleOptionViewItem &options, const QModelIndex &index) const Q_DECL_OVERRIDE;
+	void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
+	void leaveEvent(QEvent *event) Q_DECL_OVERRIDE;
 	void mouseReleaseEvent(QMouseEvent *) Q_DECL_OVERRIDE;
 	void keyPressEvent(QKeyEvent *) Q_DECL_OVERRIDE;
 	bool event(QEvent *) Q_DECL_OVERRIDE;

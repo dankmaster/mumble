@@ -123,6 +123,62 @@ UserView::UserView(QWidget *p) : QTreeView(p), m_userDelegate(make_qt_unique< Us
 	connect(this, SIGNAL(doubleClicked(const QModelIndex &)), this, SLOT(nodeActivated(const QModelIndex &)));
 }
 
+void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
+	const bool isSelected = option.state & QStyle::State_Selected;
+	const bool isHovered  = index == m_hoveredIndex;
+	if (isSelected || isHovered) {
+		QBrush rowBrush;
+		if (isSelected) {
+			rowBrush = option.palette.brush(QPalette::Highlight);
+		} else {
+			QColor hoverColor = property("rowHoverColor").value< QColor >();
+			if (!hoverColor.isValid()) {
+				hoverColor = option.palette.color(QPalette::Highlight);
+				hoverColor.setAlphaF(0.22f);
+			}
+			rowBrush = hoverColor;
+		}
+
+		const QRect rowRect = QRect(8, option.rect.top() + 1, viewport()->width() - 16, option.rect.height() - 2);
+		if (rowRect.isValid()) {
+			painter->save();
+			painter->setRenderHint(QPainter::Antialiasing, true);
+			painter->setPen(Qt::NoPen);
+			painter->setBrush(rowBrush);
+			painter->drawRoundedRect(rowRect, 6.0f, 6.0f);
+			painter->restore();
+		}
+	}
+
+	QTreeView::drawRow(painter, option, index);
+}
+
+void UserView::mouseMoveEvent(QMouseEvent *event) {
+	const QModelIndex hoveredIndex = indexAt(event->pos());
+	if (hoveredIndex != m_hoveredIndex) {
+		const QModelIndex previousHoveredIndex = m_hoveredIndex;
+		m_hoveredIndex                         = hoveredIndex;
+		if (previousHoveredIndex.isValid()) {
+			update(visualRect(previousHoveredIndex));
+		}
+		if (m_hoveredIndex.isValid()) {
+			update(visualRect(m_hoveredIndex));
+		}
+	}
+
+	QTreeView::mouseMoveEvent(event);
+}
+
+void UserView::leaveEvent(QEvent *event) {
+	if (m_hoveredIndex.isValid()) {
+		const QModelIndex previousHoveredIndex = m_hoveredIndex;
+		m_hoveredIndex                         = QModelIndex();
+		update(visualRect(previousHoveredIndex));
+	}
+
+	QTreeView::leaveEvent(event);
+}
+
 void UserView::adjustIcons() {
 	// Calculate the icon size for status icons based on font size
 	// This should automaticially adjust size when the user has

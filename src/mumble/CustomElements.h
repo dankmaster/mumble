@@ -28,9 +28,11 @@ public:
 
 signals:
 	void imageActivated(const QTextCursor &cursor);
+	void contentWidthChanged(int width);
 
 protected:
 	void mouseDoubleClickEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
+	void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
 };
 
 class ChatbarTextEdit : public QTextEdit {

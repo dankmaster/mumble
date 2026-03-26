@@ -222,7 +222,9 @@ public:
 	std::optional< QString > persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const;
 	QString persistentChatScopeLabel(MumbleProto::ChatScope scope, unsigned int scopeID) const;
 	void ensurePersistentChatPreview(const QString &previewKey);
-	QString persistentChatPreviewHtml(const QString &previewKey) const;
+	int persistentChatPreviewContentWidth(int leftPadding) const;
+	QString scaledPersistentChatThumbnailHtml(const QString &thumbnailHtml, int maxWidth) const;
+	QString persistentChatPreviewHtml(const QString &previewKey, int availableWidth) const;
 	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
 	void rebuildPersistentChatChannelList();
 	void handlePersistentTextChannelSync(const MumbleProto::TextChannelSync &msg);
@@ -313,9 +315,15 @@ protected:
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
 	QWidget *m_serverNavigatorContainer = nullptr;
 	QFrame *m_serverNavigatorHeaderFrame = nullptr;
+	QFrame *m_serverNavigatorContentFrame = nullptr;
 	QLabel *m_serverNavigatorEyebrow = nullptr;
 	QLabel *m_serverNavigatorTitle = nullptr;
 	QLabel *m_serverNavigatorSubtitle = nullptr;
+	QFrame *m_serverNavigatorTextChannelsFrame = nullptr;
+	QFrame *m_serverNavigatorTextChannelsDivider = nullptr;
+	QLabel *m_serverNavigatorTextChannelsEyebrow = nullptr;
+	QLabel *m_serverNavigatorTextChannelsTitle = nullptr;
+	QLabel *m_serverNavigatorTextChannelsSubtitle = nullptr;
 	QLabel *m_serverNavigatorFooter = nullptr;
 	QWidget *m_persistentChatContainer = nullptr;
 	QFrame *m_persistentChatHeaderFrame = nullptr;
@@ -351,6 +359,7 @@ protected:
 	bool m_visiblePersistentChatHasMore = false;
 	bool m_persistentChatLoadingOlder = false;
 	bool m_persistentChatRenderQueued = false;
+	int m_lastPersistentChatViewportWidth = -1;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;

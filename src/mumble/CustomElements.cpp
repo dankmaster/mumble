@@ -64,6 +64,14 @@ void LogTextBrowser::mouseDoubleClickEvent(QMouseEvent *event) {
 	QTextBrowser::mouseDoubleClickEvent(event);
 }
 
+void LogTextBrowser::resizeEvent(QResizeEvent *event) {
+	QTextBrowser::resizeEvent(event);
+
+	if (event->size().width() != event->oldSize().width()) {
+		emit contentWidthChanged(viewport()->width());
+	}
+}
+
 
 void ChatbarTextEdit::focusInEvent(QFocusEvent *qfe) {
 	inFocus(true);
