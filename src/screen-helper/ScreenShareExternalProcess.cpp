@@ -231,6 +231,15 @@ namespace {
 		appendQuery(QStringLiteral("fps"), QString::number(qMax(0, plan.value(QStringLiteral("fps")).toInt())));
 		appendQuery(QStringLiteral("bitrate_kbps"),
 					QString::number(qMax(0, plan.value(QStringLiteral("bitrate_kbps")).toInt())));
+		const bool browserPublisherCaptureAudio =
+			plan.value(QStringLiteral("relay_contract_mode")).toString() == QLatin1String("browser-webrtc-runtime")
+			&& plan.value(QStringLiteral("relay_role_token")).toString() == QLatin1String("publisher");
+		if (browserPublisherCaptureAudio) {
+			appendQuery(QStringLiteral("capture_audio"), QStringLiteral("1"));
+			appendQuery(QStringLiteral("system_audio"), QStringLiteral("include"));
+			appendQuery(QStringLiteral("surface_switching"), QStringLiteral("include"));
+			appendQuery(QStringLiteral("self_browser_surface"), QStringLiteral("exclude"));
+		}
 		launchUrl.setQuery(query);
 		return launchUrl.toString(QUrl::FullyEncoded);
 	}

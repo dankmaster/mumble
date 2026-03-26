@@ -196,6 +196,12 @@ button:disabled {
 	border: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.secondary.is-active {
+	background: rgba(255, 184, 77, 0.14);
+	color: var(--warning);
+	border-color: rgba(255, 184, 77, 0.22);
+}
+
 .hint {
 	color: var(--muted);
 	line-height: 1.5;

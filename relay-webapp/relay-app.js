@@ -12,6 +12,7 @@
 		viewerActions: document.getElementById("viewer-actions"),
 		startShare: document.getElementById("start-share"),
 		stopShare: document.getElementById("stop-share"),
+		toggleAudio: document.getElementById("toggle-audio"),
 		reconnectView: document.getElementById("reconnect-view"),
 		hint: document.getElementById("hint"),
 		videoStage: document.getElementById("video-stage"),
@@ -34,8 +35,11 @@
 		isPublisher: config.relayRole === "publisher",
 		isConnected: false,
 		isSharing: false,
+		streamAudioMuted: false,
 		currentTrackKey: "",
-		currentTrackElement: null
+		currentTrackElement: null,
+		currentAudioTrackKey: "",
+		currentAudioElement: null
 	};
 
 	function timestamp() {
@@ -82,6 +86,17 @@
 		setText(refs.hint, message);
 	}
 
+	function updateAudioToggle() {
+		if (!refs.toggleAudio) {
+			return;
+		}
+
+		const muted = state.streamAudioMuted;
+		refs.toggleAudio.textContent = muted ? "Unmute stream audio" : "Mute stream audio";
+		refs.toggleAudio.setAttribute("aria-pressed", muted ? "true" : "false");
+		refs.toggleAudio.classList.toggle("is-active", muted);
+	}
+
 	function showEmpty(title, copy) {
 		setText(refs.emptyTitle, title);
 		setText(refs.emptyCopy, copy);
@@ -112,6 +127,27 @@
 	function parsePositiveInteger(value, fallback) {
 		const parsed = Number.parseInt(String(value || "").trim(), 10);
 		return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+	}
+
+	function parseBooleanFlag(value, fallback) {
+		const token = normalizeToken(value, "");
+		if (!token) {
+			return fallback;
+		}
+
+		if (token === "1" || token === "true" || token === "yes" || token === "on" || token === "include") {
+			return true;
+		}
+		if (token === "0" || token === "false" || token === "no" || token === "off" || token === "exclude") {
+			return false;
+		}
+
+		return fallback;
+	}
+
+	function parseIncludeExclude(value, fallback) {
+		const token = normalizeToken(value, fallback);
+		return token === "include" || token === "exclude" ? token : fallback;
 	}
 
 	function deriveWebSocketUrl(relayUrl) {
@@ -152,18 +188,34 @@
 			width: parsePositiveInteger(params.get("width"), 1920),
 			height: parsePositiveInteger(params.get("height"), 1080),
 			fps: parsePositiveInteger(params.get("fps"), 60),
-			bitrateKbps: parsePositiveInteger(params.get("bitrate_kbps"), 12000)
+			bitrateKbps: parsePositiveInteger(params.get("bitrate_kbps"), 12000),
+			captureAudio: parseBooleanFlag(params.get("capture_audio"), false),
+			systemAudio: parseIncludeExclude(params.get("system_audio"), "exclude"),
+			surfaceSwitching: parseIncludeExclude(params.get("surface_switching"), "include"),
+			selfBrowserSurface: parseIncludeExclude(params.get("self_browser_surface"), "exclude")
 		};
 	}
 
+	function normalizeSourceToken(value) {
+		return String(value || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+	}
+
 	function screenShareSourceMatches(source) {
-		const sourceToken = String(source || "").trim().toLowerCase();
-		return sourceToken === "screenshare" || sourceToken === "screen_share";
+		return normalizeSourceToken(source) === "screenshare";
+	}
+
+	function screenShareAudioSourceMatches(source) {
+		return normalizeSourceToken(source) === "screenshareaudio";
 	}
 
 	function isVideoTrack(track, publication) {
 		const kind = String((track && track.kind) || (publication && publication.kind) || "").trim().toLowerCase();
 		return kind === "video";
+	}
+
+	function isAudioTrack(track, publication) {
+		const kind = String((track && track.kind) || (publication && publication.kind) || "").trim().toLowerCase();
+		return kind === "audio";
 	}
 
 	function isScreenShareTrack(track, publication) {
@@ -178,6 +230,20 @@
 			? publicationSource === livekitSource || trackSource === livekitSource || screenShareSourceMatches(publicationSource)
 				|| screenShareSourceMatches(trackSource)
 			: screenShareSourceMatches(publicationSource) || screenShareSourceMatches(trackSource);
+	}
+
+	function isScreenShareAudioTrack(track, publication) {
+		if (!isAudioTrack(track, publication)) {
+			return false;
+		}
+
+		const livekitSource = livekit && livekit.Track && livekit.Track.Source ? livekit.Track.Source.ScreenShareAudio : "";
+		const publicationSource = publication && publication.source ? publication.source : "";
+		const trackSource = track && track.source ? track.source : "";
+		return screenShareAudioSourceMatches(livekitSource)
+			? publicationSource === livekitSource || trackSource === livekitSource || screenShareAudioSourceMatches(publicationSource)
+				|| screenShareAudioSourceMatches(trackSource)
+			: screenShareAudioSourceMatches(publicationSource) || screenShareAudioSourceMatches(trackSource);
 	}
 
 	function describeParticipant(participant) {
@@ -244,6 +310,54 @@
 		log((localTrack ? "Showing local preview for " : "Showing remote screen share from ") + actor + ".");
 	}
 
+	function attachAudioTrack(track, publication, participant) {
+		if (!isScreenShareAudioTrack(track, publication)) {
+			return;
+		}
+
+		const key = trackKey(publication, participant, false);
+		if (state.currentAudioTrackKey === key && state.currentAudioElement) {
+			return;
+		}
+
+		let element;
+		try {
+			element = track.attach();
+		} catch (error) {
+			log("Unable to attach screen-share audio: " + error.message, "error");
+			return;
+		}
+
+		if (!(element instanceof HTMLAudioElement)) {
+			log("Ignoring non-audio screen-share attachment.", "warn");
+			if (element && typeof element.remove === "function") {
+				element.remove();
+			}
+			return;
+		}
+
+		if (state.currentAudioElement) {
+			state.currentAudioElement.remove();
+		}
+
+		element.autoplay = true;
+		element.controls = false;
+		element.muted = state.streamAudioMuted;
+		element.hidden = true;
+		refs.videoStage.appendChild(element);
+		state.currentAudioElement = element;
+		state.currentAudioTrackKey = key;
+
+		if (typeof element.play === "function") {
+			element.play().catch(function(error) {
+				log("Screen-share audio playback is waiting for browser permission: " + error.message, "warn");
+			});
+		}
+
+		updateAudioToggle();
+		log("Playing remote screen-share audio from " + describeParticipant(participant) + ".");
+	}
+
 	function detachTrack(track, publication, participant, localTrack) {
 		if (!isScreenShareTrack(track, publication)) {
 			return;
@@ -273,6 +387,46 @@
 		}
 
 		log((localTrack ? "Local" : "Remote") + " screen-share track ended for " + describeParticipant(participant) + ".");
+	}
+
+	function detachAudioTrack(track, publication, participant) {
+		if (!isScreenShareAudioTrack(track, publication)) {
+			return;
+		}
+
+		if (track && typeof track.detach === "function") {
+			const detached = track.detach();
+			if (Array.isArray(detached)) {
+				detached.forEach(function(node) {
+					if (node && typeof node.remove === "function") {
+						node.remove();
+					}
+				});
+			}
+		}
+
+		if (state.currentAudioElement) {
+			state.currentAudioElement.remove();
+			state.currentAudioElement = null;
+			state.currentAudioTrackKey = "";
+		}
+
+		updateAudioToggle();
+		log("Remote screen-share audio ended for " + describeParticipant(participant) + ".");
+	}
+
+	function setStreamAudioMuted(muted) {
+		state.streamAudioMuted = Boolean(muted);
+		if (state.currentAudioElement) {
+			state.currentAudioElement.muted = state.streamAudioMuted;
+		}
+		updateAudioToggle();
+	}
+
+	function toggleStreamAudioMuted() {
+		const nextMuted = !state.streamAudioMuted;
+		setStreamAudioMuted(nextMuted);
+		log(nextMuted ? "Muted remote screen-share audio." : "Unmuted remote screen-share audio.");
 	}
 
 	function publicationValues(collection) {
@@ -321,17 +475,36 @@
 				if (!publication) {
 					continue;
 				}
-				if (typeof publication.setSubscribed === "function" && isScreenShareTrack(publication.track, publication)) {
+				if (typeof publication.setSubscribed === "function"
+					&& (isScreenShareTrack(publication.track, publication) || isScreenShareAudioTrack(publication.track, publication))) {
 					publication.setSubscribed(true);
 				}
 				if (publication.track && isScreenShareTrack(publication.track, publication)) {
 					attachTrack(publication.track, publication, participant, false);
-					return true;
+				}
+				if (publication.track && isScreenShareAudioTrack(publication.track, publication)) {
+					attachAudioTrack(publication.track, publication, participant);
 				}
 			}
 		}
 
-		return false;
+		return Boolean(state.currentTrackElement || state.currentAudioElement);
+	}
+
+	function buildScreenShareCaptureOptions() {
+		const options = {
+			video: true,
+			selfBrowserSurface: config.selfBrowserSurface,
+			surfaceSwitching: config.surfaceSwitching
+		};
+
+		if (config.captureAudio) {
+			options.audio = true;
+			options.systemAudio = config.systemAudio;
+			options.suppressLocalAudioPlayback = false;
+		}
+
+		return options;
 	}
 
 	function buildRoomOptions() {
@@ -397,6 +570,12 @@
 					log("Relay room disconnected unexpectedly" + (reason ? ": " + reason : "."), "warn");
 					showEmpty("Disconnected", "The relay connection closed. Reconnect from Mumble if needed.");
 				}
+				if (state.currentAudioElement) {
+					state.currentAudioElement.remove();
+					state.currentAudioElement = null;
+					state.currentAudioTrackKey = "";
+				}
+				updateAudioToggle();
 				state.intentionalDisconnect = false;
 			});
 		}
@@ -405,6 +584,8 @@
 			room.on(roomEvent.TrackSubscribed, function(track, publication, participant) {
 				if (isScreenShareTrack(track, publication)) {
 					attachTrack(track, publication, participant, false);
+				} else if (isScreenShareAudioTrack(track, publication)) {
+					attachAudioTrack(track, publication, participant);
 				}
 			});
 		}
@@ -413,6 +594,8 @@
 			room.on(roomEvent.TrackUnsubscribed, function(track, publication, participant) {
 				if (isScreenShareTrack(track, publication)) {
 					detachTrack(track, publication, participant, false);
+				} else if (isScreenShareAudioTrack(track, publication)) {
+					detachAudioTrack(track, publication, participant);
 				}
 			});
 		}
@@ -496,9 +679,13 @@
 		refs.stopShare.disabled = true;
 		try {
 			const room = await ensureConnected();
-			setHint("Choose a screen or window in the browser picker.");
-			log("Requesting screen capture from the browser.");
-			await room.localParticipant.setScreenShareEnabled(true);
+			setHint(config.captureAudio
+				? "Choose a screen, window, or tab with audio in the browser picker."
+				: "Choose a screen or window in the browser picker.");
+			log(config.captureAudio
+				? "Requesting screen capture and shared audio from the browser."
+				: "Requesting screen capture from the browser.");
+			await room.localParticipant.setScreenShareEnabled(true, buildScreenShareCaptureOptions());
 			state.isSharing = true;
 			refs.stopShare.disabled = false;
 			setPill(refs.connectionPill, "live", "success");
@@ -574,6 +761,7 @@
 		renderStaticMetadata();
 		setPill(refs.rolePill, state.isPublisher ? "publisher" : "viewer", state.isPublisher ? "accent" : "muted");
 		setPill(refs.connectionPill, "idle", "muted");
+		updateAudioToggle();
 
 		if (state.isPublisher) {
 			setText(refs.title, "Ready to share your screen");
@@ -599,6 +787,9 @@
 		log("Relay role: " + config.relayRole + ".");
 		log("Relay transport: " + config.transport + ".");
 		log("Relay endpoint: " + (config.relayUrl || "missing") + ".");
+		if (state.isPublisher && config.captureAudio) {
+			log("Screen-share audio capture is enabled for compatible browser sources.");
+		}
 
 		if (!livekit) {
 			setPill(refs.connectionPill, "error", "danger");
@@ -619,6 +810,9 @@
 		});
 		refs.stopShare.addEventListener("click", function() {
 			void stopSharing();
+		});
+		refs.toggleAudio.addEventListener("click", function() {
+			toggleStreamAudioMuted();
 		});
 		refs.reconnectView.addEventListener("click", function() {
 			void reconnectViewer();
