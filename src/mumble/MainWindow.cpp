@@ -1757,6 +1757,8 @@ void MainWindow::refreshPersistentChatStyles() {
 				  : mixColors(chatPalette.color(QPalette::Highlight), baseColor, 0.08);
 	const QColor railColor = windowColor;
 	const QColor borderColor = railColor;
+	const QColor subtleBorderColor =
+		darkTheme ? mixColors(borderColor, railColor, 0.48) : mixColors(borderColor, railColor, 0.32);
 	const QColor headerSurfaceColor =
 		darkTheme ? mixColors(railColor, baseColor, 0.20)
 				  : mixColors(mixColors(railColor, baseColor, 0.14), alternateColor, 0.06);
@@ -1844,20 +1846,30 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QTextBrowser#qtePersistentChatHistory {"
 			" border: 1px solid %1;"
-			" border-radius: 8px;"
+			" border-radius: 0px;"
 			" background-color: %4;"
 			" padding: 0px;"
 			"}"
+			"QTextBrowser#qtePersistentChatHistory > QWidget {"
+			" border: none;"
+			" border-radius: 0px;"
+			" background-color: %4;"
+			"}"
 			"ChatbarTextEdit#qteChat {"
 			" border: 1px solid %1;"
-			" border-radius: 8px;"
+			" border-radius: 0px;"
 			" background-color: %5;"
 			" padding: 8px 12px;"
+			"}"
+			"ChatbarTextEdit#qteChat > QWidget {"
+			" border: none;"
+			" border-radius: 0px;"
+			" background-color: %5;"
 			"}"
 			"QLabel#qlPersistentChatHeaderTitle {"
 			" color: %7;"
 			"}")
-			.arg(borderColor.name(), railColor.name(), mutedTextColor.name(), historyColor.name(), inputColor.name(),
+			.arg(subtleBorderColor.name(), railColor.name(), mutedTextColor.name(), historyColor.name(), inputColor.name(),
 				 accentColor.name(), textColor.name(), sidebarListColor.name(), sidebarHoverColor.name(),
 				 sidebarSelectedColor.name(), selectedTextColor.name(), headerSurfaceColor.name(),
 				 sidebarEyebrowColor.name(), sidebarMutedTextColor.name()));
