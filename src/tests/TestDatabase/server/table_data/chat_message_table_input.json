@@ -30,5 +30,22 @@
 			"deleted_at"
 		],
 		"rows": []
+	},
+	"v15": {
+		"table_name": "chat_messages",
+		"column_names": [
+			"server_id",
+			"message_id",
+			"thread_id",
+			"reply_to_message_id",
+			"author_user_id",
+			"author_session",
+			"author_name",
+			"body",
+			"created_at",
+			"edited_at",
+			"deleted_at"
+		],
+		"rows": []
 	}
 }

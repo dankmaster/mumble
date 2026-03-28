@@ -225,6 +225,10 @@ Database::Database(const QString &dbname) {
 	execQueryAndLogFailure(query, QLatin1String("CREATE TABLE IF NOT EXISTS `volume` (`id` INTEGER PRIMARY KEY "
 												"AUTOINCREMENT, `hash` TEXT, `volume` FLOAT)"));
 	execQueryAndLogFailure(query, QLatin1String("CREATE UNIQUE INDEX IF NOT EXISTS `volume_hash` ON `volume`(`hash`)"));
+	execQueryAndLogFailure(query, QLatin1String("CREATE TABLE IF NOT EXISTS `remote_speech_cleanup` (`id` INTEGER "
+												"PRIMARY KEY AUTOINCREMENT, `hash` TEXT, `enabled` INTEGER NOT NULL)"));
+	execQueryAndLogFailure(query, QLatin1String("CREATE UNIQUE INDEX IF NOT EXISTS `remote_speech_cleanup_hash` ON "
+												"`remote_speech_cleanup`(`hash`)"));
 	execQueryAndLogFailure(query, QLatin1String("CREATE TABLE IF NOT EXISTS `nicknames` (`id` INTEGER PRIMARY KEY "
 												"AUTOINCREMENT, `hash` TEXT, `nickname` TEXT)"));
 	execQueryAndLogFailure(query,
@@ -407,6 +411,34 @@ float Database::getUserLocalVolume(const QString &hash) {
 		return query.value(0).toString().toFloat();
 	}
 	return 1.0f;
+}
+
+std::optional< bool > Database::getUserRemoteSpeechCleanup(const QString &hash) {
+	QSqlQuery query(db);
+
+	query.prepare(QLatin1String("SELECT `enabled` FROM `remote_speech_cleanup` WHERE `hash` = ?"));
+	query.addBindValue(hash);
+	execQueryAndLogFailure(query);
+	if (query.first()) {
+		return query.value(0).toInt() != 0;
+	}
+
+	return std::nullopt;
+}
+
+void Database::setUserRemoteSpeechCleanup(const QString &hash, std::optional< bool > enabled) {
+	QSqlQuery query(db);
+
+	if (enabled.has_value()) {
+		query.prepare(QLatin1String("INSERT OR REPLACE INTO `remote_speech_cleanup` (`hash`, `enabled`) VALUES (?,?)"));
+		query.addBindValue(hash);
+		query.addBindValue(enabled.value() ? 1 : 0);
+	} else {
+		query.prepare(QLatin1String("DELETE FROM `remote_speech_cleanup` WHERE `hash` = ?"));
+		query.addBindValue(hash);
+	}
+
+	execQueryAndLogFailure(query);
 }
 
 void Database::setUserLocalNickname(const QString &hash, const QString &nickname) {

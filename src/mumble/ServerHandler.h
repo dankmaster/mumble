@@ -37,6 +37,7 @@
 #include "Timer.h"
 
 #include <memory>
+#include <optional>
 
 class Connection;
 class Database;
@@ -188,7 +189,8 @@ public:
 	void banUser(unsigned int uiSession, const QString &reason, bool banCertificate, bool banIP);
 	void sendUserTextMessage(unsigned int uiSession, const QString &message_);
 	void sendChannelTextMessage(unsigned int channel, const QString &message_, bool tree);
-	void sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_);
+	void sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_,
+						 std::optional< unsigned int > replyToMessageID = std::nullopt);
 	void upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
 						   unsigned int aclChannelID, unsigned int position, bool create);
 	void removeTextChannel(unsigned int textChannelID);

@@ -413,6 +413,7 @@ public:
 	void persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
 										unsigned int scopeID, Channel *permissionChannel,
 										::mumble::server::db::ChatThreadScope dbScope,
+										std::optional< unsigned int > replyToMessageID = std::nullopt,
 										const QSet< ServerUser * > &legacyFallbackRecipients = {});
 
 	void setLiveConf(const QString &key, const QString &value);

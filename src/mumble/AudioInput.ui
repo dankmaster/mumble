@@ -749,22 +749,49 @@
             </widget>
            </item>
            <item>
-            <widget class="QRadioButton" name="qrbNoiseSupRNNoise">
+           <widget class="QRadioButton" name="qrbNoiseSupRNNoise">
              <property name="toolTip">
-              <string>Use the noise suppression algorithm provided by RNNoise.</string>
+              <string>Use the selected neural speech cleanup backend.</string>
              </property>
              <property name="text">
-              <string notr="true">RNNoise</string>
+              <string>Neural</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QRadioButton" name="qrbNoiseSupBoth">
              <property name="toolTip">
-              <string>Use a combination of Speex and RNNoise to do noise suppression.</string>
+              <string>Use a combination of Speex and the selected neural speech cleanup backend.</string>
              </property>
              <property name="text">
               <string>Both</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="horizontalLayoutNoiseBackend">
+           <item>
+            <widget class="QLabel" name="qlNoiseSupBackend">
+             <property name="text">
+              <string>Neural Backend</string>
+             </property>
+             <property name="buddy">
+              <cstring>qcbNoiseSupBackend</cstring>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="qcbNoiseSupBackend">
+             <property name="toolTip">
+              <string>Select which neural speech cleanup backend to use when Neural or Both is enabled.</string>
+             </property>
+             <property name="whatsThis">
+              <string>&lt;b&gt;Neural backend&lt;/b&gt;&lt;br /&gt;Chooses the machine-learning backend used for microphone cleanup when neural suppression is enabled.</string>
+             </property>
+             <property name="accessibleName">
+              <string>Microphone speech cleanup backend</string>
              </property>
             </widget>
            </item>
@@ -1190,6 +1217,7 @@
   <tabstop>qrbNoiseSupSpeex</tabstop>
   <tabstop>qrbNoiseSupRNNoise</tabstop>
   <tabstop>qrbNoiseSupBoth</tabstop>
+  <tabstop>qcbNoiseSupBackend</tabstop>
   <tabstop>qsSpeexNoiseSupStrength</tabstop>
   <tabstop>qcbEnableCuePTT</tabstop>
   <tabstop>qcbEnableCueVAD</tabstop>

@@ -1077,6 +1077,7 @@ void DBWrapper::removeTextChannel(unsigned int serverID, unsigned int textChanne
 }
 
 ::msdb::DBChatMessage DBWrapper::addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
+												 std::optional< unsigned int > replyToMessageID,
 												 std::optional< unsigned int > authorUserID,
 												 std::optional< unsigned int > authorSession,
 												 std::optional< std::string > authorName) {
@@ -1088,6 +1089,7 @@ void DBWrapper::removeTextChannel(unsigned int serverID, unsigned int textChanne
 	::mdb::TransactionHolder transaction = m_serverDB.ensureTransaction();
 
 	::msdb::DBChatMessage message(serverID, m_serverDB.getChatMessageTable().getFreeMessageID(serverID), threadID);
+	message.replyToMessageID = replyToMessageID;
 	message.authorUserID  = authorUserID;
 	message.authorSession = authorSession;
 	message.authorName    = authorName;

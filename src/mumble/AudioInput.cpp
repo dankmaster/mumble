@@ -13,6 +13,7 @@
 #include "PacketDataStream.h"
 #include "PluginManager.h"
 #include "ServerHandler.h"
+#include "SpeechCleanup.h"
 #include "User.h"
 #include "Utils.h"
 #include "VoiceRecorder.h"
@@ -805,16 +806,21 @@ bool AudioInput::selectCodec() {
 
 void AudioInput::selectNoiseCancel() {
 	noiseCancel = Global::get().s.noiseCancelMode;
+	const Settings::SpeechCleanupBackend backend = Global::get().s.noiseCancelBackend;
 
 	if (noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth) {
-#ifdef USE_RNNOISE
-		if (!denoiseState || iFrameSize != 480) {
-			qInfo("AudioInput: Ignoring request to enable RNNoise 0.2: internal error");
+		if (!Mumble::SpeechCleanup::isBackendAvailable(backend)) {
+			qInfo("AudioInput: Ignoring request to enable %s: %s",
+				  Mumble::SpeechCleanup::backendDisplayName(backend),
+				  qUtf8Printable(Mumble::SpeechCleanup::unavailableReason(backend)));
 			noiseCancel = Settings::NoiseCancelSpeex;
 		}
-#else
-		qInfo("AudioInput: Ignoring request to enable RNNoise 0.2: Mumble was built without support for it");
-		noiseCancel = Settings::NoiseCancelSpeex;
+
+#ifdef USE_RNNOISE
+		if (backend == Settings::RNNoiseBackend && (!denoiseState || iFrameSize != 480)) {
+			qInfo("AudioInput: Ignoring request to enable RNNoise: internal error");
+			noiseCancel = Settings::NoiseCancelSpeex;
+		}
 #endif
 	}
 
@@ -828,11 +834,12 @@ void AudioInput::selectNoiseCancel() {
 			preprocessorDenoise = true;
 			break;
 		case Settings::NoiseCancelRNN:
-			qInfo("AudioInput: Using RNNoise 0.2 as noise canceller");
+			qInfo("AudioInput: Using %s as noise canceller", Mumble::SpeechCleanup::backendDisplayName(backend));
 			break;
 		case Settings::NoiseCancelBoth:
 			preprocessorDenoise = true;
-			qInfo("AudioInput: Using RNNoise 0.2 and Speex as noise canceller");
+			qInfo("AudioInput: Using %s and Speex as noise canceller",
+				  Mumble::SpeechCleanup::backendDisplayName(backend));
 			break;
 	}
 	m_preprocessor.setDenoise(preprocessorDenoise);
@@ -909,7 +916,8 @@ void AudioInput::encodeAudioFrame(AudioChunk chunk) {
 
 #ifdef USE_RNNOISE
 	// At the time of writing this code, RNNoise only supports a sample rate of 48000 Hz.
-	if (noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth) {
+	if ((noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth)
+		&& Global::get().s.noiseCancelBackend == Settings::RNNoiseBackend) {
 		float denoiseFrames[480];
 		for (unsigned int i = 0; i < 480; i++) {
 			denoiseFrames[i] = psSource[i];

@@ -5,6 +5,7 @@
 
 #include "JSONSerialization.h"
 #include "Cert.h"
+#include "SpeechCleanup.h"
 #include "SettingsMacros.h"
 
 
@@ -217,12 +218,22 @@ void from_json(const nlohmann::json &j, Settings &settings) {
 		settings.mumbleQuitNormally = json.at(SettingsKeys::MUMBLE_QUIT_NORMALLY_KEY);
 	}
 
-#ifndef USE_RNNOISE
-	if (settings.noiseCancelMode == Settings::NoiseCancelRNN || settings.noiseCancelMode == Settings::NoiseCancelBoth) {
-		// Use Speex instead as this Mumble build was built without support for RNNoise
+	if (!Mumble::SpeechCleanup::isBackendAvailable(settings.noiseCancelBackend)) {
+		settings.noiseCancelBackend = Settings::RNNoiseBackend;
+	}
+
+	if (!Mumble::SpeechCleanup::isBackendAvailable(settings.remoteSpeechCleanupBackend)) {
+		settings.remoteSpeechCleanupBackend = Settings::RNNoiseBackend;
+	}
+
+	if ((settings.noiseCancelMode == Settings::NoiseCancelRNN || settings.noiseCancelMode == Settings::NoiseCancelBoth)
+		&& !Mumble::SpeechCleanup::isBackendAvailable(settings.noiseCancelBackend)) {
 		settings.noiseCancelMode = Settings::NoiseCancelSpeex;
 	}
-#endif
+
+	if (!Mumble::SpeechCleanup::isBackendAvailable(settings.remoteSpeechCleanupBackend)) {
+		settings.remoteSpeechCleanupEnabled = false;
+	}
 }
 
 void to_json(nlohmann::json &j, const OverlaySettings &settings) {

@@ -52,6 +52,8 @@ class QLabel;
 class QListWidget;
 class QListWidgetItem;
 class QMenu;
+class QTimer;
+class QToolButton;
 
 namespace Search {
 class SearchDialog;
@@ -59,6 +61,7 @@ class SearchDialog;
 
 class MenuLabel;
 class ListenerVolumeSlider;
+class PersistentChatListWidget;
 class UserLocalVolumeSlider;
 
 struct ShortcutTarget;
@@ -219,6 +222,8 @@ public:
 	void setPersistentChatWelcomeText(const QString &message);
 	void updatePersistentChatWelcome();
 	void clearPersistentChatView(const QString &message);
+	void markPersistentChatAvailable(bool refreshUi = true);
+	void setPersistentChatReplyTarget(const std::optional< MumbleProto::ChatMessage > &message);
 	std::optional< QString > persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const;
 	QString persistentChatScopeLabel(MumbleProto::ChatScope scope, unsigned int scopeID) const;
 	void ensurePersistentChatPreview(const QString &previewKey);
@@ -303,6 +308,7 @@ protected:
 	MUComboBox *qcbTransmitMode;
 	QAction *qaTransmitMode;
 	QAction *qaTransmitModeSeparator;
+	QAction *qaUserRemoteSpeechCleanup = nullptr;
 	QAction *qaChannelScreenShareStart = nullptr;
 	QAction *qaChannelScreenShareStop = nullptr;
 	QAction *qaChannelScreenShareWatch = nullptr;
@@ -344,8 +350,13 @@ protected:
 	QAction *m_persistentChatAclRoomAction = nullptr;
 	LogTextBrowser *m_persistentChatWelcome = nullptr;
 	QFrame *m_persistentChatDivider = nullptr;
-	LogTextBrowser *m_persistentChatHistory = nullptr;
+	PersistentChatListWidget *m_persistentChatHistory = nullptr;
+	QFrame *m_persistentChatReplyFrame = nullptr;
+	QLabel *m_persistentChatReplyLabel = nullptr;
+	QLabel *m_persistentChatReplySnippet = nullptr;
+	QToolButton *m_persistentChatReplyCancelButton = nullptr;
 	QString m_persistentChatWelcomeText;
+	bool m_hasPersistentChatSupport = false;
 	unsigned int m_defaultPersistentTextChannelID = 0;
 	QHash< unsigned int, PersistentTextChannel > m_persistentTextChannels;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
@@ -359,7 +370,10 @@ protected:
 	bool m_visiblePersistentChatHasMore = false;
 	bool m_persistentChatLoadingOlder = false;
 	bool m_persistentChatRenderQueued = false;
+	QTimer *m_persistentChatResizeRenderTimer = nullptr;
+	int m_pendingPersistentChatViewportWidth = -1;
 	int m_lastPersistentChatViewportWidth = -1;
+	std::optional< MumbleProto::ChatMessage > m_pendingPersistentChatReply;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
@@ -424,6 +438,7 @@ public slots:
 	void on_qaUserLocalIgnore_triggered();
 	void on_qaUserLocalIgnoreTTS_triggered();
 	void on_qaUserLocalMute_triggered();
+	void on_qaUserRemoteSpeechCleanup_triggered();
 	void on_qaUserLocalNickname_triggered();
 	void on_qaUserTextMessage_triggered();
 	void on_qaUserRegister_triggered();

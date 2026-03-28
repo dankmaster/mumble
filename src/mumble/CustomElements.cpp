@@ -37,6 +37,14 @@ bool LogTextBrowser::isScrolledToBottom() {
 	return scrollBar->value() == scrollBar->maximum();
 }
 
+void LogTextBrowser::resetViewportChrome() {
+	setViewportMargins(0, 0, 0, 0);
+	setContentsMargins(0, 0, 0, 0);
+	if (QWidget *view = viewport()) {
+		view->setContentsMargins(0, 0, 0, 0);
+	}
+}
+
 QTextCursor LogTextBrowser::imageCursorAt(const QPoint &position) const {
 	QTextCursor cursor  = cursorForPosition(position);
 	QTextCharFormat fmt = cursor.charFormat();
@@ -151,6 +159,15 @@ ChatbarTextEdit::ChatbarTextEdit(QWidget *p) : QTextEdit(p), iHistoryIndex(-1) {
 	setAcceptDrops(true);
 
 	m_justPasted = false;
+}
+
+void ChatbarTextEdit::resetViewportChrome() {
+	setViewportMargins(0, 0, 0, 0);
+	setContentsMargins(0, 0, 0, 0);
+	document()->setDocumentMargin(0);
+	if (QWidget *view = viewport()) {
+		view->setContentsMargins(0, 0, 0, 0);
+	}
 }
 
 QSize ChatbarTextEdit::minimumSizeHint() const {

@@ -30,6 +30,18 @@ QString ClientUser::getLocalNickname() const {
 	return m_localNickname;
 }
 
+bool ClientUser::isRemoteSpeechCleanupEnabled() const {
+	return m_remoteSpeechCleanupOverride.value_or(Global::get().s.remoteSpeechCleanupEnabled);
+}
+
+std::optional< bool > ClientUser::getRemoteSpeechCleanupOverride() const {
+	return m_remoteSpeechCleanupOverride;
+}
+
+void ClientUser::setRemoteSpeechCleanupOverride(std::optional< bool > enabled) {
+	m_remoteSpeechCleanupOverride = enabled;
+}
+
 ClientUser *ClientUser::get(unsigned int uiSession) {
 	QReadLocker lock(&c_qrwlUsers);
 	ClientUser *p = c_qmUsers.value(uiSession);

@@ -8,10 +8,15 @@
 #include "Audio.h"
 #include "ClientUser.h"
 #include "PacketDataStream.h"
+#include "SpeechCleanup.h"
 #include "Utils.h"
 #include "Global.h"
 
 #include <opus.h>
+
+#ifdef USE_RNNOISE
+#	include "rnnoise.h"
+#endif
 
 #include <algorithm>
 #include <cassert>
@@ -19,6 +24,26 @@
 
 std::mutex AudioOutputSpeech::s_audioCachesMutex;
 std::vector< AudioOutputCache > AudioOutputSpeech::s_audioCaches(100);
+
+#ifdef USE_RNNOISE
+namespace {
+	constexpr unsigned int REMOTE_SPEECH_CLEANUP_FRAME_SIZE = 480;
+	constexpr float REMOTE_SPEECH_CLEANUP_STEREO_EPSILON    = 1.0e-4f;
+
+	float remoteSpeechCleanupMixFactor(Settings::RemoteSpeechCleanupPreset preset) {
+		switch (preset) {
+			case Settings::Light:
+				return 0.35f;
+			case Settings::Normal:
+				return 0.65f;
+			case Settings::Aggressive:
+				return 1.0f;
+			default:
+				return 0.65f;
+		}
+	}
+} // namespace
+#endif
 
 void AudioOutputSpeech::invalidateAudioOutputCache(void *maskedIndex) {
 	// The given "pointer" actually is to be understood as an index
@@ -84,6 +109,16 @@ AudioOutputSpeech::AudioOutputSpeech(ClientUser *user, unsigned int freq, Mumble
 	opusState = opus_decoder_create(static_cast< int >(iSampleRate), bStereo ? 2 : 1, nullptr);
 	opus_decoder_ctl(opusState,
 					 OPUS_SET_PHASE_INVERSION_DISABLED(1)); // Disable phase inversion for better mono downmix.
+
+#ifdef USE_RNNOISE
+	if (iSampleRate == SAMPLE_RATE) {
+		const int rnnoiseFrameSize = rnnoise_get_frame_size();
+		if (iSampleRate == 48000 && rnnoiseFrameSize == static_cast< int >(REMOTE_SPEECH_CLEANUP_FRAME_SIZE)) {
+			m_remoteSpeechCleanupState     = rnnoise_create(nullptr);
+			m_remoteSpeechCleanupFrameSize = static_cast< unsigned int >(rnnoiseFrameSize);
+		}
+	}
+#endif
 
 	// iAudioBufferSize: size (in unit of float) of the buffer used to store decoded pcm data.
 	// For opus, the maximum frame size of a packet is 120ms (the maximum duration for a single frame
@@ -158,6 +193,12 @@ AudioOutputSpeech::~AudioOutputSpeech() {
 		opus_decoder_destroy(opusState);
 	}
 
+#ifdef USE_RNNOISE
+	if (m_remoteSpeechCleanupState) {
+		rnnoise_destroy(m_remoteSpeechCleanupState);
+	}
+#endif
+
 	if (srs)
 		speex_resampler_destroy(srs);
 
@@ -171,6 +212,56 @@ AudioOutputSpeech::~AudioOutputSpeech() {
 	delete[] fFadeOut;
 	delete[] fResamplerBuffer;
 }
+
+#ifdef USE_RNNOISE
+bool AudioOutputSpeech::isEffectivelyDualMono(const float *samples, unsigned int sampleCount) const {
+	if (!samples || !bStereo || sampleCount < 2 || sampleCount % 2 != 0) {
+		return false;
+	}
+
+	for (unsigned int i = 0; i < sampleCount; i += 2) {
+		if (std::fabs(samples[i] - samples[i + 1]) > REMOTE_SPEECH_CLEANUP_STEREO_EPSILON) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void AudioOutputSpeech::applyRemoteSpeechCleanup(float *samples, unsigned int sampleCount) {
+	if (!samples || !p || !p->isRemoteSpeechCleanupEnabled()
+		|| Global::get().s.remoteSpeechCleanupBackend != Settings::RNNoiseBackend || !m_remoteSpeechCleanupState || !bStereo
+		|| sampleCount == 0 || m_remoteSpeechCleanupFrameSize != REMOTE_SPEECH_CLEANUP_FRAME_SIZE
+		|| !isEffectivelyDualMono(samples, sampleCount)) {
+		return;
+	}
+
+	const float mixFactor = remoteSpeechCleanupMixFactor(Global::get().s.remoteSpeechCleanupPreset);
+	const float dryFactor = 1.0f - mixFactor;
+	const unsigned int samplesPerChannel = sampleCount / 2;
+
+	for (unsigned int offset = 0; offset < samplesPerChannel; offset += REMOTE_SPEECH_CLEANUP_FRAME_SIZE) {
+		const unsigned int chunkSize = std::min(REMOTE_SPEECH_CLEANUP_FRAME_SIZE, samplesPerChannel - offset);
+
+		m_remoteSpeechCleanupInputBuffer.fill(0.0f);
+		for (unsigned int i = 0; i < chunkSize; ++i) {
+			m_remoteSpeechCleanupInputBuffer[i] = samples[2 * (offset + i)];
+		}
+
+		rnnoise_process_frame(m_remoteSpeechCleanupState, m_remoteSpeechCleanupOutputBuffer.data(),
+							  m_remoteSpeechCleanupInputBuffer.data());
+
+		for (unsigned int i = 0; i < chunkSize; ++i) {
+			const float original = m_remoteSpeechCleanupInputBuffer[i];
+			const float cleaned  = m_remoteSpeechCleanupOutputBuffer[i];
+			const float blended  = std::clamp(cleaned * mixFactor + original * dryFactor, -1.0f, 1.0f);
+
+			samples[2 * (offset + i)]     = blended;
+			samples[2 * (offset + i) + 1] = blended;
+		}
+	}
+}
+#endif
 
 void AudioOutputSpeech::addFrameToBuffer(const Mumble::Protocol::AudioData &audioData) {
 	QMutexLocker lock(&qmJitter);
@@ -365,6 +456,12 @@ bool AudioOutputSpeech::prepareSampleBuffer(unsigned int frameCount) {
 					decodedSamples = static_cast< int >(iFrameSize);
 					memset(pOut, 0, iFrameSize * sizeof(float));
 				}
+
+#ifdef USE_RNNOISE
+				if (decodedSamples > 0 && !(p && p->bLocalMute)) {
+					applyRemoteSpeechCleanup(pOut, static_cast< unsigned int >(decodedSamples));
+				}
+#endif
 
 				bool update = true;
 				if (p) {

@@ -24,6 +24,7 @@ public:
 	int getLogScroll();
 	void setLogScroll(int scroll_pos);
 	bool isScrolledToBottom();
+	void resetViewportChrome();
 	QTextCursor imageCursorAt(const QPoint &position) const;
 
 signals:
@@ -68,6 +69,7 @@ protected:
 public:
 	void setDefaultText(const QString &, bool = false);
 	unsigned int completeAtCursor();
+	void resetViewportChrome();
 signals:
 	void tabPressed(void);
 	void backtabPressed(void);

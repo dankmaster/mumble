@@ -15,7 +15,8 @@ namespace server {
 
 		bool operator==(const DBChatMessage &lhs, const DBChatMessage &rhs) {
 			return lhs.serverID == rhs.serverID && lhs.messageID == rhs.messageID && lhs.threadID == rhs.threadID
-				   && lhs.authorUserID == rhs.authorUserID && lhs.authorSession == rhs.authorSession
+				   && lhs.replyToMessageID == rhs.replyToMessageID && lhs.authorUserID == rhs.authorUserID
+				   && lhs.authorSession == rhs.authorSession
 				   && lhs.authorName == rhs.authorName
 				   && lhs.body == rhs.body && toEpochSeconds(lhs.createdAt) == toEpochSeconds(rhs.createdAt)
 				   && toEpochSeconds(lhs.editedAt) == toEpochSeconds(rhs.editedAt)

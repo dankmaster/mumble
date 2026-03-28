@@ -54,6 +54,8 @@ public:
 
 	float getUserLocalVolume(const QString &hash);
 	void setUserLocalVolume(const QString &hash, float volume);
+	std::optional< bool > getUserRemoteSpeechCleanup(const QString &hash);
+	void setUserRemoteSpeechCleanup(const QString &hash, std::optional< bool > enabled);
 
 	QString getUserLocalNickname(const QString &hash);
 	void setUserLocalNickname(const QString &hash, const QString &nickname);

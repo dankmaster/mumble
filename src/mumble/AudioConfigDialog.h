@@ -17,6 +17,7 @@ private:
 	Q_DISABLE_COPY(AudioInputDialog)
 
 	void updateAudioCueEnabled();
+	void updateNoiseSuppressionBackendControls();
 
 protected:
 	QTimer *qtTick;
@@ -65,7 +66,9 @@ public slots:
 	void on_qcbSystem_currentIndexChanged(int);
 	void on_Tick_timeout();
 	void on_qcbIdleAction_currentIndexChanged(int v);
+	void on_qrbNoiseSupDeactivated_toggled(bool checked);
 	void on_qrbNoiseSupSpeex_toggled(bool checked);
+	void on_qrbNoiseSupRNNoise_toggled(bool checked);
 	void on_qrbNoiseSupBoth_toggled(bool checked);
 };
 
@@ -75,6 +78,7 @@ private:
 	Q_DISABLE_COPY(AudioOutputDialog)
 
 	void enablePulseAudioAttenuationOptionsFor(const QString &outputName);
+	void updateRemoteSpeechCleanupControls();
 
 public:
 	/// The unique name of this ConfigWidget
@@ -108,6 +112,7 @@ public slots:
 	void on_qcbAttenuateOthersOnTalk_clicked(bool checked);
 	void on_qcbAttenuateOthers_clicked(bool checked);
 	void on_qcbOnlyAttenuateSameOutput_clicked(bool checked);
+	void on_qcbRemoteSpeechCleanupAllUsers_clicked(bool checked);
 };
 
 #endif

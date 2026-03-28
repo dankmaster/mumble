@@ -1086,11 +1086,15 @@ void ServerHandler::sendChannelTextMessage(unsigned int channel, const QString &
 	sendMessage(mptm);
 }
 
-void ServerHandler::sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_) {
+void ServerHandler::sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_,
+									std::optional< unsigned int > replyToMessageID) {
 	MumbleProto::ChatSend message;
 	message.set_scope(scope);
 	message.set_scope_id(scopeID);
 	message.set_message(u8(message_));
+	if (replyToMessageID) {
+		message.set_reply_to_message_id(replyToMessageID.value());
+	}
 	sendMessage(message);
 }
 

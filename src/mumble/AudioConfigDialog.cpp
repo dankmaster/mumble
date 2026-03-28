@@ -11,11 +11,14 @@
 #include "AudioOutputSample.h"
 #include "AudioOutputToken.h"
 #include "NetworkConfig.h"
+#include "SpeechCleanup.h"
 #include "Utils.h"
 #include "Global.h"
 
 #include <QSignalBlocker>
+#include <QStandardItemModel>
 
+#include <array>
 #include <cstdint>
 
 const QString AudioOutputDialog::name = QLatin1String("AudioOutputWidget");
@@ -32,6 +35,63 @@ static ConfigWidget *AudioOutputDialogNew(Settings &st) {
 
 static ConfigRegistrar registrarAudioInputDialog(1000, AudioInputDialogNew);
 static ConfigRegistrar registrarAudioOutputDialog(1010, AudioOutputDialogNew);
+
+namespace {
+	void setComboBoxItemEnabled(QComboBox *comboBox, int index, bool enabled, const QString &toolTip = QString()) {
+		comboBox->setItemData(index, toolTip, Qt::ToolTipRole);
+
+		if (auto *model = qobject_cast< QStandardItemModel * >(comboBox->model())) {
+			if (QStandardItem *item = model->item(index)) {
+				item->setEnabled(enabled);
+				item->setToolTip(toolTip);
+			}
+		}
+	}
+
+	void populateSpeechCleanupBackendComboBox(QComboBox *comboBox) {
+		comboBox->clear();
+
+		const std::array backends = { Settings::RNNoiseBackend, Settings::DTLNBackend };
+		for (Settings::SpeechCleanupBackend backend : backends) {
+			const int index = comboBox->count();
+			comboBox->addItem(QString::fromLatin1(Mumble::SpeechCleanup::backendDisplayName(backend)),
+							  static_cast< int >(backend));
+
+			const bool available = Mumble::SpeechCleanup::isBackendAvailable(backend);
+			setComboBoxItemEnabled(comboBox, index, available, Mumble::SpeechCleanup::unavailableReason(backend));
+		}
+	}
+
+	bool hasAvailableSpeechCleanupBackend(const QComboBox *comboBox) {
+		if (!comboBox) {
+			return false;
+		}
+
+		for (int i = 0; i < comboBox->count(); ++i) {
+			if (comboBox->model()->flags(comboBox->model()->index(i, 0)).testFlag(Qt::ItemIsEnabled)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	void selectSpeechCleanupBackend(QComboBox *comboBox, Settings::SpeechCleanupBackend backend) {
+		const int requestedIndex = comboBox->findData(static_cast< int >(backend));
+		if (requestedIndex >= 0
+			&& comboBox->model()->flags(comboBox->model()->index(requestedIndex, 0)).testFlag(Qt::ItemIsEnabled)) {
+			comboBox->setCurrentIndex(requestedIndex);
+			return;
+		}
+
+		for (int i = 0; i < comboBox->count(); ++i) {
+			if (comboBox->model()->flags(comboBox->model()->index(i, 0)).testFlag(Qt::ItemIsEnabled)) {
+				comboBox->setCurrentIndex(i);
+				return;
+			}
+		}
+	}
+} // namespace
 
 void AudioInputDialog::hideEvent(QHideEvent *) {
 	qtTick->stop();
@@ -50,6 +110,7 @@ AudioInputDialog::AudioInputDialog(Settings &st) : ConfigWidget(st) {
 	qtTick->setObjectName(QLatin1String("Tick"));
 
 	setupUi(this);
+	populateSpeechCleanupBackendComboBox(qcbNoiseSupBackend);
 
 	qlInputHelp->setVisible(false);
 
@@ -77,12 +138,7 @@ AudioInputDialog::AudioInputDialog(Settings &st) : ConfigWidget(st) {
 
 	// Hide the slider by default
 	showSpeexNoiseSuppressionSlider(false);
-
-#ifndef USE_RNNOISE
-	// Hide options related to RNNoise
-	qrbNoiseSupRNNoise->setVisible(false);
-	qrbNoiseSupBoth->setVisible(false);
-#endif
+	updateNoiseSuppressionBackendControls();
 }
 
 QString AudioInputDialog::title() const {
@@ -145,15 +201,17 @@ void AudioInputDialog::load(const Settings &r) {
 		loadSlider(qsSpeexNoiseSupStrength, 14);
 	}
 
-	bool allowRNNoise = SAMPLE_RATE == 48000;
+	const bool hasNeuralBackend = hasAvailableSpeechCleanupBackend(qcbNoiseSupBackend);
 
-	if (!allowRNNoise) {
-		const QString tooltip = QObject::tr("RNNoise is not available due to a sample rate mismatch.");
+	if (!hasNeuralBackend) {
+		const QString tooltip = QObject::tr("No neural speech cleanup backend is available in this build.");
 		qrbNoiseSupRNNoise->setEnabled(false);
 		qrbNoiseSupRNNoise->setToolTip(tooltip);
 		qrbNoiseSupBoth->setEnabled(false);
 		qrbNoiseSupBoth->setToolTip(tooltip);
 	}
+
+	selectSpeechCleanupBackend(qcbNoiseSupBackend, r.noiseCancelBackend);
 
 	switch (r.noiseCancelMode) {
 		case Settings::NoiseCancelOff:
@@ -163,32 +221,22 @@ void AudioInputDialog::load(const Settings &r) {
 			loadCheckBox(qrbNoiseSupSpeex, true);
 			break;
 		case Settings::NoiseCancelRNN:
-#ifdef USE_RNNOISE
-			if (allowRNNoise) {
+			if (hasNeuralBackend) {
 				loadCheckBox(qrbNoiseSupRNNoise, true);
 			} else {
-				// We have to switch to speex as a fallback
 				loadCheckBox(qrbNoiseSupSpeex, true);
 			}
-#else
-			// We have to switch to speex as a fallback
-			loadCheckBox(qrbNoiseSupSpeex, true);
-#endif
 			break;
 		case Settings::NoiseCancelBoth:
-#ifdef USE_RNNOISE
-			if (allowRNNoise) {
+			if (hasNeuralBackend) {
 				loadCheckBox(qrbNoiseSupBoth, true);
 			} else {
-				// We have to switch to speex as a fallback
 				loadCheckBox(qrbNoiseSupSpeex, true);
 			}
-#else
-			// We have to switch to speex as a fallback
-			loadCheckBox(qrbNoiseSupSpeex, true);
-#endif
 			break;
 	}
+
+	updateNoiseSuppressionBackendControls();
 
 	loadSlider(qsAmp, 20000 - r.iMinLoudness);
 
@@ -240,6 +288,8 @@ void AudioInputDialog::save() const {
 	} else {
 		s.noiseCancelMode = Settings::NoiseCancelSpeex;
 	}
+	s.noiseCancelBackend =
+		static_cast< Settings::SpeechCleanupBackend >(qcbNoiseSupBackend->currentData().toInt());
 
 	s.iMinLoudness     = 18000 - qsAmp->value() + 2000;
 	s.iVoiceHold       = qsTransmitHold->value();
@@ -585,6 +635,16 @@ void AudioInputDialog::showSpeexNoiseSuppressionSlider(bool show) {
 	qlSpeexNoiseSupStrength->setVisible(show);
 }
 
+void AudioInputDialog::updateNoiseSuppressionBackendControls() {
+	const bool hasNeuralBackend = hasAvailableSpeechCleanupBackend(qcbNoiseSupBackend);
+	const bool useNeuralBackend = hasNeuralBackend && (qrbNoiseSupRNNoise->isChecked() || qrbNoiseSupBoth->isChecked());
+
+	qlNoiseSupBackend->setVisible(hasNeuralBackend);
+	qcbNoiseSupBackend->setVisible(hasNeuralBackend);
+	qlNoiseSupBackend->setEnabled(useNeuralBackend);
+	qcbNoiseSupBackend->setEnabled(useNeuralBackend);
+}
+
 void AudioInputDialog::on_Tick_timeout() {
 	AudioInputPtr ai = Global::get().ai;
 
@@ -614,12 +674,32 @@ void AudioInputDialog::on_qcbIdleAction_currentIndexChanged(int v) {
 	qcbUndoIdleAction->setEnabled(enabled);
 }
 
+void AudioInputDialog::on_qrbNoiseSupDeactivated_toggled(bool checked) {
+	if (checked) {
+		updateNoiseSuppressionBackendControls();
+	}
+}
+
 void AudioInputDialog::on_qrbNoiseSupSpeex_toggled(bool checked) {
 	showSpeexNoiseSuppressionSlider(checked);
+
+	if (checked) {
+		updateNoiseSuppressionBackendControls();
+	}
+}
+
+void AudioInputDialog::on_qrbNoiseSupRNNoise_toggled(bool checked) {
+	if (checked) {
+		updateNoiseSuppressionBackendControls();
+	}
 }
 
 void AudioInputDialog::on_qrbNoiseSupBoth_toggled(bool checked) {
 	showSpeexNoiseSuppressionSlider(checked);
+
+	if (checked) {
+		updateNoiseSuppressionBackendControls();
+	}
 }
 
 void AudioOutputDialog::enablePulseAudioAttenuationOptionsFor(const QString &outputName) {
@@ -634,6 +714,11 @@ void AudioOutputDialog::enablePulseAudioAttenuationOptionsFor(const QString &out
 
 AudioOutputDialog::AudioOutputDialog(Settings &st) : ConfigWidget(st) {
 	setupUi(this);
+
+	populateSpeechCleanupBackendComboBox(qcbRemoteSpeechCleanupBackend);
+	qcbRemoteSpeechCleanupPreset->addItem(tr("Light"), Settings::Light);
+	qcbRemoteSpeechCleanupPreset->addItem(tr("Normal"), Settings::Normal);
+	qcbRemoteSpeechCleanupPreset->addItem(tr("Aggressive"), Settings::Aggressive);
 
 	if (AudioOutputRegistrar::qmNew) {
 		QList< QString > keys = AudioOutputRegistrar::qmNew->keys();
@@ -682,6 +767,8 @@ AudioOutputDialog::AudioOutputDialog(Settings &st) : ConfigWidget(st) {
 	qlBloom->setToolTip(bloomTooltip);
 	qsBloom->setToolTip(bloomTooltip);
 	qsbBloom->setToolTip(bloomTooltip);
+
+	updateRemoteSpeechCleanupControls();
 }
 
 QString AudioOutputDialog::title() const {
@@ -753,6 +840,12 @@ void AudioOutputDialog::load(const Settings &r) {
 	qsOtherVolume->setEnabled(r.bAttenuateOthersOnTalk || r.bAttenuateOthers);
 	qlOtherVolume->setEnabled(r.bAttenuateOthersOnTalk || r.bAttenuateOthers);
 	qcbAttenuateLoopbacks->setEnabled(r.bOnlyAttenuateSameOutput);
+
+	const bool hasCleanupBackend = hasAvailableSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend);
+	selectSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend, r.remoteSpeechCleanupBackend);
+	loadCheckBox(qcbRemoteSpeechCleanupAllUsers, hasCleanupBackend && r.remoteSpeechCleanupEnabled);
+	loadComboBox(qcbRemoteSpeechCleanupPreset, static_cast< int >(r.remoteSpeechCleanupPreset ));
+	updateRemoteSpeechCleanupControls();
 }
 
 void AudioOutputDialog::save() const {
@@ -778,6 +871,12 @@ void AudioOutputDialog::save() const {
 	s.bPositionalAudio               = qcbPositional->isChecked();
 	s.bPositionalHeadphone           = qcbHeadphones->isChecked();
 	s.bExclusiveOutput               = qcbExclusive->isChecked();
+	s.remoteSpeechCleanupEnabled =
+		qcbRemoteSpeechCleanupAllUsers->isEnabled() && qcbRemoteSpeechCleanupAllUsers->isChecked();
+	s.remoteSpeechCleanupBackend =
+		static_cast< Settings::SpeechCleanupBackend >(qcbRemoteSpeechCleanupBackend->currentData().toInt());
+	s.remoteSpeechCleanupPreset =
+		static_cast< Settings::RemoteSpeechCleanupPreset >(qcbRemoteSpeechCleanupPreset->currentData().toInt());
 
 
 	if (AudioOutputRegistrar::qmNew) {
@@ -958,4 +1057,25 @@ void AudioOutputDialog::on_qcbAttenuateOthers_clicked(bool checked) {
 
 void AudioOutputDialog::on_qcbOnlyAttenuateSameOutput_clicked(bool checked) {
 	qcbAttenuateLoopbacks->setEnabled(checked);
+}
+
+void AudioOutputDialog::on_qcbRemoteSpeechCleanupAllUsers_clicked(bool checked) {
+	Q_UNUSED(checked);
+	updateRemoteSpeechCleanupControls();
+}
+
+void AudioOutputDialog::updateRemoteSpeechCleanupControls() {
+	const bool hasCleanupBackend = hasAvailableSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend);
+
+	qcbRemoteSpeechCleanupAllUsers->setVisible(hasCleanupBackend);
+	qlRemoteSpeechCleanupBackend->setVisible(hasCleanupBackend);
+	qcbRemoteSpeechCleanupBackend->setVisible(hasCleanupBackend);
+	qlRemoteSpeechCleanupPreset->setVisible(hasCleanupBackend);
+	qcbRemoteSpeechCleanupPreset->setVisible(hasCleanupBackend);
+
+	qcbRemoteSpeechCleanupAllUsers->setEnabled(hasCleanupBackend);
+	qlRemoteSpeechCleanupBackend->setEnabled(hasCleanupBackend);
+	qcbRemoteSpeechCleanupBackend->setEnabled(hasCleanupBackend);
+	qlRemoteSpeechCleanupPreset->setEnabled(hasCleanupBackend);
+	qcbRemoteSpeechCleanupPreset->setEnabled(hasCleanupBackend);
 }

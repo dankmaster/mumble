@@ -315,6 +315,8 @@ set(MUMBLE_SOURCES
 	"widgets/MultiStyleWidgetWrapper.h"
 	"widgets/MultiColumnTreeWidget.cpp"
 	"widgets/MultiColumnTreeWidget.h"
+	"widgets/PersistentChatListWidget.cpp"
+	"widgets/PersistentChatListWidget.h"
 	"widgets/RichTextItemDelegate.cpp"
 	"widgets/RichTextItemDelegate.h"
 	"widgets/SearchDialogItemDelegate.cpp"

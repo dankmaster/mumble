@@ -243,6 +243,7 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 		Global::get().mw->enableRecording(msg.recording_allowed());
 	}
 	if (msg.has_persistent_global_chat_enabled()) {
+		markPersistentChatAvailable(false);
 		const bool enabled = msg.persistent_global_chat_enabled();
 		persistentGlobalChanged = Global::get().bPersistentGlobalChatEnabled != enabled;
 		Global::get().bPersistentGlobalChatEnabled = enabled;
@@ -638,6 +639,10 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			pDst->setLocalIgnore(true);
 		if (Global::get().db->isLocalIgnoredTTS(pDst->qsHash))
 			pDst->setLocalIgnoreTTS(true);
+		const std::optional< bool > remoteSpeechCleanup = Global::get().db->getUserRemoteSpeechCleanup(pDst->qsHash);
+		if (remoteSpeechCleanup.has_value()) {
+			pDst->setRemoteSpeechCleanupOverride(remoteSpeechCleanup);
+		}
 		pDst->setLocalVolumeAdjustment(Global::get().db->getUserLocalVolume(pDst->qsHash));
 		pDst->setLocalNickname(Global::get().db->getUserLocalNickname(pDst->qsHash));
 	}
@@ -1394,6 +1399,7 @@ void MainWindow::msgChatSend(const MumbleProto::ChatSend &) {
 }
 
 void MainWindow::msgChatMessage(const MumbleProto::ChatMessage &msg) {
+	markPersistentChatAvailable();
 	handlePersistentChatMessage(msg);
 }
 
@@ -1401,10 +1407,12 @@ void MainWindow::msgChatHistoryRequest(const MumbleProto::ChatHistoryRequest &) 
 }
 
 void MainWindow::msgChatHistoryResponse(const MumbleProto::ChatHistoryResponse &msg) {
+	markPersistentChatAvailable();
 	handlePersistentChatHistory(msg);
 }
 
 void MainWindow::msgChatReadStateUpdate(const MumbleProto::ChatReadStateUpdate &msg) {
+	markPersistentChatAvailable();
 	handlePersistentChatReadState(msg);
 }
 
@@ -1442,6 +1450,7 @@ void MainWindow::msgScreenShareStop(const MumbleProto::ScreenShareStop &msg) {
 }
 
 void MainWindow::msgTextChannelSync(const MumbleProto::TextChannelSync &msg) {
+	markPersistentChatAvailable(false);
 	handlePersistentTextChannelSync(msg);
 }
 

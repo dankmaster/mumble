@@ -15,10 +15,12 @@
 #include "AudioOutputCache.h"
 #include "MumbleProtocol.h"
 
+#include <array>
 #include <mutex>
 #include <vector>
 
 class ClientUser;
+struct DenoiseState;
 struct OpusDecoder;
 
 class AudioOutputSpeech : public AudioOutputBuffer {
@@ -57,6 +59,16 @@ protected:
 	OpusDecoder *opusState;
 
 	QList< QByteArray > qlFrames;
+
+#ifdef USE_RNNOISE
+	DenoiseState *m_remoteSpeechCleanupState = nullptr;
+	unsigned int m_remoteSpeechCleanupFrameSize = 0;
+	std::array< float, 480 > m_remoteSpeechCleanupInputBuffer = {};
+	std::array< float, 480 > m_remoteSpeechCleanupOutputBuffer = {};
+
+	bool isEffectivelyDualMono(const float *samples, unsigned int sampleCount) const;
+	void applyRemoteSpeechCleanup(float *samples, unsigned int sampleCount);
+#endif
 
 public:
 	Mumble::Protocol::audio_context_t m_audioContext;

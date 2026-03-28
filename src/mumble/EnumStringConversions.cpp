@@ -52,6 +52,15 @@
 	PROCESS(Settings::NoiseCancel, NoiseCancelRNN, "RNN")     \
 	PROCESS(Settings::NoiseCancel, NoiseCancelBoth, "Speex&RNN")
 
+#define SPEECH_CLEANUP_BACKEND_VALUES                                     \
+	PROCESS(Settings::SpeechCleanupBackend, RNNoiseBackend, "RNNoise")    \
+	PROCESS(Settings::SpeechCleanupBackend, DTLNBackend, "DTLN")
+
+#define REMOTE_SPEECH_CLEANUP_PRESET_VALUES                             \
+	PROCESS(Settings::RemoteSpeechCleanupPreset, Light, "Light")        \
+	PROCESS(Settings::RemoteSpeechCleanupPreset, Normal, "Normal")      \
+	PROCESS(Settings::RemoteSpeechCleanupPreset, Aggressive, "Aggressive")
+
 #define ECHO_CANCEL_VALUES                                                \
 	PROCESS(EchoCancelOptionID, DISABLED, "Disabled")                     \
 	PROCESS(EchoCancelOptionID, SPEEX_MIXED, "Speex_MixedChannel")        \
@@ -183,6 +192,12 @@
 	BEFORE_CODE(Settings::NoiseCancel)                 \
 	NOISE_CANCEL_VALUES                                \
 	AFTER_CODE                                         \
+	BEFORE_CODE(Settings::SpeechCleanupBackend)        \
+	SPEECH_CLEANUP_BACKEND_VALUES                      \
+	AFTER_CODE                                         \
+	BEFORE_CODE(Settings::RemoteSpeechCleanupPreset)   \
+	REMOTE_SPEECH_CLEANUP_PRESET_VALUES                \
+	AFTER_CODE                                         \
 	BEFORE_CODE(EchoCancelOptionID)                    \
 	ECHO_CANCEL_VALUES                                 \
 	AFTER_CODE                                         \
@@ -277,6 +292,7 @@ PROCESS_ALL_ENUMS
 #undef QUIT_VALUES
 #undef PROXY_TYPE_VALUES
 #undef ECHO_CANCEL_VALUES
+#undef SPEECH_CLEANUP_BACKEND_VALUES
 #undef NOISE_CANCEL_VALUES
 #undef IDLE_ACTION_VALUES
 #undef TALK_STATE_VALUES

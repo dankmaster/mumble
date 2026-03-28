@@ -110,6 +110,7 @@ public:
 	void updateTextChannel(const ::mumble::server::db::DBTextChannel &textChannel);
 	void removeTextChannel(unsigned int serverID, unsigned int textChannelID);
 	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
+													 std::optional< unsigned int > replyToMessageID = std::nullopt,
 													 std::optional< unsigned int > authorUserID = std::nullopt,
 													 std::optional< unsigned int > authorSession = std::nullopt,
 													 std::optional< std::string > authorName = std::nullopt);

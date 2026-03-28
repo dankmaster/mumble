@@ -198,6 +198,8 @@ struct Settings {
 	enum TalkState { Passive, Talking, Whispering, Shouting, MutedTalking };
 	enum IdleAction { Nothing, Deafen, Mute };
 	enum NoiseCancel { NoiseCancelOff, NoiseCancelSpeex, NoiseCancelRNN, NoiseCancelBoth };
+	enum SpeechCleanupBackend { RNNoiseBackend, DTLNBackend };
+	enum RemoteSpeechCleanupPreset { Light, Normal, Aggressive };
 	enum MessageLog {
 		LogNone         = 0x00,
 		LogConsole      = 0x01,
@@ -269,7 +271,11 @@ struct Settings {
 	int iJitterBufferSize           = 1;
 	bool bAllowLowDelay             = true;
 	NoiseCancel noiseCancelMode     = NoiseCancelSpeex;
+	SpeechCleanupBackend noiseCancelBackend = RNNoiseBackend;
 	int iSpeexNoiseCancelStrength   = -30;
+	bool remoteSpeechCleanupEnabled = false;
+	SpeechCleanupBackend remoteSpeechCleanupBackend = RNNoiseBackend;
+	RemoteSpeechCleanupPreset remoteSpeechCleanupPreset = Normal;
 	quint64 uiAudioInputChannelMask = 0xffffffffffffffffULL;
 
 	// Idle auto actions

@@ -712,6 +712,7 @@ message ChatSend {
 	optional ChatScope scope = 1 [default = Channel];
 	optional uint32 scope_id = 2 [default = 0];
 	required string message = 3;
+	optional uint32 reply_to_message_id = 4;
 }
 
 // Sent by the server to deliver a persistent chat message to clients.
@@ -727,6 +728,7 @@ message ChatMessage {
 	optional uint64 edited_at = 9;
 	optional uint64 deleted_at = 10;
 	optional string actor_name = 11;
+	optional uint32 reply_to_message_id = 12;
 }
 
 // Sent by the client to request a paginated chunk of chat history.

@@ -360,6 +360,9 @@ namespace {
 		if (resolvedAuthorName && !resolvedAuthorName->empty()) {
 			protoMessage.set_actor_name(*resolvedAuthorName);
 		}
+		if (message.replyToMessageID) {
+			protoMessage.set_reply_to_message_id(message.replyToMessageID.value());
+		}
 		protoMessage.set_message(message.body);
 		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
 		protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
@@ -453,6 +456,7 @@ void Server::sendTextChannelSync(ServerUser *uSource) {
 void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
 											  unsigned int scopeID, Channel *permissionChannel,
 											  ::msdb::ChatThreadScope dbScope,
+											  std::optional< unsigned int > replyToMessageID,
 											  const QSet< ServerUser * > &legacyFallbackRecipients) {
 	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
 	const std::optional< std::string > authorName =
@@ -465,7 +469,7 @@ void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &
 	::msdb::DBChatThread thread =
 		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
 	::msdb::DBChatMessage storedMessage =
-		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), authorUserID, uSource->uiSession,
+		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), replyToMessageID, authorUserID, uSource->uiSession,
 								   authorName);
 
 	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID, authorName);
@@ -2127,7 +2131,7 @@ void Server::msgTextMessage(ServerUser *uSource, MumbleProto::TextMessage &msg) 
 		Channel *channel = qhChannels.value(msg.channel_id(0));
 		if (channel) {
 			persistAndBroadcastChatMessage(uSource, text, MumbleProto::Channel, channel->iId, channel,
-										   ::msdb::ChatThreadScope::Channel, users);
+										   ::msdb::ChatThreadScope::Channel, std::nullopt, users);
 			emit userTextMessage(uSource, tm);
 			return;
 		}
@@ -2167,6 +2171,10 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 	if (changed) {
 		msg.set_message(u8(text));
 	}
+	const std::optional< unsigned int > replyToMessageID =
+		msg.has_reply_to_message_id() && msg.reply_to_message_id() > 0
+			? std::optional< unsigned int >(msg.reply_to_message_id())
+			: std::nullopt;
 
 	MumbleProto::ChatScope scope =
 		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
@@ -2227,7 +2235,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		legacyFallbackRecipients.remove(uSource);
 	}
 
-	persistAndBroadcastChatMessage(uSource, text, scope, scopeID, permissionChannel, dbScope,
+	persistAndBroadcastChatMessage(uSource, text, scope, scopeID, permissionChannel, dbScope, replyToMessageID,
 								   legacyFallbackRecipients);
 }
 

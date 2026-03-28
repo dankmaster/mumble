@@ -618,7 +618,10 @@ QString Log::imageToImg(const QByteArray &format, const QByteArray &image) {
 		++i;
 	} while (end < rawbase.length());
 
-	return QString::fromLatin1("<img src=\"data:image/%1;base64,%2\" />").arg(fmt).arg(QLatin1String(encoded));
+	return QString::fromLatin1(
+			   "<img src=\"data:image/%1;base64,%2\" style=\"border:none; outline:none; display:block; margin:0;\" />")
+		.arg(fmt)
+		.arg(QLatin1String(encoded));
 }
 
 QString Log::imageToImg(QImage img, int maxSize) {

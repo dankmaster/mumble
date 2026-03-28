@@ -47,7 +47,11 @@
 	PROCESS(audio, VAD_MIN_KEY, fVADmin)                                                    \
 	PROCESS(audio, VAD_MAX_KEY, fVADmax)                                                    \
 	PROCESS(audio, NOISE_CANCEL_MODE_KEY, noiseCancelMode)                                  \
+	PROCESS(audio, NOISE_CANCEL_BACKEND_KEY, noiseCancelBackend)                            \
 	PROCESS(audio, SPEEX_NOISE_CANCEL_STRENGTH_KEY, iSpeexNoiseCancelStrength)              \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_ENABLED_KEY, remoteSpeechCleanupEnabled)           \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_BACKEND_KEY, remoteSpeechCleanupBackend)           \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_PRESET_KEY, remoteSpeechCleanupPreset)             \
 	PROCESS(audio, INPUT_CHANNEL_MASK_KEY, uiAudioInputChannelMask)                         \
 	PROCESS(audio, ALLOW_LOW_DELAY_MODE_KEY, bAllowLowDelay)                                \
 	PROCESS(audio, VOICE_HOLD_KEY, iVoiceHold)                                              \

@@ -21,6 +21,7 @@ private:
 protected:
 	float m_localVolume = 1.0f;
 	QString m_localNickname;
+	std::optional< bool > m_remoteSpeechCleanupOverride;
 
 public:
 	Settings::TalkState tsState;
@@ -46,6 +47,9 @@ public:
 	float getLocalVolumeAdjustments() const;
 
 	QString getLocalNickname() const;
+	bool isRemoteSpeechCleanupEnabled() const;
+	std::optional< bool > getRemoteSpeechCleanupOverride() const;
+	void setRemoteSpeechCleanupOverride(std::optional< bool > enabled);
 
 	/**
 	 * Determines whether a user is active or not

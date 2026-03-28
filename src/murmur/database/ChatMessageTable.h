@@ -34,6 +34,7 @@ namespace server {
 				static constexpr const char *server_id       = "server_id";
 				static constexpr const char *message_id      = "message_id";
 				static constexpr const char *thread_id       = "thread_id";
+				static constexpr const char *reply_to_message_id = "reply_to_message_id";
 				static constexpr const char *author_user_id  = "author_user_id";
 				static constexpr const char *author_session  = "author_session";
 				static constexpr const char *author_name     = "author_name";
