@@ -40,8 +40,15 @@ namespace {
 		QColor selectedOutlineColor;
 		QColor currentColor;
 		QColor linkedColor;
+		QColor channelHoverColor;
+		QColor channelSelectedColor;
+		QColor channelCurrentColor;
+		QColor channelLinkedColor;
 		QColor textColor;
 		QColor mutedTextColor;
+		QColor channelTextColor;
+		QColor channelChipColor;
+		QColor channelChipTextColor;
 		QColor accentColor;
 		QColor avatarFillColor;
 		QColor avatarTextColor;
@@ -67,8 +74,15 @@ namespace {
 		colors.selectedOutlineColor = mixRowColors(highlightColor, textColor, darkTheme ? 0.20 : 0.10);
 		colors.currentColor         = mixRowColors(alternateColor, highlightColor, darkTheme ? 0.14 : 0.10);
 		colors.linkedColor          = mixRowColors(baseColor, alternateColor, darkTheme ? 0.76 : 0.06);
+		colors.channelHoverColor    = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.03 : 0.02);
+		colors.channelSelectedColor = mixRowColors(baseColor, highlightColor, darkTheme ? 0.20 : 0.12);
+		colors.channelCurrentColor  = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.16 : 0.10);
+		colors.channelLinkedColor   = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.06 : 0.03);
 		colors.textColor            = textColor;
 		colors.mutedTextColor       = mixRowColors(textColor, windowColor, darkTheme ? 0.38 : 0.28);
+		colors.channelTextColor     = mixRowColors(textColor, windowColor, darkTheme ? 0.12 : 0.08);
+		colors.channelChipColor     = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.05);
+		colors.channelChipTextColor = mixRowColors(textColor, windowColor, darkTheme ? 0.10 : 0.04);
 		colors.accentColor          = mixRowColors(textColor, highlightColor, darkTheme ? 0.18 : 0.12);
 		colors.avatarFillColor      = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.05);
 		colors.avatarTextColor      = colors.textColor;
@@ -140,9 +154,24 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	const QString avatarFallback = index.data(UserModel::NavigatorAvatarFallbackRole).toString();
 	const int talkState = index.data(UserModel::NavigatorTalkStateRole).toInt();
 	const bool isSelected = opt.state.testFlag(QStyle::State_Selected);
+	const bool isChannel  = itemKind == UserModel::NavigatorChannelItem;
 	const bool isListener = itemKind == UserModel::NavigatorListenerItem;
-	const QColor primaryTextColor = isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.textColor;
-	const QColor secondaryTextColor = isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.mutedTextColor;
+	const bool hasChildren = index.model() && index.model()->hasChildren(index);
+	const QColor channelContainerTextColor = mixRowColors(colors.textColor, colors.channelTextColor, 0.45);
+	const QColor channelPathTextColor      = mixRowColors(colors.textColor, colors.channelTextColor, 0.20);
+	const QColor primaryTextColor =
+		isSelected
+			? opt.palette.color(QPalette::HighlightedText)
+			: (isChannel
+				   ? (currentLocation ? colors.textColor
+									  : (hasChildren ? channelContainerTextColor
+													 : ((linkedLocation || occupancy > 0) ? channelPathTextColor
+																					   : colors.channelTextColor)))
+				   : colors.textColor);
+	const QColor secondaryTextColor =
+		isSelected
+			? opt.palette.color(QPalette::HighlightedText)
+			: (isChannel ? colors.channelChipTextColor : colors.mutedTextColor);
 
 	QRect contentRect = option.rect.adjusted(10, 1, -10, -1);
 	int trailingIconsWidth = 0;
@@ -176,7 +205,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	painter->setRenderHint(QPainter::Antialiasing, true);
 
 	int x = contentRect.left();
-	if (itemKind == UserModel::NavigatorChannelItem) {
+	if (isChannel) {
 		const QIcon channelIcon = qvariant_cast< QIcon >(index.data(Qt::DecorationRole));
 		const QRect iconRect(x, contentRect.center().y() - 8, 16, 16);
 		if (!channelIcon.isNull()) {
@@ -185,7 +214,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 		}
 		if (currentLocation || linkedLocation) {
 			painter->setPen(Qt::NoPen);
-			painter->setBrush(currentLocation ? colors.selectedOutlineColor : colors.linkedColor);
+			painter->setBrush(currentLocation ? colors.accentColor : colors.channelChipColor);
 			painter->drawEllipse(QRect(iconRect.right() - 4, iconRect.top() - 1, 7, 7));
 		}
 		x = iconRect.right() + 8;
@@ -238,7 +267,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 
 	const QRect textRect(x, contentRect.top(), std::max(20, textRight - x), contentRect.height());
 	QFont titleFont(opt.font);
-	titleFont.setBold(currentLocation || isSelected || itemKind == UserModel::NavigatorChannelItem);
+	titleFont.setBold(isSelected || currentLocation || (isChannel && hasChildren));
 	painter->setFont(titleFont);
 	painter->setPen(primaryTextColor);
 	painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
@@ -258,7 +287,12 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	if (!occupancyText.isEmpty()) {
 		const QRect chipRect(iconRight - occupancyWidth - 4, contentRect.center().y() - 10, occupancyWidth, 20);
 		painter->setPen(Qt::NoPen);
-		painter->setBrush(isSelected ? opt.palette.color(QPalette::Highlight) : colors.chipColor);
+		const QColor occupancyFillColor =
+			isSelected ? opt.palette.color(QPalette::Highlight)
+					   : (isChannel
+							  ? (currentLocation ? colors.channelCurrentColor : colors.channelChipColor)
+							  : colors.chipColor);
+		painter->setBrush(occupancyFillColor);
 		painter->drawRoundedRect(chipRect, 10.0f, 10.0f);
 		painter->setFont(chipFont);
 		painter->setPen(isSelected ? opt.palette.color(QPalette::HighlightedText) : secondaryTextColor);
@@ -313,18 +347,20 @@ void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, co
 	const bool isLinkedLocation  = index.data(UserModel::NavigatorLinkedLocationRole).toBool();
 	if (isSelected || isHovered || isCurrentLocation || isLinkedLocation) {
 		const NavigatorRowPalette colors = buildNavigatorRowPalette(viewport()->palette());
+		const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
+		const bool isChannel = itemKind == UserModel::NavigatorChannelItem;
 		QColor rowFillColor;
 		QColor borderColor(Qt::transparent);
 		if (isSelected) {
-			rowFillColor = colors.selectedColor;
+			rowFillColor = isChannel ? colors.channelSelectedColor : colors.selectedColor;
 			borderColor  = colors.selectedOutlineColor;
 		} else if (isCurrentLocation) {
-			rowFillColor = colors.currentColor;
+			rowFillColor = isChannel ? colors.channelCurrentColor : colors.currentColor;
 			borderColor  = colors.selectedOutlineColor;
 		} else if (isHovered) {
-			rowFillColor = colors.hoverColor;
+			rowFillColor = isChannel ? colors.channelHoverColor : colors.hoverColor;
 		} else {
-			rowFillColor = colors.linkedColor;
+			rowFillColor = isChannel ? colors.channelLinkedColor : colors.linkedColor;
 		}
 
 		const QRect rowRect = QRect(5, option.rect.top() + 1, viewport()->width() - 10, option.rect.height() - 2);

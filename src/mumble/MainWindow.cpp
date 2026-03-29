@@ -451,6 +451,8 @@ namespace {
 			const int scopeValue         = index.data(PersistentChatScopeRole).toInt();
 			const bool utilityRow =
 				scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal);
+			const bool textChannelRow = scopeValue == static_cast< int >(MumbleProto::TextChannel);
+			const bool voiceChannelRow = scopeValue == static_cast< int >(MumbleProto::Channel);
 
 			QString chipText = QStringLiteral("#");
 			switch (scopeValue) {
@@ -472,29 +474,48 @@ namespace {
 
 			const QColor utilityRowColor =
 				mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.10 : 0.04);
+			const QColor channelRowColor =
+				mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.04 : 0.02);
+			const QColor channelHoverColor =
+				mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.03 : 0.02);
+			const QColor channelSelectedColor =
+				mixColors(channelRowColor, chrome.accentColor, chrome.darkTheme ? 0.18 : 0.10);
 			const QColor utilityOutlineColor =
 				mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.05);
 			const QColor rowFillColor =
 				selected
-					? chrome.selectedColor
+					? (utilityRow ? chrome.selectedColor : channelSelectedColor)
 					: (hovered ? (utilityRow
 									  ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.03)
-									  : chrome.hoverColor)
+									  : channelHoverColor)
 							   : (utilityRow ? utilityRowColor : QColor(Qt::transparent)));
 			const QColor rowOutlineColor =
-				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.34 : 0.14)
+				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.30 : 0.14)
 						 : (utilityRow ? utilityOutlineColor : QColor(Qt::transparent));
-			const QColor textColor = selected ? chrome.selectedTextColor : chrome.textColor;
-			const QColor mutedTextColor = selected ? chrome.selectedTextColor : chrome.mutedTextColor;
+			const QColor textColor =
+				selected
+					? chrome.selectedTextColor
+					: ((textChannelRow || voiceChannelRow) && unreadCount == 0
+						   ? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.10 : 0.05)
+						   : chrome.textColor);
+			const QColor mutedTextColor =
+				selected
+					? chrome.selectedTextColor
+					: ((textChannelRow || voiceChannelRow)
+						   ? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.18 : 0.10)
+						   : chrome.mutedTextColor);
 			const QColor chipFillColor =
 				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.12 : 0.08)
-						 : mixColors(utilityRow ? utilityRowColor : chrome.elevatedCardColor, chrome.textColor,
-									 utilityRow ? (chrome.darkTheme ? 0.12 : 0.06) : (chrome.darkTheme ? 0.08 : 0.05));
+						 : (utilityRow
+								? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06)
+								: (textChannelRow
+									   ? QColor(Qt::transparent)
+									   : mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.05)));
 			const QColor chipTextColor = selected ? chrome.selectedTextColor : mutedTextColor;
 			const QColor unreadFillColor =
 				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.16 : 0.10)
-						 : mixColors(chrome.selectedColor, utilityRow ? utilityRowColor : chrome.elevatedCardColor,
-									 chrome.darkTheme ? 0.52 : 0.34);
+						 : mixColors(chrome.selectedColor, utilityRow ? utilityRowColor : channelRowColor,
+									 chrome.darkTheme ? 0.44 : 0.28);
 			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
 
 			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
@@ -514,9 +535,11 @@ namespace {
 			int x = rowRect.left() + 8;
 			const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
 			const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
-			painter->setPen(Qt::NoPen);
-			painter->setBrush(chipFillColor);
-			painter->drawRoundedRect(chipRect, 9.0f, 9.0f);
+			if (chipFillColor.alpha() > 0) {
+				painter->setPen(Qt::NoPen);
+				painter->setBrush(chipFillColor);
+				painter->drawRoundedRect(chipRect, 9.0f, 9.0f);
+			}
 			painter->setPen(chipTextColor);
 			painter->setFont(chipFont);
 			painter->drawText(chipRect, Qt::AlignCenter, chipText);
@@ -537,7 +560,7 @@ namespace {
 
 			const QRect textRect(x, rowRect.top(), std::max(18, textRight - x), rowRect.height());
 			QFont titleFont(opt.font);
-			titleFont.setBold(selected || utilityRow);
+			titleFont.setBold(selected || utilityRow || unreadCount > 0);
 			painter->setFont(titleFont);
 			painter->setPen(textColor);
 			painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
