@@ -245,6 +245,8 @@ public:
 	int persistentChatPreviewContentWidth(int leftPadding) const;
 	QString persistentChatPreviewHtml(const QString &previewKey, int availableWidth) const;
 	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
+	void setPersistentChatTargetUsesVoiceTree(bool useVoiceTree);
+	void updatePersistentChatChannelListHeight();
 	void rebuildPersistentChatChannelList();
 	void handlePersistentTextChannelSync(const MumbleProto::TextChannelSync &msg);
 	void updatePersistentChatScopeSelectorLabels();
@@ -382,6 +384,7 @@ protected:
 	QString m_persistentChatWelcomeText;
 	bool m_persistentChatMotdHidden = false;
 	bool m_hasPersistentChatSupport = false;
+	bool m_persistentChatTargetUsesVoiceTree = false;
 	unsigned int m_defaultPersistentTextChannelID = 0;
 	QHash< unsigned int, PersistentTextChannel > m_persistentTextChannels;
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;

@@ -780,31 +780,6 @@ namespace {
 		return segments.join(QString::fromLatin1(" / "));
 	}
 
-	QList< Channel * > persistentVoiceChannelsForSidebar() {
-		QList< Channel * > channels = Channel::c_qhChannels.values();
-		std::sort(channels.begin(), channels.end(), [](const Channel *lhs, const Channel *rhs) {
-			if (lhs == rhs) {
-				return false;
-			}
-			if (!lhs || !rhs) {
-				return lhs != nullptr;
-			}
-			if (lhs->iId == Mumble::ROOT_CHANNEL_ID || rhs->iId == Mumble::ROOT_CHANNEL_ID) {
-				return lhs->iId == Mumble::ROOT_CHANNEL_ID;
-			}
-
-			const QString lhsLabel = persistentTextAclChannelLabel(lhs);
-			const QString rhsLabel = persistentTextAclChannelLabel(rhs);
-			const int labelCompare = lhsLabel.localeAwareCompare(rhsLabel);
-			if (labelCompare != 0) {
-				return labelCompare < 0;
-			}
-
-			return lhs->iId < rhs->iId;
-		});
-		return channels;
-	}
-
 	QString trimTrailingUrlPunctuation(QString url) {
 		while (!url.isEmpty()) {
 			const QChar last = url.back();
@@ -1937,7 +1912,7 @@ void MainWindow::setupServerNavigator() {
 	contentLayout->addWidget(m_serverNavigatorTextChannelsMotdFrame);
 	contentLayout->addWidget(m_serverNavigatorHeaderFrame);
 
-	m_serverNavigatorVoiceSectionEyebrow = new QLabel(tr("Voice"), m_serverNavigatorContentFrame);
+	m_serverNavigatorVoiceSectionEyebrow = new QLabel(tr("Rooms"), m_serverNavigatorContentFrame);
 	m_serverNavigatorVoiceSectionEyebrow->setObjectName(QLatin1String("qlServerNavigatorVoiceSectionEyebrow"));
 	QFont voiceEyebrowFont = m_serverNavigatorVoiceSectionEyebrow->font();
 	voiceEyebrowFont.setCapitalization(QFont::AllUppercase);
@@ -1982,9 +1957,10 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsFrame = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorTextChannelsFrame->setObjectName(QLatin1String("qfServerNavigatorTextChannels"));
 	m_serverNavigatorTextChannelsFrame->setAttribute(Qt::WA_StyledBackground, true);
+	m_serverNavigatorTextChannelsFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *textChannelsLayout = new QVBoxLayout(m_serverNavigatorTextChannelsFrame);
 	textChannelsLayout->setContentsMargins(0, 0, 0, 0);
-	textChannelsLayout->setSpacing(3);
+	textChannelsLayout->setSpacing(2);
 
 	m_serverNavigatorTextChannelsEyebrow = new QLabel(tr("Text"), m_serverNavigatorTextChannelsFrame);
 	m_serverNavigatorTextChannelsEyebrow->setObjectName(QLatin1String("qlServerNavigatorTextChannelsEyebrow"));
@@ -2013,24 +1989,26 @@ void MainWindow::setupServerNavigator() {
 
 	m_persistentChatChannelList = new QListWidget(m_serverNavigatorTextChannelsFrame);
 	m_persistentChatChannelList->setObjectName(QLatin1String("qlwPersistentTextChannels"));
-	m_persistentChatChannelList->setAccessibleName(tr("Text channels"));
+	m_persistentChatChannelList->setAccessibleName(tr("Conversations"));
 	m_persistentChatChannelList->setFrameShape(QFrame::NoFrame);
 	m_persistentChatChannelList->setAlternatingRowColors(false);
 	m_persistentChatChannelList->setUniformItemSizes(true);
 	m_persistentChatChannelList->setSpacing(0);
 	m_persistentChatChannelList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+	m_persistentChatChannelList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	m_persistentChatChannelList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 	m_persistentChatChannelList->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_persistentChatChannelList->setContextMenuPolicy(Qt::CustomContextMenu);
 	m_persistentChatChannelList->setMouseTracking(true);
-	m_persistentChatChannelList->setMinimumHeight(88);
-	m_persistentChatChannelList->setMaximumHeight(176);
+	m_persistentChatChannelList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	m_persistentChatChannelList->setMinimumHeight(0);
+	m_persistentChatChannelList->setMaximumHeight(QWIDGETSIZE_MAX);
 	m_persistentChatChannelList->setItemDelegate(new PersistentChatScopeListDelegate(m_persistentChatChannelList));
 
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsEyebrow);
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsTitle);
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsSubtitle);
-	textChannelsLayout->addWidget(m_persistentChatChannelList, 1);
+	textChannelsLayout->addWidget(m_persistentChatChannelList);
 	m_serverNavigatorTextChannelsFrame->hide();
 	contentLayout->addWidget(m_serverNavigatorTextChannelsFrame);
 
@@ -2047,6 +2025,24 @@ void MainWindow::setupServerNavigator() {
 	});
 	connect(m_serverNavigatorTextChannelsMotdBody, &QLabel::linkActivated, this,
 			[this](const QString &link) { on_qteLog_anchorClicked(QUrl(link)); });
+	connect(qtvUsers, &QTreeView::clicked, this, [this](const QModelIndex &index) {
+		if (!index.isValid()) {
+			return;
+		}
+
+		setPersistentChatTargetUsesVoiceTree(true);
+		updateChatBar();
+		updateServerNavigatorChrome();
+	});
+	connect(qtvUsers, &QTreeView::activated, this, [this](const QModelIndex &index) {
+		if (!index.isValid()) {
+			return;
+		}
+
+		setPersistentChatTargetUsesVoiceTree(true);
+		updateChatBar();
+		updateServerNavigatorChrome();
+	});
 	m_serverNavigatorContentFrame->installEventFilter(this);
 	m_serverNavigatorTextChannelsMotdFrame->installEventFilter(this);
 	m_serverNavigatorTextChannelsMotdBody->installEventFilter(this);
@@ -2267,6 +2263,9 @@ void MainWindow::setupPersistentChatDock() {
 		}
 
 		const QList< QListWidgetItem * > selectedItems = m_persistentChatChannelList->selectedItems();
+		if (!selectedItems.isEmpty()) {
+			setPersistentChatTargetUsesVoiceTree(false);
+		}
 		if (selectedItems.size() == 1 && m_persistentChatChannelList->currentItem() != selectedItems.front()) {
 			m_persistentChatChannelList->setCurrentItem(selectedItems.front());
 		}
@@ -2277,6 +2276,7 @@ void MainWindow::setupPersistentChatDock() {
 					return;
 				}
 
+				setPersistentChatTargetUsesVoiceTree(false);
 				const int clickedScopeValue = item->data(PersistentChatScopeRole).toInt();
 				const unsigned int clickedScopeID = item->data(PersistentChatScopeIDRole).toUInt();
 				const bool clickedVisibleScope =
@@ -3315,20 +3315,6 @@ void MainWindow::rebuildPersistentChatChannelList() {
 														 : textChannel.description);
 	}
 
-	if (hasPersistentChatCapabilities()) {
-		for (Channel *channel : persistentVoiceChannelsForSidebar()) {
-			if (!channel) {
-				continue;
-			}
-
-			QListWidgetItem *item = new QListWidgetItem(m_persistentChatChannelList);
-			item->setData(PersistentChatScopeRole, static_cast< int >(MumbleProto::Channel));
-			item->setData(PersistentChatScopeIDRole, channel->iId);
-			item->setToolTip(tr("Persistent history for the %1 voice channel.")
-								 .arg(persistentTextAclChannelLabel(channel)));
-		}
-	}
-
 	updatePersistentChatScopeSelectorLabels();
 
 	QListWidgetItem *selectionItem = nullptr;
@@ -3385,7 +3371,14 @@ void MainWindow::rebuildPersistentChatChannelList() {
 
 	if (selectionItem) {
 		m_persistentChatChannelList->setCurrentItem(selectionItem);
+		if (!m_persistentChatTargetUsesVoiceTree) {
+			selectionItem->setSelected(true);
+		}
 	}
+	if (m_persistentChatTargetUsesVoiceTree) {
+		m_persistentChatChannelList->clearSelection();
+	}
+	updatePersistentChatChannelListHeight();
 	m_persistentChatChannelList->blockSignals(oldSignalState);
 	updatePersistentChatChrome(currentPersistentChatTarget());
 }
@@ -3439,6 +3432,59 @@ void MainWindow::handlePersistentTextChannelSync(const MumbleProto::TextChannelS
 	}
 	updatePersistentTextChannelControls();
 	updateChatBar();
+}
+
+void MainWindow::setPersistentChatTargetUsesVoiceTree(bool useVoiceTree) {
+	if (!m_persistentChatChannelList) {
+		m_persistentChatTargetUsesVoiceTree = useVoiceTree;
+		return;
+	}
+
+	if (m_persistentChatTargetUsesVoiceTree == useVoiceTree) {
+		return;
+	}
+
+	m_persistentChatTargetUsesVoiceTree = useVoiceTree;
+
+	const QSignalBlocker signalBlocker(m_persistentChatChannelList);
+	if (useVoiceTree) {
+		m_persistentChatChannelList->clearSelection();
+	} else if (QListWidgetItem *currentItem = m_persistentChatChannelList->currentItem(); currentItem) {
+		currentItem->setSelected(true);
+	}
+
+	m_persistentChatChannelList->viewport()->update();
+}
+
+void MainWindow::updatePersistentChatChannelListHeight() {
+	if (!m_persistentChatChannelList) {
+		return;
+	}
+
+	const int itemCount = m_persistentChatChannelList->count();
+	if (itemCount <= 0) {
+		m_persistentChatChannelList->setMinimumHeight(0);
+		m_persistentChatChannelList->setMaximumHeight(0);
+		m_persistentChatChannelList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+		return;
+	}
+
+	int rowHeight = m_persistentChatChannelList->sizeHintForRow(0);
+	if (rowHeight <= 0) {
+		rowHeight = std::max(m_persistentChatChannelList->fontMetrics().height() + 12, 24);
+	}
+
+	const int desiredHeight = (itemCount * rowHeight)
+							  + std::max(0, itemCount - 1) * m_persistentChatChannelList->spacing()
+							  + (m_persistentChatChannelList->frameWidth() * 2);
+	const int maximumHeight = 176;
+	const int clampedHeight = std::min(desiredHeight, maximumHeight);
+
+	m_persistentChatChannelList->setVerticalScrollBarPolicy(desiredHeight > maximumHeight ? Qt::ScrollBarAsNeeded
+																						  : Qt::ScrollBarAlwaysOff);
+	m_persistentChatChannelList->setMinimumHeight(clampedHeight);
+	m_persistentChatChannelList->setMaximumHeight(clampedHeight);
+	m_persistentChatChannelList->updateGeometry();
 }
 
 void MainWindow::updatePersistentChatScopeSelectorLabels() {
@@ -3727,6 +3773,7 @@ bool MainWindow::navigateToPersistentChatScope(MumbleProto::ChatScope scope, uns
 			static_cast< MumbleProto::ChatScope >(item->data(PersistentChatScopeRole).toInt());
 		const unsigned int itemScopeID = item->data(PersistentChatScopeIDRole).toUInt();
 		if (itemScope == scope && itemScopeID == scopeID) {
+			setPersistentChatTargetUsesVoiceTree(false);
 			if (m_persistentChatChannelList->currentItem() == item) {
 				updateChatBar();
 				refreshPersistentChatView(true);
@@ -3809,6 +3856,41 @@ MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const
 		if (Global::get().uiSession != 0 && Global::get().sh && Global::get().sh->isRunning()) {
 			target.label = tr("No conversation selected");
 		}
+		return target;
+	}
+
+	if (m_persistentChatTargetUsesVoiceTree && Global::get().uiSession != 0 && Global::get().sh
+		&& Global::get().sh->isRunning()) {
+		Channel *selectedChannel = nullptr;
+		if (pmModel) {
+			selectedChannel = pmModel->getSelectedChannel();
+			if (!selectedChannel && qtvUsers) {
+				const QModelIndex currentIndex = qtvUsers->currentIndex();
+				selectedChannel                = pmModel->getChannel(currentIndex);
+				if (!selectedChannel) {
+					if (ClientUser *selectedUser = pmModel->getUser(currentIndex); selectedUser) {
+						selectedChannel = selectedUser->cChannel;
+					}
+				}
+			}
+		}
+		if (!selectedChannel) {
+			if (const ClientUser *self = ClientUser::get(Global::get().uiSession); self) {
+				selectedChannel = self->cChannel;
+			}
+		}
+
+		if (!selectedChannel) {
+			target.label = tr("No room selected");
+			return target;
+		}
+
+		target.valid       = true;
+		target.scope       = MumbleProto::Channel;
+		target.scopeID     = selectedChannel->iId;
+		target.channel     = selectedChannel;
+		target.label       = selectedChannel->qsName;
+		target.description = tr("Persistent history for this voice room.");
 		return target;
 	}
 
@@ -5652,18 +5734,19 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	}
 
 	if (m_serverNavigatorVoiceSectionEyebrow) {
+		m_serverNavigatorVoiceSectionEyebrow->setText(tr("Rooms"));
 		m_serverNavigatorVoiceSectionEyebrow->setVisible(true);
 	}
 	if (m_serverNavigatorVoiceSectionSubtitle) {
 		m_serverNavigatorVoiceSectionSubtitle->setVisible(false);
-		m_serverNavigatorVoiceSectionSubtitle->setText(tr("Rooms and people"));
+		m_serverNavigatorVoiceSectionSubtitle->setText(tr("Voice rooms, people, and text rooms"));
 	}
 	if (m_serverNavigatorTextChannelsEyebrow) {
-		m_serverNavigatorTextChannelsEyebrow->setVisible(showConversationList);
+		m_serverNavigatorTextChannelsEyebrow->setVisible(false);
 	}
 	if (m_serverNavigatorTextChannelsTitle) {
-		m_serverNavigatorTextChannelsTitle->setVisible(showConversationList);
-		m_serverNavigatorTextChannelsTitle->setText(tr("Conversations"));
+		m_serverNavigatorTextChannelsTitle->setVisible(false);
+		m_serverNavigatorTextChannelsTitle->setText(tr("Text rooms"));
 	}
 	if (m_serverNavigatorTextChannelsSubtitle) {
 		m_serverNavigatorTextChannelsSubtitle->setVisible(false);
@@ -5671,11 +5754,12 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	}
 	if (m_persistentChatChannelList) {
 		m_persistentChatChannelList->setVisible(showConversationList);
+		updatePersistentChatChannelListHeight();
 	}
 	if (m_serverNavigatorTextChannelsFrame) {
 		m_serverNavigatorTextChannelsFrame->setVisible(showConversationList);
 		if (m_serverNavigatorTextChannelsDivider) {
-			m_serverNavigatorTextChannelsDivider->setVisible(showConversationList);
+			m_serverNavigatorTextChannelsDivider->setVisible(false);
 		}
 	}
 
@@ -9289,11 +9373,20 @@ void MainWindow::on_qaTalkingUIToggle_triggered() {
  * the selected user/channel in the users treeview.
  */
 void MainWindow::qtvUserCurrentChanged(const QModelIndex &, const QModelIndex &) {
+	const QWidget *focusWidget = QApplication::focusWidget();
+	const bool treeIsFocused =
+		qtvUsers && (focusWidget == qtvUsers || (qtvUsers->viewport() && focusWidget == qtvUsers->viewport()));
+	if (treeIsFocused) {
+		setPersistentChatTargetUsesVoiceTree(true);
+	}
+
 	updateChatBar();
 	updateServerNavigatorChrome();
 }
 
 void MainWindow::on_persistentChatScopeChanged(int) {
+	setPersistentChatTargetUsesVoiceTree(false);
+
 	QPointer< MainWindow > guardedThis(this);
 	QMetaObject::invokeMethod(
 		this,
