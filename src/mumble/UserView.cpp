@@ -54,22 +54,22 @@ namespace {
 
 	NavigatorRowPalette buildNavigatorRowPalette(const QPalette &palette) {
 		NavigatorRowPalette colors;
-		const bool darkTheme       = isDarkRowPalette(palette);
-		const QColor windowColor   = palette.color(QPalette::Window);
-		const QColor baseColor     = palette.color(QPalette::Base);
+		const bool darkTheme        = isDarkRowPalette(palette);
+		const QColor windowColor    = palette.color(QPalette::Window);
+		const QColor baseColor      = palette.color(QPalette::Base);
 		const QColor highlightColor = palette.color(QPalette::Highlight);
-		const QColor textColor     = palette.color(QPalette::WindowText);
+		const QColor textColor      = palette.color(QPalette::WindowText);
 
-		colors.surfaceColor         = mixRowColors(baseColor, windowColor, darkTheme ? 0.10 : 0.06);
-		colors.hoverColor           = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.07 : 0.04);
-		colors.selectedColor        = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.16 : 0.11);
-		colors.selectedOutlineColor = mixRowColors(highlightColor, textColor, darkTheme ? 0.12 : 0.08);
-		colors.currentColor         = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.10 : 0.07);
-		colors.linkedColor          = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.05 : 0.03);
+		colors.surfaceColor         = mixRowColors(baseColor, textColor, darkTheme ? 0.12 : 0.05);
+		colors.hoverColor           = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.04 : 0.03);
+		colors.selectedColor        = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.14 : 0.08);
+		colors.selectedOutlineColor = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.18 : 0.12);
+		colors.currentColor         = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.05);
+		colors.linkedColor          = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.04);
 		colors.textColor            = textColor;
 		colors.mutedTextColor       = mixRowColors(textColor, windowColor, darkTheme ? 0.38 : 0.28);
-		colors.accentColor          = mixRowColors(textColor, highlightColor, darkTheme ? 0.16 : 0.14);
-		colors.avatarFillColor      = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.08 : 0.06);
+		colors.accentColor          = mixRowColors(textColor, highlightColor, darkTheme ? 0.12 : 0.10);
+		colors.avatarFillColor      = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.04);
 		colors.avatarTextColor      = colors.textColor;
 		colors.chipColor            = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.05);
 		colors.chipTextColor        = mixRowColors(colors.textColor, highlightColor, darkTheme ? 0.02 : 0.01);

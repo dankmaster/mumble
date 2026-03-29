@@ -410,7 +410,7 @@ namespace {
 		colors.mutedTextColor = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.42 : 0.34);
 		colors.eyebrowColor   = mixColors(textColor, colors.accentColor, colors.darkTheme ? 0.34 : 0.42);
 		colors.hoverColor     = mixColors(colors.panelColor, textColor, colors.darkTheme ? 0.08 : 0.05);
-		colors.selectedColor  = mixColors(colors.panelColor, highlightColor, colors.darkTheme ? 0.16 : 0.12);
+		colors.selectedColor  = mixColors(colors.panelColor, textColor, colors.darkTheme ? 0.12 : 0.08);
 		colors.scrollbarHandleColor =
 			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.14) : mixColors(colors.panelColor, textColor, 0.10);
 		colors.scrollbarHandleHoverColor =
@@ -469,24 +469,28 @@ namespace {
 					break;
 			}
 
+			const QColor utilityRowColor =
+				mixColors(chrome.panelColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.08);
 			const QColor rowFillColor =
 				selected
 					? chrome.selectedColor
-					: (hovered ? chrome.hoverColor
-							   : (utilityRow ? mixColors(chrome.panelColor, chrome.textColor, chrome.darkTheme ? 0.06 : 0.03)
-											 : QColor(Qt::transparent)));
+					: (hovered ? (utilityRow
+									  ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.02)
+									  : chrome.hoverColor)
+							   : (utilityRow ? utilityRowColor : QColor(Qt::transparent)));
 			const QColor rowOutlineColor =
 				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.20 : 0.10) : QColor(Qt::transparent);
 			const QColor textColor = selected ? chrome.selectedTextColor : chrome.textColor;
 			const QColor mutedTextColor = selected ? chrome.selectedTextColor : chrome.mutedTextColor;
 			const QColor chipFillColor =
 				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.10 : 0.06)
-						 : mixColors(chrome.panelColor, chrome.textColor,
-									 utilityRow ? (chrome.darkTheme ? 0.10 : 0.05) : (chrome.darkTheme ? 0.07 : 0.05));
+						 : mixColors(utilityRow ? utilityRowColor : chrome.panelColor, chrome.textColor,
+									 utilityRow ? (chrome.darkTheme ? 0.06 : 0.04) : (chrome.darkTheme ? 0.07 : 0.05));
 			const QColor chipTextColor = selected ? chrome.selectedTextColor : mutedTextColor;
 			const QColor unreadFillColor =
 				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.12 : 0.08)
-						 : mixColors(chrome.selectedColor, chrome.panelColor, chrome.darkTheme ? 0.34 : 0.22);
+						 : mixColors(utilityRow ? utilityRowColor : chrome.panelColor, chrome.accentColor,
+									 chrome.darkTheme ? 0.12 : 0.08);
 			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
 
 			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
@@ -2701,16 +2705,16 @@ void MainWindow::refreshPersistentChatStyles() {
 
 	const QPalette chatPalette = m_persistentChatContainer->palette();
 	const ChromePaletteColors chrome = buildChromePalette(chatPalette);
-	const QColor headerSurfaceColor  = chrome.elevatedCardColor;
-	const QColor historyColor        = chrome.panelColor;
-	const QColor inputColor          = chrome.inputColor;
+	const QColor historyColor        = mixColors(chrome.railColor, chrome.textColor, chrome.darkTheme ? 0.06 : 0.03);
+	const QColor headerSurfaceColor  = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.10 : 0.05);
+	const QColor inputColor          = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.04);
 	const QColor seamColor           = chrome.dividerColor;
-	const QColor bubbleColor         = mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.08 : 0.04);
-	const QColor selfBubbleColor     = mixColors(chrome.selectedColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.26 : 0.14);
-	const QColor quoteColor          = mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.18 : 0.08);
-	const QColor pillColor           = mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.06 : 0.03);
-	const QColor avatarBadgeColor    = mixColors(chrome.selectedColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.10 : 0.04);
-	const QColor sendButtonColor     = mixColors(chrome.selectedColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.02 : 0.00);
+	const QColor bubbleColor         = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06);
+	const QColor selfBubbleColor     = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.15 : 0.08);
+	const QColor quoteColor          = mixColors(headerSurfaceColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.04);
+	const QColor pillColor           = mixColors(headerSurfaceColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06);
+	const QColor avatarBadgeColor    = mixColors(headerSurfaceColor, chrome.accentColor, chrome.darkTheme ? 0.10 : 0.06);
+	const QColor sendButtonColor     = mixColors(inputColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06);
 
 	m_persistentChatContainer->setAutoFillBackground(true);
 	QPalette containerPalette = m_persistentChatContainer->palette();
