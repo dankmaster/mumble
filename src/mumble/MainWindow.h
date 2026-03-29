@@ -246,6 +246,7 @@ public:
 	QString persistentChatPreviewHtml(const QString &previewKey, int availableWidth) const;
 	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
 	void setPersistentChatTargetUsesVoiceTree(bool useVoiceTree);
+	void updateServerNavigatorVoiceTreeHeight();
 	void updatePersistentChatChannelListHeight();
 	void rebuildPersistentChatChannelList();
 	void handlePersistentTextChannelSync(const MumbleProto::TextChannelSync &msg);

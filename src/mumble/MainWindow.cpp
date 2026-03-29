@@ -793,6 +793,33 @@ namespace {
 		return url;
 	}
 
+	int countVisibleUserTreeRows(const QTreeView *tree, const QModelIndex &parent = QModelIndex()) {
+		if (!tree || !tree->model()) {
+			return 0;
+		}
+
+		int visibleRows = 0;
+		const QAbstractItemModel *model = tree->model();
+		const int rowCount              = model->rowCount(parent);
+		for (int row = 0; row < rowCount; ++row) {
+			if (tree->isRowHidden(row, parent)) {
+				continue;
+			}
+
+			const QModelIndex index = model->index(row, 0, parent);
+			if (!index.isValid()) {
+				continue;
+			}
+
+			++visibleRows;
+			if (tree->isExpanded(index)) {
+				visibleRows += countVisibleUserTreeRows(tree, index);
+			}
+		}
+
+		return visibleRows;
+	}
+
 	void setDockSplitterHandleWidth(QWidget *root, int width) {
 		if (!root) {
 			return;
@@ -1939,13 +1966,16 @@ void MainWindow::setupServerNavigator() {
 	qtvUsers->setAllColumnsShowFocus(false);
 	qtvUsers->setMouseTracking(true);
 	qtvUsers->setMinimumWidth(172);
+	qtvUsers->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	qtvUsers->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+	qtvUsers->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	qtvUsers->setAttribute(Qt::WA_StyledBackground, true);
 	qtvUsers->viewport()->setObjectName(QLatin1String("qtvUsersViewport"));
 	qtvUsers->viewport()->setAttribute(Qt::WA_StyledBackground, true);
 	qtvUsers->viewport()->setMouseTracking(true);
 	qtvUsers->setStyleSheet(QString());
 	qtvUsers->viewport()->setStyleSheet(QString());
-	contentLayout->addWidget(qtvUsers, 1);
+	contentLayout->addWidget(qtvUsers);
 
 	m_serverNavigatorTextChannelsDivider = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorTextChannelsDivider->setObjectName(QLatin1String("qfServerNavigatorTextChannelsDivider"));
@@ -2011,6 +2041,7 @@ void MainWindow::setupServerNavigator() {
 	textChannelsLayout->addWidget(m_persistentChatChannelList);
 	m_serverNavigatorTextChannelsFrame->hide();
 	contentLayout->addWidget(m_serverNavigatorTextChannelsFrame);
+	contentLayout->addStretch(1);
 
 	m_serverNavigatorFooter = new QLabel(tr("Ctrl+F searches the server tree."), m_serverNavigatorContainer);
 	m_serverNavigatorFooter->setObjectName(QLatin1String("qlServerNavigatorFooter"));
@@ -2025,6 +2056,37 @@ void MainWindow::setupServerNavigator() {
 	});
 	connect(m_serverNavigatorTextChannelsMotdBody, &QLabel::linkActivated, this,
 			[this](const QString &link) { on_qteLog_anchorClicked(QUrl(link)); });
+	const auto scheduleVoiceTreeHeightRefresh = [this]() {
+		QPointer< MainWindow > guardedThis(this);
+		QMetaObject::invokeMethod(
+			this,
+			[guardedThis]() {
+				if (!guardedThis) {
+					return;
+				}
+
+				guardedThis->updateServerNavigatorVoiceTreeHeight();
+			},
+			Qt::QueuedConnection);
+	};
+	if (QAbstractItemModel *userModel = qtvUsers->model()) {
+		connect(userModel, &QAbstractItemModel::modelReset, this, scheduleVoiceTreeHeightRefresh);
+		connect(userModel, &QAbstractItemModel::layoutChanged, this, scheduleVoiceTreeHeightRefresh);
+		connect(userModel, &QAbstractItemModel::rowsInserted, this,
+				[this, scheduleVoiceTreeHeightRefresh](const QModelIndex &, int, int) {
+					scheduleVoiceTreeHeightRefresh();
+				});
+		connect(userModel, &QAbstractItemModel::rowsRemoved, this,
+				[this, scheduleVoiceTreeHeightRefresh](const QModelIndex &, int, int) {
+					scheduleVoiceTreeHeightRefresh();
+				});
+	}
+	connect(qtvUsers, &QTreeView::expanded, this, [scheduleVoiceTreeHeightRefresh](const QModelIndex &) {
+		scheduleVoiceTreeHeightRefresh();
+	});
+	connect(qtvUsers, &QTreeView::collapsed, this, [scheduleVoiceTreeHeightRefresh](const QModelIndex &) {
+		scheduleVoiceTreeHeightRefresh();
+	});
 	connect(qtvUsers, &QTreeView::clicked, this, [this](const QModelIndex &index) {
 		if (!index.isValid()) {
 			return;
@@ -2051,6 +2113,7 @@ void MainWindow::setupServerNavigator() {
 	layout->addWidget(m_serverNavigatorFooter);
 
 	refreshServerNavigatorStyles();
+	updateServerNavigatorVoiceTreeHeight();
 }
 
 void MainWindow::setupPersistentChatDock() {
@@ -3454,6 +3517,28 @@ void MainWindow::setPersistentChatTargetUsesVoiceTree(bool useVoiceTree) {
 	}
 
 	m_persistentChatChannelList->viewport()->update();
+}
+
+void MainWindow::updateServerNavigatorVoiceTreeHeight() {
+	if (!qtvUsers || !qtvUsers->model()) {
+		return;
+	}
+
+	const int visibleRows = std::max(countVisibleUserTreeRows(qtvUsers), 1);
+	int rowHeight         = qtvUsers->sizeHintForRow(0);
+	if (rowHeight <= 0) {
+		rowHeight = std::max(qtvUsers->fontMetrics().height() + 10, 24);
+	}
+
+	const int desiredHeight = (visibleRows * rowHeight) + (qtvUsers->frameWidth() * 2);
+	const int maximumHeight = 320;
+	const int clampedHeight = std::min(desiredHeight, maximumHeight);
+
+	qtvUsers->setVerticalScrollBarPolicy(desiredHeight > maximumHeight ? Qt::ScrollBarAsNeeded
+																		 : Qt::ScrollBarAlwaysOff);
+	qtvUsers->setMinimumHeight(clampedHeight);
+	qtvUsers->setMaximumHeight(clampedHeight);
+	qtvUsers->updateGeometry();
 }
 
 void MainWindow::updatePersistentChatChannelListHeight() {
