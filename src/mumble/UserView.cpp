@@ -272,7 +272,7 @@ QSize UserDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelInd
 		return hint;
 	}
 
-	return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 14));
+	return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 12));
 }
 
 bool UserDelegate::helpEvent(QHelpEvent *evt, QAbstractItemView *view, const QStyleOptionViewItem &option,

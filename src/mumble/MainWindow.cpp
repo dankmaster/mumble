@@ -354,7 +354,7 @@ namespace {
 				return hint;
 			}
 
-			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 18));
+			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 14));
 		}
 
 		void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
@@ -1772,18 +1772,18 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorContainer = new QWidget(this);
 	m_serverNavigatorContainer->setObjectName(QLatin1String("qwServerNavigator"));
 	m_serverNavigatorContainer->setAttribute(Qt::WA_StyledBackground, true);
-	m_serverNavigatorContainer->setMinimumWidth(224);
+	m_serverNavigatorContainer->setMinimumWidth(208);
 
 	QVBoxLayout *layout = new QVBoxLayout(m_serverNavigatorContainer);
-	layout->setContentsMargins(0, 10, 8, 8);
-	layout->setSpacing(10);
+	layout->setContentsMargins(0, 8, 6, 6);
+	layout->setSpacing(8);
 
 	m_serverNavigatorContentFrame = new QFrame(m_serverNavigatorContainer);
 	m_serverNavigatorContentFrame->setObjectName(QLatin1String("qfServerNavigatorContent"));
 	m_serverNavigatorContentFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *contentLayout = new QVBoxLayout(m_serverNavigatorContentFrame);
-	contentLayout->setContentsMargins(12, 12, 12, 12);
-	contentLayout->setSpacing(10);
+	contentLayout->setContentsMargins(10, 10, 10, 10);
+	contentLayout->setSpacing(8);
 
 	m_serverNavigatorHeaderFrame = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorHeaderFrame->setObjectName(QLatin1String("qfServerNavigatorHeader"));
@@ -1804,7 +1804,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTitle->setObjectName(QLatin1String("qlServerNavigatorTitle"));
 	QFont titleFont = m_serverNavigatorTitle->font();
 	titleFont.setBold(true);
-	titleFont.setPointSizeF(titleFont.pointSizeF() + 2.0);
+	titleFont.setPointSizeF(titleFont.pointSizeF() + 1.0);
 	m_serverNavigatorTitle->setFont(titleFont);
 	m_serverNavigatorTitle->setTextFormat(Qt::PlainText);
 	m_serverNavigatorTitle->setWordWrap(true);
@@ -1825,8 +1825,8 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsMotdFrame->setAttribute(Qt::WA_StyledBackground, true);
 	m_serverNavigatorTextChannelsMotdFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *textChannelsMotdLayout = new QVBoxLayout(m_serverNavigatorTextChannelsMotdFrame);
-	textChannelsMotdLayout->setContentsMargins(12, 10, 12, 10);
-	textChannelsMotdLayout->setSpacing(8);
+	textChannelsMotdLayout->setContentsMargins(10, 8, 10, 8);
+	textChannelsMotdLayout->setSpacing(6);
 
 	QHBoxLayout *textChannelsMotdHeaderLayout = new QHBoxLayout();
 	textChannelsMotdHeaderLayout->setContentsMargins(0, 0, 0, 0);
@@ -1875,6 +1875,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorVoiceSectionSubtitle->setWordWrap(true);
 	m_serverNavigatorVoiceSectionSubtitle->setTextFormat(Qt::PlainText);
 	m_serverNavigatorVoiceSectionSubtitle->setTextInteractionFlags(Qt::NoTextInteraction);
+	m_serverNavigatorVoiceSectionSubtitle->hide();
 	contentLayout->addWidget(m_serverNavigatorVoiceSectionSubtitle);
 
 	qtvUsers->setParent(m_serverNavigatorContentFrame);
@@ -1917,7 +1918,7 @@ void MainWindow::setupServerNavigator() {
 	textChannelsEyebrowFont.setPointSizeF(std::max(textChannelsEyebrowFont.pointSizeF() - 1.0, 8.0));
 	m_serverNavigatorTextChannelsEyebrow->setFont(textChannelsEyebrowFont);
 
-	m_serverNavigatorTextChannelsTitle = new QLabel(tr("Text lounge"), m_serverNavigatorTextChannelsFrame);
+	m_serverNavigatorTextChannelsTitle = new QLabel(tr("Conversations"), m_serverNavigatorTextChannelsFrame);
 	m_serverNavigatorTextChannelsTitle->setObjectName(QLatin1String("qlServerNavigatorTextChannelsTitle"));
 	QFont textChannelsTitleFont = m_serverNavigatorTextChannelsTitle->font();
 	textChannelsTitleFont.setBold(true);
@@ -1932,6 +1933,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsSubtitle->setWordWrap(true);
 	m_serverNavigatorTextChannelsSubtitle->setTextFormat(Qt::PlainText);
 	m_serverNavigatorTextChannelsSubtitle->setTextInteractionFlags(Qt::NoTextInteraction);
+	m_serverNavigatorTextChannelsSubtitle->hide();
 
 	m_persistentChatChannelList = new QListWidget(m_serverNavigatorTextChannelsFrame);
 	m_persistentChatChannelList->setObjectName(QLatin1String("qlwPersistentTextChannels"));
@@ -1946,7 +1948,7 @@ void MainWindow::setupServerNavigator() {
 	m_persistentChatChannelList->setContextMenuPolicy(Qt::CustomContextMenu);
 	m_persistentChatChannelList->setMouseTracking(true);
 	m_persistentChatChannelList->setMinimumHeight(88);
-	m_persistentChatChannelList->setMaximumHeight(240);
+	m_persistentChatChannelList->setMaximumHeight(196);
 	m_persistentChatChannelList->setItemDelegate(new PersistentChatScopeListDelegate(m_persistentChatChannelList));
 
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsEyebrow);
@@ -2091,15 +2093,15 @@ void MainWindow::setupPersistentChatDock() {
 	qteChat->setLineWidth(0);
 	qteChat->setMidLineWidth(0);
 	qteChat->resetViewportChrome();
-	qteChat->setMinimumHeight(30);
+	qteChat->setMinimumHeight(34);
 	qteChat->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
 
 	m_persistentChatComposerFrame = new QFrame(m_persistentChatContainer);
 	m_persistentChatComposerFrame->setObjectName(QLatin1String("qfPersistentChatComposer"));
 	m_persistentChatComposerFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *composerLayout = new QVBoxLayout(m_persistentChatComposerFrame);
-	composerLayout->setContentsMargins(8, 8, 8, 8);
-	composerLayout->setSpacing(6);
+	composerLayout->setContentsMargins(10, 10, 10, 10);
+	composerLayout->setSpacing(8);
 	composerLayout->addWidget(m_persistentChatReplyFrame);
 
 	QWidget *composerInputRow = new QWidget(m_persistentChatComposerFrame);
@@ -2348,8 +2350,8 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QFrame#qfServerNavigatorContent {"
 			" background-color: %2;"
 			" border: 1px solid %6;"
-			" border-radius: 18px;"
-			" margin: 0px 6px 0px 0px;"
+			" border-radius: 14px;"
+			" margin: 0px 4px 0px 0px;"
 			"}"
 			"QLabel#qlServerNavigatorEyebrow {"
 			" color: %3;"
@@ -2362,7 +2364,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QLabel#qlServerNavigatorSubtitle {"
 			" color: %5;"
 			" line-height: 1.4em;"
-			" padding-bottom: 2px;"
+			" padding-bottom: 0px;"
 			"}"
 			"QLabel#qlServerNavigatorFooter {"
 			" color: %5;"
@@ -2385,7 +2387,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" background-color: %6;"
 			" min-height: 0px;"
 			" max-height: 1px;"
-			" margin: 4px 0px;"
+			" margin: 2px 0px;"
 			" border: none;"
 			"}"
 			"QLabel#qlServerNavigatorTextChannelsTitle {"
@@ -2393,9 +2395,9 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" font-weight: 700;"
 			"}"
 			"QFrame#qfServerNavigatorTextChannelsMotd {"
-			" background-color: %7;"
+			" background-color: %2;"
 			" border: 1px solid %6;"
-			" border-radius: 14px;"
+			" border-radius: 12px;"
 			"}"
 			"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
 			" color: %4;"
@@ -2408,10 +2410,10 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"}"
 			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
 			" border: 1px solid transparent;"
-			" border-radius: 10px;"
+			" border-radius: 9px;"
 			" background: transparent;"
 			" color: %5;"
-			" padding: 2px 8px;"
+			" padding: 2px 7px;"
 			"}"
 			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
 			" border-color: %6;"
@@ -2447,7 +2449,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" margin-left: 4px;"
 			" }"
 			"QTreeView#qtvUsers::item {"
-			" min-height: 32px;"
+			" min-height: 30px;"
 			" padding: 0px 10px;"
 			" border: none;"
 			" border-radius: 0px;"
@@ -2479,7 +2481,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" outline: none;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item {"
-			" min-height: 34px;"
+			" min-height: 30px;"
 			" padding: 0px;"
 			" border: none;"
 			" border-radius: 0px;"
@@ -2511,7 +2513,7 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 		return;
 	}
 
-	static const int minimumExpandedMotdHeight = 160;
+	static const int minimumExpandedMotdHeight = 104;
 
 	if (m_persistentChatWelcomeText.trimmed().isEmpty() || m_persistentChatMotdHidden
 		|| !m_serverNavigatorTextChannelsMotdFrame->isVisible() || !m_serverNavigatorTextChannelsMotdBody->isVisible()) {
@@ -2602,10 +2604,21 @@ void MainWindow::refreshPersistentChatStyles() {
 								   .arg(chrome.railColor.name()));
 	}
 	if (qtIconToolbar) {
+		qtIconToolbar->setIconSize(QSize(18, 18));
 		qtIconToolbar->setStyleSheet(
-			QString::fromLatin1("QToolBar { background-color: %1; border: none; spacing: 0px; padding: 0px; }"
-								"QToolBar::separator { background: transparent; width: 0px; }")
-				.arg(chrome.railColor.name()));
+			QString::fromLatin1(
+				"QToolBar { background-color: %1; border: none; spacing: 4px; padding: 2px 2px 0px 0px; }"
+				"QToolBar::separator { background: transparent; width: 4px; }"
+				"QToolBar QToolButton {"
+				" border: none;"
+				" border-radius: 10px;"
+				" background: transparent;"
+				" padding: 4px;"
+				" margin: 0px 1px;"
+				"}"
+				"QToolBar QToolButton:hover { background: %2; }"
+				"QToolBar QToolButton:pressed, QToolBar QToolButton:checked { background: %3; }")
+				.arg(chrome.railColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name()));
 	}
 	setStyleSheet(QString::fromLatin1(
 					  "QMainWindow::separator:vertical {"
@@ -2794,7 +2807,7 @@ void MainWindow::refreshPersistentChatStyles() {
 		qteChat->viewport()->setAutoFillBackground(true);
 		qteChat->viewport()->setPalette(inputPalette);
 		qteChat->setStyleSheet(
-			QString::fromLatin1("border: none; background-color: transparent; padding: 4px 2px; outline: none;"));
+			QString::fromLatin1("border: none; background-color: transparent; padding: 6px 4px; outline: none;"));
 		qteChat->viewport()->setStyleSheet(
 			QString::fromLatin1("background-color: transparent; border: none; outline: none;"));
 	}
@@ -2805,11 +2818,9 @@ void MainWindow::refreshPersistentChatStyles() {
 			" background-color: %2;"
 			"}"
 			"QFrame#qfPersistentChatHeader {"
-			" border: 1px solid %1;"
-			" border-top-left-radius: 12px;"
-			" border-bottom-left-radius: 12px;"
-			" border-top-right-radius: 0px;"
-			" border-bottom-right-radius: 0px;"
+			" border: none;"
+			" border-bottom: 1px solid %1;"
+			" border-radius: 0px;"
 			" background-color: %8;"
 			"}"
 			"QWidget#qwPersistentChatSurface {"
@@ -2818,11 +2829,8 @@ void MainWindow::refreshPersistentChatStyles() {
 			" background-color: transparent;"
 			"}"
 			"QWidget#qwPersistentChatPanel {"
-			" border: 1px solid %1;"
-			" border-top-left-radius: 12px;"
-			" border-bottom-left-radius: 12px;"
-			" border-top-right-radius: 0px;"
-			" border-bottom-right-radius: 0px;"
+			" border: none;"
+			" border-radius: 0px;"
 			" background-color: %2;"
 			"}"
 			"QLabel#qlPersistentChatHeaderEyebrow {"
@@ -2857,12 +2865,15 @@ void MainWindow::refreshPersistentChatStyles() {
 			"QFrame#qfPersistentChatComposer {"
 			" border: none;"
 			" border-top: 1px solid %1;"
-			" background-color: %4;"
-			" border-bottom-left-radius: 12px;"
+			" background-color: %2;"
+			" border-bottom-left-radius: 0px;"
 			" border-bottom-right-radius: 0px;"
 			"}"
 			"QWidget#qwPersistentChatComposerInputRow {"
-			" background: transparent;"
+			" background: %4;"
+			" border: 1px solid %1;"
+			" border-radius: 14px;"
+			" padding: 2px 4px;"
 			"}"
 			"QFrame#qfPersistentChatReply {"
 			" border: none;"
@@ -2878,11 +2889,11 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QToolButton#qtbPersistentChatSend {"
 			" border: none;"
-			" border-radius: 16px;"
+			" border-radius: 14px;"
 			" background-color: %14;"
-			" min-width: 32px;"
-			" min-height: 32px;"
-			" padding: 6px;"
+			" min-width: 28px;"
+			" min-height: 28px;"
+			" padding: 5px;"
 			"}"
 			"QToolButton#qtbPersistentChatSend:hover {"
 			" background-color: %9;"
@@ -2983,7 +2994,7 @@ void MainWindow::refreshPersistentChatStyles() {
 			" border: none;"
 			" border-radius: 0px;"
 			" background-color: transparent;"
-			" padding: 4px 2px;"
+			" padding: 6px 4px;"
 			"}"
 			"ChatbarTextEdit#qteChat > QWidget {"
 			" border: none;"
@@ -3029,8 +3040,8 @@ void MainWindow::refreshTextDocumentStylesheets() {
 }
 
 void MainWindow::setPersistentChatWelcomeText(const QString &message) {
-	if (m_persistentChatWelcomeText != message && !message.trimmed().isEmpty()) {
-		m_persistentChatMotdHidden = false;
+	if (m_persistentChatWelcomeText.trimmed().isEmpty() && !message.trimmed().isEmpty()) {
+		m_persistentChatMotdHidden = true;
 	}
 	m_persistentChatWelcomeText = message;
 	updatePersistentChatWelcome();
@@ -5418,8 +5429,8 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 		const bool showMotdBody = showMotd && !m_persistentChatMotdHidden;
 		m_serverNavigatorTextChannelsMotdFrame->setVisible(showMotd);
 		if (showMotd) {
-			const QString teaserText = persistentChatPlainTextSummary(m_persistentChatWelcomeText, 140);
-			m_serverNavigatorTextChannelsMotdTitle->setText(tr("MOTD"));
+			const QString teaserText = persistentChatPlainTextSummary(m_persistentChatWelcomeText, 96);
+			m_serverNavigatorTextChannelsMotdTitle->setText(tr("Server note"));
 			m_serverNavigatorTextChannelsMotdBody->setVisible(true);
 			m_serverNavigatorTextChannelsMotdBody->setText(showMotdBody
 															 ? persistentChatContentHtml(m_persistentChatWelcomeText)
@@ -5428,8 +5439,8 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 			m_serverNavigatorTextChannelsMotdBody->setTextInteractionFlags(showMotdBody ? Qt::TextBrowserInteraction
 																					   : Qt::NoTextInteraction);
 			m_serverNavigatorTextChannelsMotdBody->setToolTip(showMotdBody ? QString() : teaserText);
-			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 160 : 0);
-			m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(showMotdBody ? QWIDGETSIZE_MAX : 28);
+			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 104 : 0);
+			m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(showMotdBody ? QWIDGETSIZE_MAX : 24);
 			m_serverNavigatorTextChannelsMotdBody->updateGeometry();
 			if (showMotdBody) {
 				static const int motdRefreshDelaysMs[] = { 0, 150, 600, 1800, 4500 };
@@ -5437,9 +5448,9 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 					QTimer::singleShot(delayMs, this, [this]() { refreshServerNavigatorMotdHeight(); });
 				}
 			}
-			m_serverNavigatorTextChannelsMotdToggleButton->setText(showMotdBody ? tr("Hide") : tr("Show"));
+			m_serverNavigatorTextChannelsMotdToggleButton->setText(showMotdBody ? tr("Hide") : tr("Open"));
 			m_serverNavigatorTextChannelsMotdToggleButton->setToolTip(showMotdBody ? tr("Hide message of the day")
-																				   : tr("Show message of the day"));
+																				   : tr("Open message of the day"));
 		}
 	}
 
@@ -5447,7 +5458,7 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 		m_serverNavigatorVoiceSectionEyebrow->setVisible(true);
 	}
 	if (m_serverNavigatorVoiceSectionSubtitle) {
-		m_serverNavigatorVoiceSectionSubtitle->setVisible(true);
+		m_serverNavigatorVoiceSectionSubtitle->setVisible(false);
 		m_serverNavigatorVoiceSectionSubtitle->setText(tr("Rooms and people"));
 	}
 	if (m_serverNavigatorTextChannelsEyebrow) {
@@ -5455,10 +5466,10 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	}
 	if (m_serverNavigatorTextChannelsTitle) {
 		m_serverNavigatorTextChannelsTitle->setVisible(showConversationList);
-		m_serverNavigatorTextChannelsTitle->setText(tr("Text lounge"));
+		m_serverNavigatorTextChannelsTitle->setText(tr("Conversations"));
 	}
 	if (m_serverNavigatorTextChannelsSubtitle) {
-		m_serverNavigatorTextChannelsSubtitle->setVisible(showConversationList);
+		m_serverNavigatorTextChannelsSubtitle->setVisible(false);
 		m_serverNavigatorTextChannelsSubtitle->setText(tr("Lobby, rooms, and shared activity"));
 	}
 	if (m_persistentChatChannelList) {
@@ -6552,7 +6563,7 @@ void MainWindow::setupView(bool toggle_minimize) {
 		qdwLog->hide();
 		const Qt::Orientation dockResizeOrientation =
 			Global::get().s.wlWindowLayout == Settings::LayoutStacked ? Qt::Vertical : Qt::Horizontal;
-		const int dockResizeTarget = dockResizeOrientation == Qt::Vertical ? 720 : 560;
+		const int dockResizeTarget = dockResizeOrientation == Qt::Vertical ? 720 : 640;
 		resizeDocks(QList< QDockWidget * >() << qdwChat, QList< int >() << dockResizeTarget,
 					dockResizeOrientation);
 	}
