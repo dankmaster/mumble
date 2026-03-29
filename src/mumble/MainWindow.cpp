@@ -385,19 +385,19 @@ namespace {
 		const QColor highlightedText  = palette.color(QPalette::HighlightedText);
 		const QColor textColor        = palette.color(QPalette::WindowText);
 
-		colors.railColor         = windowColor;
+		colors.railColor         = colors.darkTheme ? mixColors(windowColor, textColor, 0.02) : windowColor;
 		colors.textColor         = textColor;
-		colors.selectedTextColor = colors.darkTheme ? textColor : highlightedText;
+		colors.selectedTextColor = highlightedText;
 		colors.accentColor =
-			colors.darkTheme ? mixColors(textColor, highlightColor, 0.20) : mixColors(textColor, highlightColor, 0.24);
+			colors.darkTheme ? mixColors(textColor, highlightColor, 0.24) : mixColors(textColor, highlightColor, 0.24);
 
 		if (colors.darkTheme) {
-			colors.cardColor         = mixColors(windowColor, alternateColor, 0.52);
-			colors.elevatedCardColor = mixColors(colors.cardColor, baseColor, 0.14);
-			colors.panelColor        = mixColors(colors.elevatedCardColor, baseColor, 0.10);
-			colors.inputColor        = mixColors(colors.panelColor, baseColor, 0.18);
-			colors.borderColor       = mixColors(colors.cardColor, textColor, 0.12);
-			colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.58);
+			colors.cardColor         = mixColors(windowColor, alternateColor, 0.26);
+			colors.elevatedCardColor = mixColors(baseColor, alternateColor, 0.70);
+			colors.panelColor        = mixColors(baseColor, alternateColor, 0.48);
+			colors.inputColor        = mixColors(colors.panelColor, alternateColor, 0.20);
+			colors.borderColor       = mixColors(alternateColor, textColor, 0.14);
+			colors.dividerColor      = mixColors(colors.panelColor, textColor, 0.08);
 		} else {
 			colors.cardColor         = mixColors(windowColor, alternateColor, 0.40);
 			colors.elevatedCardColor = mixColors(colors.cardColor, baseColor, 0.18);
@@ -407,14 +407,14 @@ namespace {
 			colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.66);
 		}
 
-		colors.mutedTextColor = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.42 : 0.34);
-		colors.eyebrowColor   = mixColors(textColor, colors.accentColor, colors.darkTheme ? 0.34 : 0.42);
-		colors.hoverColor     = mixColors(colors.panelColor, textColor, colors.darkTheme ? 0.08 : 0.05);
-		colors.selectedColor  = mixColors(colors.panelColor, textColor, colors.darkTheme ? 0.12 : 0.08);
+		colors.mutedTextColor = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.44 : 0.34);
+		colors.eyebrowColor   = mixColors(textColor, colors.accentColor, colors.darkTheme ? 0.30 : 0.42);
+		colors.hoverColor     = mixColors(colors.elevatedCardColor, textColor, colors.darkTheme ? 0.05 : 0.05);
+		colors.selectedColor  = mixColors(colors.elevatedCardColor, highlightColor, colors.darkTheme ? 0.28 : 0.16);
 		colors.scrollbarHandleColor =
-			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.14) : mixColors(colors.panelColor, textColor, 0.10);
+			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.20) : mixColors(colors.panelColor, textColor, 0.10);
 		colors.scrollbarHandleHoverColor =
-			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.24) : mixColors(colors.panelColor, textColor, 0.18);
+			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.30) : mixColors(colors.panelColor, textColor, 0.18);
 
 		return colors;
 	}
@@ -441,7 +441,8 @@ namespace {
 			QStyleOptionViewItem opt(option);
 			initStyleOption(&opt, index);
 
-			const ChromePaletteColors chrome = buildChromePalette(opt.palette);
+			const QPalette effectivePalette = opt.widget ? opt.widget->palette() : opt.palette;
+			const ChromePaletteColors chrome = buildChromePalette(effectivePalette);
 			const bool selected             = opt.state.testFlag(QStyle::State_Selected);
 			const bool hovered              = opt.state.testFlag(QStyle::State_MouseOver);
 			const QString label =
@@ -470,27 +471,30 @@ namespace {
 			}
 
 			const QColor utilityRowColor =
-				mixColors(chrome.panelColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.08);
+				mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.10 : 0.04);
+			const QColor utilityOutlineColor =
+				mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.05);
 			const QColor rowFillColor =
 				selected
 					? chrome.selectedColor
 					: (hovered ? (utilityRow
-									  ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.02)
+									  ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.03)
 									  : chrome.hoverColor)
 							   : (utilityRow ? utilityRowColor : QColor(Qt::transparent)));
 			const QColor rowOutlineColor =
-				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.20 : 0.10) : QColor(Qt::transparent);
+				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.34 : 0.14)
+						 : (utilityRow ? utilityOutlineColor : QColor(Qt::transparent));
 			const QColor textColor = selected ? chrome.selectedTextColor : chrome.textColor;
 			const QColor mutedTextColor = selected ? chrome.selectedTextColor : chrome.mutedTextColor;
 			const QColor chipFillColor =
-				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.10 : 0.06)
-						 : mixColors(utilityRow ? utilityRowColor : chrome.panelColor, chrome.textColor,
-									 utilityRow ? (chrome.darkTheme ? 0.06 : 0.04) : (chrome.darkTheme ? 0.07 : 0.05));
+				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.12 : 0.08)
+						 : mixColors(utilityRow ? utilityRowColor : chrome.elevatedCardColor, chrome.textColor,
+									 utilityRow ? (chrome.darkTheme ? 0.12 : 0.06) : (chrome.darkTheme ? 0.08 : 0.05));
 			const QColor chipTextColor = selected ? chrome.selectedTextColor : mutedTextColor;
 			const QColor unreadFillColor =
-				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.12 : 0.08)
-						 : mixColors(utilityRow ? utilityRowColor : chrome.panelColor, chrome.accentColor,
-									 chrome.darkTheme ? 0.12 : 0.08);
+				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.16 : 0.10)
+						 : mixColors(chrome.selectedColor, utilityRow ? utilityRowColor : chrome.elevatedCardColor,
+									 chrome.darkTheme ? 0.52 : 0.34);
 			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
 
 			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
@@ -2450,11 +2454,11 @@ void MainWindow::refreshServerNavigatorStyles() {
 	if (m_persistentChatChannelList) {
 		QPalette listPalette = m_persistentChatChannelList->palette();
 		listPalette.setColor(QPalette::Base, chrome.panelColor);
-		listPalette.setColor(QPalette::AlternateBase, chrome.panelColor);
-		listPalette.setColor(QPalette::Window, chrome.panelColor);
+		listPalette.setColor(QPalette::AlternateBase, chrome.elevatedCardColor);
+		listPalette.setColor(QPalette::Window, chrome.cardColor);
 		listPalette.setColor(QPalette::Text, chrome.textColor);
-		listPalette.setColor(QPalette::Highlight, chrome.selectedColor);
-		listPalette.setColor(QPalette::HighlightedText, chrome.selectedTextColor);
+		listPalette.setColor(QPalette::Highlight, navPalette.color(QPalette::Highlight));
+		listPalette.setColor(QPalette::HighlightedText, navPalette.color(QPalette::HighlightedText));
 		m_persistentChatChannelList->setAutoFillBackground(true);
 		m_persistentChatChannelList->setPalette(listPalette);
 		m_persistentChatChannelList->viewport()->setAutoFillBackground(true);
@@ -2464,12 +2468,12 @@ void MainWindow::refreshServerNavigatorStyles() {
 	}
 
 	QPalette treePalette = qtvUsers->palette();
-	treePalette.setColor(QPalette::Base, chrome.panelColor);
-	treePalette.setColor(QPalette::AlternateBase, chrome.panelColor);
-	treePalette.setColor(QPalette::Window, chrome.panelColor);
+		treePalette.setColor(QPalette::Base, chrome.panelColor);
+		treePalette.setColor(QPalette::AlternateBase, chrome.elevatedCardColor);
+		treePalette.setColor(QPalette::Window, chrome.cardColor);
 	treePalette.setColor(QPalette::Text, chrome.textColor);
-	treePalette.setColor(QPalette::Highlight, chrome.selectedColor);
-	treePalette.setColor(QPalette::HighlightedText, chrome.selectedTextColor);
+	treePalette.setColor(QPalette::Highlight, navPalette.color(QPalette::Highlight));
+	treePalette.setColor(QPalette::HighlightedText, navPalette.color(QPalette::HighlightedText));
 	qtvUsers->setAutoFillBackground(true);
 	qtvUsers->setPalette(treePalette);
 	qtvUsers->setProperty("rowHoverColor", chrome.hoverColor);
@@ -2479,7 +2483,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 
 	m_serverNavigatorContainer->setAutoFillBackground(true);
 	QPalette navContainerPalette = m_serverNavigatorContainer->palette();
-	navContainerPalette.setColor(QPalette::Window, chrome.panelColor);
+	navContainerPalette.setColor(QPalette::Window, chrome.cardColor);
 	m_serverNavigatorContainer->setPalette(navContainerPalette);
 	QString serverNavigatorStyle = QString::fromLatin1(
 			"QWidget#qwServerNavigator {"
@@ -2705,16 +2709,16 @@ void MainWindow::refreshPersistentChatStyles() {
 
 	const QPalette chatPalette = m_persistentChatContainer->palette();
 	const ChromePaletteColors chrome = buildChromePalette(chatPalette);
-	const QColor historyColor        = mixColors(chrome.railColor, chrome.textColor, chrome.darkTheme ? 0.06 : 0.03);
-	const QColor headerSurfaceColor  = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.10 : 0.05);
-	const QColor inputColor          = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.04);
+	const QColor historyColor        = chrome.cardColor;
+	const QColor headerSurfaceColor  = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.05 : 0.03);
+	const QColor inputColor          = chrome.inputColor;
 	const QColor seamColor           = chrome.dividerColor;
-	const QColor bubbleColor         = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06);
-	const QColor selfBubbleColor     = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.15 : 0.08);
-	const QColor quoteColor          = mixColors(headerSurfaceColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.04);
-	const QColor pillColor           = mixColors(headerSurfaceColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06);
-	const QColor avatarBadgeColor    = mixColors(headerSurfaceColor, chrome.accentColor, chrome.darkTheme ? 0.10 : 0.06);
-	const QColor sendButtonColor     = mixColors(inputColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06);
+	const QColor bubbleColor         = mixColors(historyColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.04);
+	const QColor selfBubbleColor     = mixColors(bubbleColor, chrome.selectedColor, chrome.darkTheme ? 0.18 : 0.16);
+	const QColor quoteColor          = mixColors(chrome.panelColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.60 : 0.32);
+	const QColor pillColor           = mixColors(chrome.elevatedCardColor, chrome.textColor, chrome.darkTheme ? 0.10 : 0.05);
+	const QColor avatarBadgeColor    = mixColors(chrome.elevatedCardColor, chrome.textColor, chrome.darkTheme ? 0.14 : 0.06);
+	const QColor sendButtonColor     = mixColors(chrome.selectedColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.24 : 0.10);
 
 	m_persistentChatContainer->setAutoFillBackground(true);
 	QPalette containerPalette = m_persistentChatContainer->palette();

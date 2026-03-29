@@ -57,21 +57,22 @@ namespace {
 		const bool darkTheme        = isDarkRowPalette(palette);
 		const QColor windowColor    = palette.color(QPalette::Window);
 		const QColor baseColor      = palette.color(QPalette::Base);
+		const QColor alternateColor = palette.color(QPalette::AlternateBase);
 		const QColor highlightColor = palette.color(QPalette::Highlight);
 		const QColor textColor      = palette.color(QPalette::WindowText);
 
-		colors.surfaceColor         = mixRowColors(baseColor, textColor, darkTheme ? 0.12 : 0.05);
+		colors.surfaceColor         = mixRowColors(baseColor, alternateColor, darkTheme ? 0.74 : 0.14);
 		colors.hoverColor           = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.04 : 0.03);
-		colors.selectedColor        = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.14 : 0.08);
-		colors.selectedOutlineColor = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.18 : 0.12);
-		colors.currentColor         = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.05);
-		colors.linkedColor          = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.04);
+		colors.selectedColor        = mixRowColors(alternateColor, highlightColor, darkTheme ? 0.28 : 0.14);
+		colors.selectedOutlineColor = mixRowColors(highlightColor, textColor, darkTheme ? 0.20 : 0.10);
+		colors.currentColor         = mixRowColors(alternateColor, highlightColor, darkTheme ? 0.14 : 0.10);
+		colors.linkedColor          = mixRowColors(baseColor, alternateColor, darkTheme ? 0.76 : 0.06);
 		colors.textColor            = textColor;
 		colors.mutedTextColor       = mixRowColors(textColor, windowColor, darkTheme ? 0.38 : 0.28);
-		colors.accentColor          = mixRowColors(textColor, highlightColor, darkTheme ? 0.12 : 0.10);
-		colors.avatarFillColor      = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.04);
+		colors.accentColor          = mixRowColors(textColor, highlightColor, darkTheme ? 0.18 : 0.12);
+		colors.avatarFillColor      = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.05);
 		colors.avatarTextColor      = colors.textColor;
-		colors.chipColor            = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.05);
+		colors.chipColor            = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.06);
 		colors.chipTextColor        = mixRowColors(colors.textColor, highlightColor, darkTheme ? 0.02 : 0.01);
 		colors.iconTintColor        = mixRowColors(colors.textColor, windowColor, darkTheme ? 0.20 : 0.10);
 		colors.speakingColor        = QColor::fromRgb(darkTheme ? 114 : 54, darkTheme ? 217 : 168, darkTheme ? 153 : 97);
@@ -124,7 +125,8 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	QStyleOptionViewItem opt(option);
 	initStyleOption(&opt, index);
 
-	const NavigatorRowPalette colors = buildNavigatorRowPalette(opt.palette);
+	const QPalette effectivePalette = opt.widget ? opt.widget->palette() : opt.palette;
+	const NavigatorRowPalette colors = buildNavigatorRowPalette(effectivePalette);
 	const QList< QVariant > statusIcons =
 		index.data(UserModel::NavigatorStatusIconsRole).toList();
 	const QString title =
@@ -310,7 +312,7 @@ void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, co
 	const bool isCurrentLocation = index.data(UserModel::NavigatorCurrentLocationRole).toBool();
 	const bool isLinkedLocation  = index.data(UserModel::NavigatorLinkedLocationRole).toBool();
 	if (isSelected || isHovered || isCurrentLocation || isLinkedLocation) {
-		const NavigatorRowPalette colors = buildNavigatorRowPalette(option.palette);
+		const NavigatorRowPalette colors = buildNavigatorRowPalette(viewport()->palette());
 		QColor rowFillColor;
 		QColor borderColor(Qt::transparent);
 		if (isSelected) {
