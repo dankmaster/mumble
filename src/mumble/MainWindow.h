@@ -9,6 +9,7 @@
 #include <QtCore/QPointer>
 #include <QtCore/QtGlobal>
 #include <QtCore/QHash>
+#include <QtCore/QStringList>
 #include <QtGui/QImage>
 #include <QtNetwork/QAbstractSocket>
 #include <QtWidgets/QMainWindow>
@@ -231,7 +232,8 @@ public:
 	void requestOlderPersistentChatHistory();
 	void setPersistentChatWelcomeText(const QString &message);
 	void updatePersistentChatWelcome();
-	void clearPersistentChatView(const QString &message);
+	void clearPersistentChatView(const QString &message, const QString &title = QString(),
+								 const QStringList &hints = QStringList());
 	void markPersistentChatAvailable(bool refreshUi = true);
 	void clearPersistentChatReplyTarget(bool refreshChatBar);
 	void setPersistentChatReplyTarget(const std::optional< MumbleProto::ChatMessage > &message);

@@ -108,7 +108,7 @@ namespace {
 
 			QVBoxLayout *outerLayout = new QVBoxLayout(this);
 			outerLayout->setContentsMargins(0, 0, 0, 0);
-			outerLayout->setSpacing(3);
+			outerLayout->setSpacing(2);
 			outerLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
 			m_surface = new QFrame(this);
@@ -118,17 +118,17 @@ namespace {
 			m_surface->setAttribute(Qt::WA_StyledBackground, true);
 
 			QVBoxLayout *surfaceLayout = new QVBoxLayout(m_surface);
-			surfaceLayout->setContentsMargins(12, 9, 12, 10);
-			surfaceLayout->setSpacing(6);
+			surfaceLayout->setContentsMargins(10, 8, 10, 8);
+			surfaceLayout->setSpacing(5);
 			surfaceLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
-			const int contentWidth = std::max(120, bubbleWidth - 24);
+			const int contentWidth = std::max(120, bubbleWidth - 20);
 			if (bubbleSpec.hasReply) {
 				QFrame *replyFrame = new QFrame(m_surface);
 				replyFrame->setObjectName(QLatin1String("qfPersistentChatBubbleQuote"));
 				replyFrame->setAttribute(Qt::WA_StyledBackground, true);
 				QVBoxLayout *replyLayout = new QVBoxLayout(replyFrame);
-				replyLayout->setContentsMargins(10, 7, 10, 8);
+				replyLayout->setContentsMargins(9, 6, 9, 6);
 				replyLayout->setSpacing(2);
 				QLabel *replyActor = new QLabel(
 					QString::fromLatin1("<strong>%1</strong>").arg(bubbleSpec.replyActor.toHtmlEscaped()), replyFrame);
@@ -187,7 +187,7 @@ namespace {
 			m_actions->setAttribute(Qt::WA_StyledBackground, true);
 			QHBoxLayout *actionsLayout = new QHBoxLayout(m_actions);
 			actionsLayout->setContentsMargins(0, 0, 0, 0);
-			actionsLayout->setSpacing(6);
+			actionsLayout->setSpacing(5);
 			m_actions->hide();
 
 			if (bubbleSpec.actionText.isEmpty()) {
@@ -327,26 +327,26 @@ PersistentChatMessageGroupWidget::PersistentChatMessageGroupWidget(int available
 	setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
 	QHBoxLayout *rowLayout = new QHBoxLayout(this);
-	rowLayout->setContentsMargins(12, 3, 12, 3);
-	rowLayout->setSpacing(8);
+	rowLayout->setContentsMargins(8, 2, 8, 2);
+	rowLayout->setSpacing(6);
 	rowLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
 	m_avatarLabel = new QLabel(this);
 	m_avatarLabel->setObjectName(QLatin1String("qlPersistentChatAvatar"));
-	m_avatarLabel->setFixedSize(32, 32);
+	m_avatarLabel->setFixedSize(28, 28);
 	m_avatarLabel->setScaledContents(true);
 
 	m_avatarFallbackLabel = new QLabel(this);
 	m_avatarFallbackLabel->setObjectName(QLatin1String("qlPersistentChatAvatarFallback"));
 	m_avatarFallbackLabel->setAttribute(Qt::WA_StyledBackground, true);
 	m_avatarFallbackLabel->setAlignment(Qt::AlignCenter);
-	m_avatarFallbackLabel->setFixedSize(32, 32);
+	m_avatarFallbackLabel->setFixedSize(28, 28);
 	m_avatarFallbackLabel->hide();
 
 	m_avatarFrame = new QFrame(this);
 	m_avatarFrame->setObjectName(QLatin1String("qfPersistentChatAvatarFrame"));
 	m_avatarFrame->setAttribute(Qt::WA_StyledBackground, true);
-	m_avatarFrame->setFixedSize(32, 32);
+	m_avatarFrame->setFixedSize(28, 28);
 	QStackedLayout *avatarStack = new QStackedLayout(m_avatarFrame);
 	avatarStack->setStackingMode(QStackedLayout::StackAll);
 	avatarStack->setContentsMargins(0, 0, 0, 0);
@@ -358,14 +358,14 @@ PersistentChatMessageGroupWidget::PersistentChatMessageGroupWidget(int available
 	m_contentColumn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
 	QVBoxLayout *columnLayout = new QVBoxLayout(m_contentColumn);
 	columnLayout->setContentsMargins(0, 0, 0, 0);
-	columnLayout->setSpacing(4);
+	columnLayout->setSpacing(3);
 	columnLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
 	m_headerWidget = new QWidget(m_contentColumn);
 	m_headerWidget->setObjectName(QLatin1String("qwPersistentChatGroupHeader"));
 	QHBoxLayout *headerLayout = new QHBoxLayout(m_headerWidget);
 	headerLayout->setContentsMargins(0, 0, 0, 0);
-	headerLayout->setSpacing(6);
+	headerLayout->setSpacing(4);
 
 	m_actorLabel = new QLabel(m_headerWidget);
 	m_actorLabel->setObjectName(QLatin1String("qlPersistentChatGroupActor"));
@@ -386,7 +386,7 @@ PersistentChatMessageGroupWidget::PersistentChatMessageGroupWidget(int available
 
 	m_bubblesLayout = new QVBoxLayout();
 	m_bubblesLayout->setContentsMargins(0, 0, 0, 0);
-	m_bubblesLayout->setSpacing(3);
+	m_bubblesLayout->setSpacing(2);
 	columnLayout->addLayout(m_bubblesLayout);
 
 	rowLayout->addWidget(m_avatarFrame, 0, Qt::AlignTop);
@@ -445,8 +445,11 @@ void PersistentChatMessageGroupWidget::setHeader(const PersistentChatGroupHeader
 }
 
 void PersistentChatMessageGroupWidget::addBubble(const PersistentChatBubbleSpec &bubbleSpec) {
-	const int usableWidth = std::max(220, m_availableWidth - (m_selfAuthored ? 60 : 110));
-	const int bubbleWidth = std::max(180, m_availableWidth < 420 ? usableWidth : static_cast< int >(std::floor(usableWidth * 0.72)));
+	const int usableWidth = std::max(220, m_availableWidth - (m_selfAuthored ? 84 : 112));
+	const qreal bubbleWidthRatio =
+		m_availableWidth < 420 ? 1.0 : (m_selfAuthored ? 0.64 : 0.68);
+	const int bubbleWidth = std::max(
+		180, m_availableWidth < 420 ? usableWidth : static_cast< int >(std::floor(usableWidth * bubbleWidthRatio)));
 
 	auto *bubble = new PersistentChatBubbleWidget(bubbleSpec, bubbleWidth, m_selfAuthored, m_baseStylesheet, this);
 	connect(bubble, &PersistentChatBubbleWidget::replyRequested, this, &PersistentChatMessageGroupWidget::replyRequested);

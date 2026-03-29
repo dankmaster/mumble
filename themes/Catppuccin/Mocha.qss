@@ -106,15 +106,15 @@ QPlainTextEdit {
 
 QToolBar {
   background-color: #1e1e2e;
-  spacing: 2px;
-  padding: 1px 2px;
+  spacing: 1px;
+  padding: 1px 1px;
 }
 
 QToolButton {
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 2px 3px;
-  margin: 0 1px;
+  padding: 1px 2px;
+  margin: 0;
 }
 
 QToolButton:on {
@@ -166,7 +166,9 @@ QToolBar::handle:vertical {
 
 QMenuBar::item {
   background-color: transparent;
-  padding: 3px 10px;
+  border-radius: 8px;
+  margin: 0 1px;
+  padding: 2px 8px;
 }
 
 QMenuBar::item:selected {
