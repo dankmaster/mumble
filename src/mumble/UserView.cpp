@@ -142,7 +142,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	const QColor primaryTextColor = isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.textColor;
 	const QColor secondaryTextColor = isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.mutedTextColor;
 
-	QRect contentRect = option.rect.adjusted(12, 2, -12, -2);
+	QRect contentRect = option.rect.adjusted(10, 1, -10, -1);
 	int trailingIconsWidth = 0;
 	if (!statusIcons.isEmpty()) {
 		trailingIconsWidth = static_cast< int >(statusIcons.size() * m_iconTotalDimension);
@@ -159,15 +159,15 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	QFontMetrics chipMetrics(chipFont);
 	int occupancyWidth = 0;
 	if (!occupancyText.isEmpty()) {
-		occupancyWidth = chipMetrics.horizontalAdvance(occupancyText) + 16;
+		occupancyWidth = chipMetrics.horizontalAdvance(occupancyText) + 14;
 	}
 
 	int textRight = contentRect.right() - trailingIconsWidth;
 	if (trailingIconsWidth > 0) {
-		textRight -= 6;
+		textRight -= 4;
 	}
 	if (occupancyWidth > 0) {
-		textRight -= occupancyWidth + 8;
+		textRight -= occupancyWidth + 6;
 	}
 
 	painter->save();
@@ -176,7 +176,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	int x = contentRect.left();
 	if (itemKind == UserModel::NavigatorChannelItem) {
 		const QIcon channelIcon = qvariant_cast< QIcon >(index.data(Qt::DecorationRole));
-		const QRect iconRect(x, contentRect.center().y() - 9, 18, 18);
+		const QRect iconRect(x, contentRect.center().y() - 8, 16, 16);
 		if (!channelIcon.isNull()) {
 			channelIcon.paint(painter, iconRect, Qt::AlignCenter,
 							  isSelected ? QIcon::Selected : QIcon::Normal, QIcon::On);
@@ -186,9 +186,9 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 			painter->setBrush(currentLocation ? colors.selectedOutlineColor : colors.linkedColor);
 			painter->drawEllipse(QRect(iconRect.right() - 4, iconRect.top() - 1, 7, 7));
 		}
-		x = iconRect.right() + 10;
+		x = iconRect.right() + 8;
 	} else {
-		const QRect avatarRect(x, contentRect.center().y() - 12, 24, 24);
+		const QRect avatarRect(x, contentRect.center().y() - 11, 22, 22);
 		painter->setPen(Qt::NoPen);
 		painter->setBrush(isSelected ? opt.palette.color(QPalette::Highlight) : colors.avatarFillColor);
 		painter->drawEllipse(avatarRect);
@@ -212,12 +212,12 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 		}
 
 		if (const QColor speakingColor = talkStateColor(talkState, colors); speakingColor.isValid()) {
-			const QRect statusDotRect(avatarRect.right() - 5, avatarRect.bottom() - 6, 8, 8);
+			const QRect statusDotRect(avatarRect.right() - 4, avatarRect.bottom() - 5, 7, 7);
 			painter->setPen(QPen(colors.surfaceColor, 1.5));
 			painter->setBrush(speakingColor);
 			painter->drawEllipse(statusDotRect);
 		} else if (currentLocation) {
-			const QRect statusDotRect(avatarRect.right() - 5, avatarRect.bottom() - 6, 8, 8);
+			const QRect statusDotRect(avatarRect.right() - 4, avatarRect.bottom() - 5, 7, 7);
 			painter->setPen(QPen(colors.surfaceColor, 1.5));
 			painter->setBrush(colors.selectedOutlineColor);
 			painter->drawEllipse(statusDotRect);
@@ -225,13 +225,13 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 
 		if (isListener) {
 			const QIcon listenerIcon = qvariant_cast< QIcon >(index.data(Qt::DecorationRole));
-			const QRect listenerRect(avatarRect.right() - 8, avatarRect.top() - 2, 11, 11);
+			const QRect listenerRect(avatarRect.right() - 7, avatarRect.top() - 1, 10, 10);
 			if (!listenerIcon.isNull()) {
 				listenerIcon.paint(painter, listenerRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 			}
 		}
 
-		x = avatarRect.right() + 10;
+		x = avatarRect.right() + 8;
 	}
 
 	const QRect textRect(x, contentRect.top(), std::max(20, textRight - x), contentRect.height());
@@ -254,10 +254,10 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	}
 
 	if (!occupancyText.isEmpty()) {
-		const QRect chipRect(iconRight - occupancyWidth - 4, contentRect.center().y() - 11, occupancyWidth, 22);
+		const QRect chipRect(iconRight - occupancyWidth - 4, contentRect.center().y() - 10, occupancyWidth, 20);
 		painter->setPen(Qt::NoPen);
 		painter->setBrush(isSelected ? opt.palette.color(QPalette::Highlight) : colors.chipColor);
-		painter->drawRoundedRect(chipRect, 11.0f, 11.0f);
+		painter->drawRoundedRect(chipRect, 10.0f, 10.0f);
 		painter->setFont(chipFont);
 		painter->setPen(isSelected ? opt.palette.color(QPalette::HighlightedText) : secondaryTextColor);
 		painter->drawText(chipRect, Qt::AlignCenter, occupancyText);
@@ -272,7 +272,7 @@ QSize UserDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelInd
 		return hint;
 	}
 
-	return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 12));
+	return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 10));
 }
 
 bool UserDelegate::helpEvent(QHelpEvent *evt, QAbstractItemView *view, const QStyleOptionViewItem &option,
@@ -325,15 +325,15 @@ void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, co
 			rowFillColor = colors.linkedColor;
 		}
 
-		const QRect rowRect = QRect(6, option.rect.top() + 1, viewport()->width() - 12, option.rect.height() - 2);
+		const QRect rowRect = QRect(5, option.rect.top() + 1, viewport()->width() - 10, option.rect.height() - 2);
 		if (rowRect.isValid()) {
 			painter->save();
 			painter->setRenderHint(QPainter::Antialiasing, true);
 			painter->setPen(borderColor.alpha() == 0 ? Qt::NoPen : QPen(borderColor, 1.0));
 			painter->setBrush(rowFillColor);
-			painter->drawRoundedRect(rowRect, 10.0f, 10.0f);
+			painter->drawRoundedRect(rowRect, 9.0f, 9.0f);
 			if (isCurrentLocation && !isSelected) {
-				const QRect accentRect(rowRect.left() + 4, rowRect.top() + 5, 3, rowRect.height() - 10);
+				const QRect accentRect(rowRect.left() + 4, rowRect.top() + 4, 3, rowRect.height() - 8);
 				painter->setPen(Qt::NoPen);
 				painter->setBrush(colors.selectedOutlineColor);
 				painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
@@ -375,7 +375,8 @@ void UserView::adjustIcons() {
 	// Calculate the icon size for status icons based on font size
 	// This should automaticially adjust size when the user has
 	// display scaling enabled
-	m_iconTotalDimension  = QFontMetrics(font()).height();
+	const int baseIconTotalDimension = QFontMetrics(font()).height();
+	m_iconTotalDimension             = qMax(14, baseIconTotalDimension - 1);
 	int iconIconPadding   = 1;
 	int iconIconDimension = m_iconTotalDimension - (2 * iconIconPadding);
 	m_userDelegate->adjustIcons(m_iconTotalDimension, iconIconPadding, iconIconDimension);

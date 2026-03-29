@@ -354,7 +354,7 @@ namespace {
 				return hint;
 			}
 
-			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 14));
+			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 12));
 		}
 
 		void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
@@ -412,13 +412,13 @@ namespace {
 						 : mixColors(chrome.selectedColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.34 : 0.14);
 			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
 
-			QRect rowRect = option.rect.adjusted(4, 2, -4, -2);
+			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
 			painter->save();
 			painter->setRenderHint(QPainter::Antialiasing, true);
 			if (rowRect.isValid() && (selected || hovered || utilityRow)) {
 				painter->setPen(rowOutlineColor.alpha() == 0 ? Qt::NoPen : QPen(rowOutlineColor, 1.0));
 				painter->setBrush(rowFillColor);
-				painter->drawRoundedRect(rowRect, 11.0f, 11.0f);
+				painter->drawRoundedRect(rowRect, 10.0f, 10.0f);
 			}
 
 			QFont chipFont(opt.font);
@@ -426,28 +426,28 @@ namespace {
 			chipFont.setPointSizeF(std::max(chipFont.pointSizeF() - 1.0, 8.0));
 			const QFontMetrics chipMetrics(chipFont);
 
-			int x = rowRect.left() + 10;
-			const int chipWidth = std::max(22, chipMetrics.horizontalAdvance(chipText) + 12);
-			const QRect chipRect(x, rowRect.center().y() - 10, chipWidth, 20);
+			int x = rowRect.left() + 8;
+			const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
+			const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
 			painter->setPen(Qt::NoPen);
 			painter->setBrush(chipFillColor);
-			painter->drawRoundedRect(chipRect, 10.0f, 10.0f);
+			painter->drawRoundedRect(chipRect, 9.0f, 9.0f);
 			painter->setPen(chipTextColor);
 			painter->setFont(chipFont);
 			painter->drawText(chipRect, Qt::AlignCenter, chipText);
-			x = chipRect.right() + 10;
+			x = chipRect.right() + 8;
 
-			int textRight = rowRect.right() - 10;
+			int textRight = rowRect.right() - 8;
 			if (unreadCount > 0) {
 				const QString unreadText = QString::number(unreadCount);
-				const int unreadWidth = chipMetrics.horizontalAdvance(unreadText) + 14;
-				const QRect unreadRect(textRight - unreadWidth, rowRect.center().y() - 10, unreadWidth, 20);
+				const int unreadWidth = chipMetrics.horizontalAdvance(unreadText) + 12;
+				const QRect unreadRect(textRight - unreadWidth, rowRect.center().y() - 9, unreadWidth, 18);
 				painter->setPen(Qt::NoPen);
 				painter->setBrush(unreadFillColor);
-				painter->drawRoundedRect(unreadRect, 10.0f, 10.0f);
+				painter->drawRoundedRect(unreadRect, 9.0f, 9.0f);
 				painter->setPen(unreadTextColor);
 				painter->drawText(unreadRect, Qt::AlignCenter, unreadText);
-				textRight = unreadRect.left() - 8;
+				textRight = unreadRect.left() - 6;
 			}
 
 			const QRect textRect(x, rowRect.top(), std::max(18, textRight - x), rowRect.height());
@@ -1772,18 +1772,18 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorContainer = new QWidget(this);
 	m_serverNavigatorContainer->setObjectName(QLatin1String("qwServerNavigator"));
 	m_serverNavigatorContainer->setAttribute(Qt::WA_StyledBackground, true);
-	m_serverNavigatorContainer->setMinimumWidth(208);
+	m_serverNavigatorContainer->setMinimumWidth(204);
 
 	QVBoxLayout *layout = new QVBoxLayout(m_serverNavigatorContainer);
-	layout->setContentsMargins(0, 8, 6, 6);
-	layout->setSpacing(8);
+	layout->setContentsMargins(0, 6, 4, 4);
+	layout->setSpacing(6);
 
 	m_serverNavigatorContentFrame = new QFrame(m_serverNavigatorContainer);
 	m_serverNavigatorContentFrame->setObjectName(QLatin1String("qfServerNavigatorContent"));
 	m_serverNavigatorContentFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *contentLayout = new QVBoxLayout(m_serverNavigatorContentFrame);
-	contentLayout->setContentsMargins(10, 10, 10, 10);
-	contentLayout->setSpacing(8);
+	contentLayout->setContentsMargins(8, 8, 8, 8);
+	contentLayout->setSpacing(6);
 
 	m_serverNavigatorHeaderFrame = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorHeaderFrame->setObjectName(QLatin1String("qfServerNavigatorHeader"));
@@ -1825,12 +1825,12 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsMotdFrame->setAttribute(Qt::WA_StyledBackground, true);
 	m_serverNavigatorTextChannelsMotdFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *textChannelsMotdLayout = new QVBoxLayout(m_serverNavigatorTextChannelsMotdFrame);
-	textChannelsMotdLayout->setContentsMargins(10, 8, 10, 8);
-	textChannelsMotdLayout->setSpacing(6);
+	textChannelsMotdLayout->setContentsMargins(8, 7, 8, 7);
+	textChannelsMotdLayout->setSpacing(4);
 
 	QHBoxLayout *textChannelsMotdHeaderLayout = new QHBoxLayout();
 	textChannelsMotdHeaderLayout->setContentsMargins(0, 0, 0, 0);
-	textChannelsMotdHeaderLayout->setSpacing(6);
+	textChannelsMotdHeaderLayout->setSpacing(4);
 
 	m_serverNavigatorTextChannelsMotdTitle = new QLabel(tr("MOTD"), m_serverNavigatorTextChannelsMotdFrame);
 	m_serverNavigatorTextChannelsMotdTitle->setObjectName(QLatin1String("qlServerNavigatorTextChannelsMotdTitle"));
@@ -1883,11 +1883,11 @@ void MainWindow::setupServerNavigator() {
 	qtvUsers->setFrameShape(QFrame::NoFrame);
 	qtvUsers->setUniformRowHeights(true);
 	qtvUsers->setAnimated(true);
-	qtvUsers->setIndentation(12);
+	qtvUsers->setIndentation(10);
 	qtvUsers->setExpandsOnDoubleClick(false);
 	qtvUsers->setAllColumnsShowFocus(false);
 	qtvUsers->setMouseTracking(true);
-	qtvUsers->setMinimumWidth(184);
+	qtvUsers->setMinimumWidth(180);
 	qtvUsers->setAttribute(Qt::WA_StyledBackground, true);
 	qtvUsers->viewport()->setObjectName(QLatin1String("qtvUsersViewport"));
 	qtvUsers->viewport()->setAttribute(Qt::WA_StyledBackground, true);
@@ -1908,7 +1908,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *textChannelsLayout = new QVBoxLayout(m_serverNavigatorTextChannelsFrame);
 	textChannelsLayout->setContentsMargins(0, 0, 0, 0);
-	textChannelsLayout->setSpacing(6);
+	textChannelsLayout->setSpacing(4);
 
 	m_serverNavigatorTextChannelsEyebrow = new QLabel(tr("Text"), m_serverNavigatorTextChannelsFrame);
 	m_serverNavigatorTextChannelsEyebrow->setObjectName(QLatin1String("qlServerNavigatorTextChannelsEyebrow"));
@@ -1948,7 +1948,7 @@ void MainWindow::setupServerNavigator() {
 	m_persistentChatChannelList->setContextMenuPolicy(Qt::CustomContextMenu);
 	m_persistentChatChannelList->setMouseTracking(true);
 	m_persistentChatChannelList->setMinimumHeight(88);
-	m_persistentChatChannelList->setMaximumHeight(196);
+	m_persistentChatChannelList->setMaximumHeight(184);
 	m_persistentChatChannelList->setItemDelegate(new PersistentChatScopeListDelegate(m_persistentChatChannelList));
 
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsEyebrow);
@@ -2000,7 +2000,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHeaderFrame->setObjectName(QLatin1String("qfPersistentChatHeader"));
 
 	QVBoxLayout *headerLayout = new QVBoxLayout(m_persistentChatHeaderFrame);
-	headerLayout->setContentsMargins(10, 6, 10, 6);
+	headerLayout->setContentsMargins(8, 5, 8, 5);
 	headerLayout->setSpacing(1);
 
 	m_persistentChatHeaderEyebrow = new QLabel(tr("Text"), m_persistentChatHeaderFrame);
@@ -2093,22 +2093,22 @@ void MainWindow::setupPersistentChatDock() {
 	qteChat->setLineWidth(0);
 	qteChat->setMidLineWidth(0);
 	qteChat->resetViewportChrome();
-	qteChat->setMinimumHeight(34);
+	qteChat->setMinimumHeight(32);
 	qteChat->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
 
 	m_persistentChatComposerFrame = new QFrame(m_persistentChatContainer);
 	m_persistentChatComposerFrame->setObjectName(QLatin1String("qfPersistentChatComposer"));
 	m_persistentChatComposerFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *composerLayout = new QVBoxLayout(m_persistentChatComposerFrame);
-	composerLayout->setContentsMargins(10, 10, 10, 10);
-	composerLayout->setSpacing(8);
+	composerLayout->setContentsMargins(8, 8, 8, 8);
+	composerLayout->setSpacing(6);
 	composerLayout->addWidget(m_persistentChatReplyFrame);
 
 	QWidget *composerInputRow = new QWidget(m_persistentChatComposerFrame);
 	composerInputRow->setObjectName(QLatin1String("qwPersistentChatComposerInputRow"));
 	QHBoxLayout *composerInputLayout = new QHBoxLayout(composerInputRow);
 	composerInputLayout->setContentsMargins(0, 0, 0, 0);
-	composerInputLayout->setSpacing(8);
+	composerInputLayout->setSpacing(6);
 	composerInputLayout->addWidget(qteChat, 1);
 
 	m_persistentChatSendButton = new QToolButton(composerInputRow);
@@ -2116,7 +2116,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatSendButton->setAutoRaise(false);
 	m_persistentChatSendButton->setToolTip(tr("Send message"));
 	m_persistentChatSendButton->setIcon(style()->standardIcon(QStyle::SP_ArrowForward));
-	m_persistentChatSendButton->setIconSize(QSize(18, 18));
+	m_persistentChatSendButton->setIconSize(QSize(16, 16));
 	m_persistentChatSendButton->setCursor(Qt::PointingHandCursor);
 	composerInputLayout->addWidget(m_persistentChatSendButton, 0, Qt::AlignBottom);
 	composerLayout->addWidget(composerInputRow);
@@ -2336,8 +2336,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 	QPalette navContainerPalette = m_serverNavigatorContainer->palette();
 	navContainerPalette.setColor(QPalette::Window, chrome.panelColor);
 	m_serverNavigatorContainer->setPalette(navContainerPalette);
-	m_serverNavigatorContainer->setStyleSheet(
-		QString::fromLatin1(
+	QString serverNavigatorStyle = QString::fromLatin1(
 			"QWidget#qwServerNavigator {"
 			" background-color: %1;"
 			"}"
@@ -2351,7 +2350,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" background-color: %2;"
 			" border: 1px solid %6;"
 			" border-radius: 14px;"
-			" margin: 0px 4px 0px 0px;"
+			" margin: 0px 3px 0px 0px;"
 			"}"
 			"QLabel#qlServerNavigatorEyebrow {"
 			" color: %3;"
@@ -2363,7 +2362,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"}"
 			"QLabel#qlServerNavigatorSubtitle {"
 			" color: %5;"
-			" line-height: 1.4em;"
+			" line-height: 1.35em;"
 			" padding-bottom: 0px;"
 			"}"
 			"QLabel#qlServerNavigatorFooter {"
@@ -2377,7 +2376,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"}"
 			"QLabel#qlServerNavigatorVoiceSectionSubtitle, QLabel#qlServerNavigatorTextChannelsSubtitle {"
 			" color: %5;"
-			" line-height: 1.4em;"
+			" line-height: 1.35em;"
 			"}"
 			"QFrame#qfServerNavigatorTextChannels {"
 			" background-color: transparent;"
@@ -2397,7 +2396,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QFrame#qfServerNavigatorTextChannelsMotd {"
 			" background-color: %2;"
 			" border: 1px solid %6;"
-			" border-radius: 12px;"
+			" border-radius: 10px;"
 			"}"
 			"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
 			" color: %4;"
@@ -2410,10 +2409,10 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"}"
 			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
 			" border: 1px solid transparent;"
-			" border-radius: 9px;"
+			" border-radius: 8px;"
 			" background: transparent;"
 			" color: %5;"
-			" padding: 2px 7px;"
+			" padding: 1px 6px;"
 			"}"
 			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
 			" border-color: %6;"
@@ -2449,8 +2448,8 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" margin-left: 4px;"
 			" }"
 			"QTreeView#qtvUsers::item {"
-			" min-height: 30px;"
-			" padding: 0px 10px;"
+			" min-height: 28px;"
+			" padding: 0px 8px;"
 			" border: none;"
 			" border-radius: 0px;"
 			" margin: 0px;"
@@ -2481,7 +2480,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" outline: none;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item {"
-			" min-height: 30px;"
+			" min-height: 28px;"
 			" padding: 0px;"
 			" border: none;"
 			" border-radius: 0px;"
@@ -2501,10 +2500,16 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"QListWidget#qlwPersistentTextChannels::item:selected:!active {"
 			" background-color: transparent;"
 			" color: %4;"
-			"}")
-			.arg(chrome.cardColor.name(), chrome.elevatedCardColor.name(), chrome.eyebrowColor.name(),
-				 chrome.textColor.name(), chrome.mutedTextColor.name(), chrome.dividerColor.name(),
-				 chrome.hoverColor.name(), chrome.selectedColor.name(), chrome.selectedTextColor.name()));
+			"}");
+	serverNavigatorStyle.replace(QStringLiteral("%9"), chrome.selectedTextColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%8"), chrome.hoverColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%6"), chrome.dividerColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%5"), chrome.mutedTextColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%4"), chrome.textColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%3"), chrome.eyebrowColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%2"), chrome.elevatedCardColor.name());
+	serverNavigatorStyle.replace(QStringLiteral("%1"), chrome.cardColor.name());
+	m_serverNavigatorContainer->setStyleSheet(serverNavigatorStyle);
 	refreshServerNavigatorMotdHeight();
 }
 
@@ -2513,7 +2518,7 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 		return;
 	}
 
-	static const int minimumExpandedMotdHeight = 104;
+	static const int minimumExpandedMotdHeight = 96;
 
 	if (m_persistentChatWelcomeText.trimmed().isEmpty() || m_persistentChatMotdHidden
 		|| !m_serverNavigatorTextChannelsMotdFrame->isVisible() || !m_serverNavigatorTextChannelsMotdBody->isVisible()) {
@@ -2604,21 +2609,33 @@ void MainWindow::refreshPersistentChatStyles() {
 								   .arg(chrome.railColor.name()));
 	}
 	if (qtIconToolbar) {
-		qtIconToolbar->setIconSize(QSize(18, 18));
+		qtIconToolbar->setIconSize(QSize(16, 16));
 		qtIconToolbar->setStyleSheet(
 			QString::fromLatin1(
-				"QToolBar { background-color: %1; border: none; spacing: 4px; padding: 2px 2px 0px 0px; }"
-				"QToolBar::separator { background: transparent; width: 4px; }"
+				"QToolBar { background-color: %1; border: none; spacing: 3px; padding: 1px 1px 0px 0px; }"
+				"QToolBar::separator { background: transparent; width: 3px; }"
 				"QToolBar QToolButton {"
 				" border: none;"
-				" border-radius: 10px;"
+				" border-radius: 9px;"
 				" background: transparent;"
-				" padding: 4px;"
+				" padding: 3px;"
 				" margin: 0px 1px;"
 				"}"
 				"QToolBar QToolButton:hover { background: %2; }"
-				"QToolBar QToolButton:pressed, QToolBar QToolButton:checked { background: %3; }")
-				.arg(chrome.railColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name()));
+				"QToolBar QToolButton:pressed, QToolBar QToolButton:checked { background: %3; }"
+				"QToolBar QComboBox {"
+				" background: %4;"
+				" border: 1px solid %5;"
+				" border-radius: 10px;"
+				" color: %6;"
+				" min-height: 22px;"
+				" padding: 1px 8px;"
+				" margin-left: 4px;"
+				"}"
+				"QToolBar QComboBox:hover { border-color: %2; }"
+				"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
+				.arg(chrome.railColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name(),
+					 chrome.elevatedCardColor.name(), chrome.dividerColor.name(), chrome.textColor.name()));
 	}
 	setStyleSheet(QString::fromLatin1(
 					  "QMainWindow::separator:vertical {"
@@ -2872,8 +2889,8 @@ void MainWindow::refreshPersistentChatStyles() {
 			"QWidget#qwPersistentChatComposerInputRow {"
 			" background: %4;"
 			" border: 1px solid %1;"
-			" border-radius: 14px;"
-			" padding: 2px 4px;"
+			" border-radius: 13px;"
+			" padding: 1px 4px;"
 			"}"
 			"QFrame#qfPersistentChatReply {"
 			" border: none;"
@@ -2889,11 +2906,11 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QToolButton#qtbPersistentChatSend {"
 			" border: none;"
-			" border-radius: 14px;"
+			" border-radius: 13px;"
 			" background-color: %14;"
-			" min-width: 28px;"
-			" min-height: 28px;"
-			" padding: 5px;"
+			" min-width: 26px;"
+			" min-height: 26px;"
+			" padding: 4px;"
 			"}"
 			"QToolButton#qtbPersistentChatSend:hover {"
 			" background-color: %9;"
@@ -5439,7 +5456,7 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 			m_serverNavigatorTextChannelsMotdBody->setTextInteractionFlags(showMotdBody ? Qt::TextBrowserInteraction
 																					   : Qt::NoTextInteraction);
 			m_serverNavigatorTextChannelsMotdBody->setToolTip(showMotdBody ? QString() : teaserText);
-			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 104 : 0);
+			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 96 : 0);
 			m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(showMotdBody ? QWIDGETSIZE_MAX : 24);
 			m_serverNavigatorTextChannelsMotdBody->updateGeometry();
 			if (showMotdBody) {
@@ -6563,7 +6580,7 @@ void MainWindow::setupView(bool toggle_minimize) {
 		qdwLog->hide();
 		const Qt::Orientation dockResizeOrientation =
 			Global::get().s.wlWindowLayout == Settings::LayoutStacked ? Qt::Vertical : Qt::Horizontal;
-		const int dockResizeTarget = dockResizeOrientation == Qt::Vertical ? 720 : 640;
+		const int dockResizeTarget = dockResizeOrientation == Qt::Vertical ? 720 : 680;
 		resizeDocks(QList< QDockWidget * >() << qdwChat, QList< int >() << dockResizeTarget,
 					dockResizeOrientation);
 	}

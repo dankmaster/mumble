@@ -117,15 +117,15 @@ QTextEdit {
 
 QToolBar {
   background-color: #2e2e2e;
-  spacing: 0;
-  padding: 2px;
+  spacing: 2px;
+  padding: 1px 2px;
 }
 
 QToolButton {
   border: 1px solid transparent;
-  border-radius: 2px;
-  padding: 1px;
-  margin: 1px;
+  border-radius: 6px;
+  padding: 2px;
+  margin: 0 1px;
 }
 
 QToolButton:on {
@@ -145,7 +145,7 @@ QToolButton:pressed {
 QToolBar::separator {
   background: #555;
   height: 1px;
-  margin: 4px;
+  margin: 3px;
   width: 1px;
 }
 
@@ -175,7 +175,7 @@ QToolBar::handle:vertical {
 
 QMenuBar::item {
   background-color: transparent;
-  padding: 4px 12px;
+  padding: 3px 10px;
 }
 
 QMenuBar::item:selected {
@@ -953,9 +953,8 @@ UserView::item {
 #qtePersistentChatHistory,
 #qteChat,
 #qdwChat > QTextEdit {
-  padding: -2px;
-  margin: 0 2px;
-  margin-bottom: 2px;
+  padding: 0;
+  margin: 0 1px 1px 1px;
   font-size: 10pt;
 }
 
