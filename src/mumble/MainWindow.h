@@ -168,6 +168,7 @@ public:
 	void updateServerNavigatorChrome();
 	void refreshCustomChromeStyles();
 	void refreshServerNavigatorStyles();
+	void refreshServerNavigatorMotdHeight();
 	void refreshPersistentChatStyles();
 
 	struct PersistentChatTarget {
@@ -338,6 +339,8 @@ protected:
 	QLabel *m_serverNavigatorEyebrow = nullptr;
 	QLabel *m_serverNavigatorTitle = nullptr;
 	QLabel *m_serverNavigatorSubtitle = nullptr;
+	QLabel *m_serverNavigatorVoiceSectionEyebrow = nullptr;
+	QLabel *m_serverNavigatorVoiceSectionSubtitle = nullptr;
 	QFrame *m_serverNavigatorTextChannelsFrame = nullptr;
 	QFrame *m_serverNavigatorTextChannelsDivider = nullptr;
 	QLabel *m_serverNavigatorTextChannelsEyebrow = nullptr;

@@ -23,12 +23,66 @@
 #include "VolumeAdjustment.h"
 #include "Global.h"
 
+#include <QtCore/QBuffer>
 #include <QtCore/QMimeData>
 #include <QtCore/QStack>
 #include <QtGui/QImageReader>
 #include <QtWidgets/QMessageBox>
 #include <QtWidgets/QToolTip>
 #include <QtWidgets/QWhatsThis>
+
+namespace {
+	QString navigatorInitials(const QString &name) {
+		const QString simplified = name.simplified();
+		if (simplified.isEmpty()) {
+			return QStringLiteral("?");
+		}
+
+		QString initials;
+		const QStringList parts = simplified.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+		for (const QString &part : parts) {
+			initials.append(part.left(1).toUpper());
+			if (initials.size() >= 2) {
+				break;
+			}
+		}
+
+		if (initials.isEmpty()) {
+			initials = simplified.left(1).toUpper();
+		}
+
+		return initials.left(2);
+	}
+
+	QImage navigatorAvatarImage(ClientUser *user, int avatarSize) {
+		if (!user || avatarSize <= 0) {
+			return QImage();
+		}
+
+		if (user->qbaTexture.isEmpty() && !user->qbaTextureHash.isEmpty() && Global::get().db) {
+			user->qbaTexture = Global::get().db->blob(user->qbaTextureHash);
+		}
+
+		if (user->qbaTexture.isEmpty()) {
+			return QImage();
+		}
+
+		QBuffer buffer(&user->qbaTexture);
+		if (!buffer.open(QIODevice::ReadOnly)) {
+			return QImage();
+		}
+
+		QImageReader reader(&buffer, user->qbaTextureFormat);
+		QSize scaledSize = reader.size();
+		if (!scaledSize.isValid()) {
+			scaledSize = QSize(avatarSize, avatarSize);
+		}
+		scaledSize.scale(avatarSize, avatarSize, Qt::KeepAspectRatioByExpanding);
+		reader.setScaledSize(scaledSize);
+		return reader.read();
+	}
+
+}
 
 QHash< const Channel *, ModelItem * > ModelItem::c_qhChannels;
 QHash< const ClientUser *, ModelItem * > ModelItem::c_qhUsers;
@@ -428,7 +482,119 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 	if (v.isValid())
 		return v;
 
+	auto userStatusIcons = [&]() {
+		QList< QVariant > icons;
+		if (!p) {
+			return icons;
+		}
+
+		if (!p->qbaCommentHash.isEmpty() && !item->isListener)
+			icons << (item->bCommentSeen ? qiCommentSeen : qiComment);
+		if (p->bPrioritySpeaker && !item->isListener)
+			icons << qiPrioritySpeaker;
+		if (p->bRecording)
+			icons << qiRecording;
+		if (p == pSelf && Global::get().bPushToMute && !item->isListener)
+			icons << qiMutedPushToMute;
+		if (p->bMute || item->isListener)
+			icons << qiMutedServer;
+		if (p->bSuppress && !item->isListener)
+			icons << qiMutedSuppressed;
+		if (p->bSelfMute && !item->isListener)
+			icons << qiMutedSelf;
+		if (p->bLocalMute && !item->isListener)
+			icons << qiMutedLocal;
+		if (p->bLocalIgnore && !item->isListener)
+			icons << qiIgnoredLocal;
+		if (p->bDeaf)
+			icons << qiDeafenedServer;
+		if (p->bSelfDeaf)
+			icons << qiDeafenedSelf;
+		if (p->iId >= 0 && !item->isListener)
+			icons << qiAuthenticated;
+		if (!p->qsFriendName.isEmpty() && !item->isListener)
+			icons << qiFriend;
+
+		return icons;
+	};
+
+	auto channelStatusIcons = [&]() {
+		QList< QVariant > icons;
+		if (!c) {
+			return icons;
+		}
+
+		if (!c->qbaDescHash.isEmpty())
+			icons << (item->bCommentSeen ? qiCommentSeen : qiComment);
+
+		switch (c->m_filterMode) {
+			case ChannelFilterMode::HIDE:
+				icons << qiFilter;
+				break;
+			case ChannelFilterMode::PIN:
+				icons << qiPin;
+				break;
+			case ChannelFilterMode::NORMAL:
+				break;
+		}
+
+		if (c->hasEnterRestrictions.load()) {
+			icons << (c->localUserCanEnter.load() ? qiLock_unlocked : qiLock_locked);
+		}
+
+		return icons;
+	};
+
 	QList< QVariant > l;
+
+	if (role == UserModel::NavigatorItemKindRole) {
+		if (p) {
+			return item->isListener ? UserModel::NavigatorListenerItem : UserModel::NavigatorUserItem;
+		}
+
+		return UserModel::NavigatorChannelItem;
+	}
+	if (role == UserModel::NavigatorTitleRole) {
+		if (p) {
+			const Channel *parentChannel = item->parent ? item->parent->cChan : nullptr;
+			return createDisplayString(*p, item->isListener, parentChannel);
+		}
+
+		return c ? c->qsName : QVariant();
+	}
+	if (role == UserModel::NavigatorOccupancyRole) {
+		return c ? item->iUsers : QVariant();
+	}
+	if (role == UserModel::NavigatorCurrentLocationRole) {
+		if (p) {
+			return p->uiSession == Global::get().uiSession;
+		}
+
+		return pSelf && pSelf->cChannel == c;
+	}
+	if (role == UserModel::NavigatorLinkedLocationRole) {
+		return c && Global::get().uiSession != 0 && qsLinked.contains(c);
+	}
+	if (role == UserModel::NavigatorAvatarImageRole) {
+		return p ? navigatorAvatarImage(p, 28) : QVariant();
+	}
+	if (role == UserModel::NavigatorAvatarFallbackRole) {
+		return p ? navigatorInitials(p->qsName) : QVariant();
+	}
+	if (role == UserModel::NavigatorStatusIconsRole) {
+		return p ? userStatusIcons() : channelStatusIcons();
+	}
+	if (role == UserModel::NavigatorTalkStateRole) {
+		if (!p || item->isListener) {
+			return QVariant();
+		}
+
+		if (p == pSelf && p->bSelfMute) {
+			return static_cast< int >(Settings::Passive);
+		}
+
+		return static_cast< int >(p->tsState);
+	}
 
 	if (p) {
 		switch (role) {
@@ -482,40 +648,7 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 
 					return createDisplayString(*p, item->isListener, parentChannel);
 				}
-
-				// Most of the following icons are for non-listeners (as listeners are merely proxies) only
-				// but in order to not change the order of the icons, the condition is added to each case
-				// individually instead of checking it up front.
-				if (!p->qbaCommentHash.isEmpty() && !item->isListener)
-					l << (item->bCommentSeen ? qiCommentSeen : qiComment);
-				if (p->bPrioritySpeaker && !item->isListener)
-					l << qiPrioritySpeaker;
-				if (p->bRecording)
-					l << qiRecording;
-				// ClientUser doesn't contain a push-to-mute
-				// state because it isn't sent to the server.
-				// We can show the icon only for the local user.
-				if (p == pSelf && Global::get().bPushToMute && !item->isListener)
-					l << qiMutedPushToMute;
-				if (p->bMute || item->isListener)
-					l << qiMutedServer;
-				if (p->bSuppress && !item->isListener)
-					l << qiMutedSuppressed;
-				if (p->bSelfMute && !item->isListener)
-					l << qiMutedSelf;
-				if (p->bLocalMute && !item->isListener)
-					l << qiMutedLocal;
-				if (p->bLocalIgnore && !item->isListener)
-					l << qiIgnoredLocal;
-				if (p->bDeaf)
-					l << qiDeafenedServer;
-				if (p->bSelfDeaf)
-					l << qiDeafenedSelf;
-				if (p->iId >= 0 && !item->isListener)
-					l << qiAuthenticated;
-				if (!p->qsFriendName.isEmpty() && !item->isListener)
-					l << qiFriend;
-				return l;
+				return userStatusIcons();
 			case Qt::AccessibleTextRole:
 				if (item->isListener) {
 					return tr("Channel Listener");
@@ -549,30 +682,7 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 
 					return QString::fromLatin1("%1 (%2)").arg(c->qsName).arg(item->iUsers);
 				}
-				if (!c->qbaDescHash.isEmpty())
-					l << (item->bCommentSeen ? qiCommentSeen : qiComment);
-
-				switch (c->m_filterMode) {
-					case ChannelFilterMode::HIDE:
-						l << (qiFilter);
-						break;
-					case ChannelFilterMode::PIN:
-						l << (qiPin);
-						break;
-					case ChannelFilterMode::NORMAL:
-						// NOOP
-						break;
-				}
-
-				// Show a lock icon for enter restricted channels
-				if (c->hasEnterRestrictions.load()) {
-					if (c->localUserCanEnter.load()) {
-						l << qiLock_unlocked;
-					} else {
-						l << qiLock_locked;
-					}
-				}
-				return l;
+				return channelStatusIcons();
 			case Qt::FontRole:
 				if (Global::get().uiSession) {
 					Channel *home = ClientUser::get(Global::get().uiSession)->cChannel;

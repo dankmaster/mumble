@@ -10,13 +10,101 @@
 #include "Log.h"
 #include "MainWindow.h"
 #include "ServerHandler.h"
+#include "Settings.h"
 #include "UserModel.h"
 #include "Global.h"
 
 #include <QtGui/QDesktopServices>
 #include <QtGui/QHelpEvent>
 #include <QtGui/QPainter>
+#include <QtGui/QPainterPath>
 #include <QtWidgets/QWhatsThis>
+
+namespace {
+	QColor mixRowColors(const QColor &baseColor, const QColor &overlayColor, qreal overlayRatio) {
+		const qreal clampedRatio = qBound< qreal >(0.0, overlayRatio, 1.0);
+		const qreal baseRatio    = 1.0 - clampedRatio;
+		return QColor::fromRgbF(baseColor.redF() * baseRatio + overlayColor.redF() * clampedRatio,
+								baseColor.greenF() * baseRatio + overlayColor.greenF() * clampedRatio,
+								baseColor.blueF() * baseRatio + overlayColor.blueF() * clampedRatio, 1.0);
+	}
+
+	bool isDarkRowPalette(const QPalette &palette) {
+		return palette.color(QPalette::WindowText).lightness() > palette.color(QPalette::Window).lightness();
+	}
+
+	struct NavigatorRowPalette {
+		QColor surfaceColor;
+		QColor hoverColor;
+		QColor selectedColor;
+		QColor selectedOutlineColor;
+		QColor currentColor;
+		QColor linkedColor;
+		QColor textColor;
+		QColor mutedTextColor;
+		QColor accentColor;
+		QColor avatarFillColor;
+		QColor avatarTextColor;
+		QColor chipColor;
+		QColor chipTextColor;
+		QColor iconTintColor;
+		QColor speakingColor;
+		QColor mutedSpeakingColor;
+	};
+
+	NavigatorRowPalette buildNavigatorRowPalette(const QPalette &palette) {
+		NavigatorRowPalette colors;
+		const bool darkTheme       = isDarkRowPalette(palette);
+		const QColor windowColor   = palette.color(QPalette::Window);
+		const QColor baseColor     = palette.color(QPalette::Base);
+		const QColor highlightColor = palette.color(QPalette::Highlight);
+		const QColor textColor     = palette.color(QPalette::WindowText);
+
+		colors.surfaceColor         = mixRowColors(baseColor, windowColor, darkTheme ? 0.18 : 0.10);
+		colors.hoverColor           = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.16 : 0.08);
+		colors.selectedColor        = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.36 : 0.16);
+		colors.selectedOutlineColor = mixRowColors(highlightColor, textColor, darkTheme ? 0.18 : 0.10);
+		colors.currentColor         = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.24 : 0.12);
+		colors.linkedColor          = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.14 : 0.07);
+		colors.textColor            = textColor;
+		colors.mutedTextColor       = mixRowColors(textColor, windowColor, darkTheme ? 0.44 : 0.32);
+		colors.accentColor          = mixRowColors(highlightColor, textColor, darkTheme ? 0.10 : 0.06);
+		colors.avatarFillColor      = mixRowColors(colors.selectedColor, colors.surfaceColor, darkTheme ? 0.30 : 0.18);
+		colors.avatarTextColor      = colors.textColor;
+		colors.chipColor            = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.20 : 0.09);
+		colors.chipTextColor        = mixRowColors(colors.textColor, highlightColor, darkTheme ? 0.04 : 0.02);
+		colors.iconTintColor        = mixRowColors(colors.textColor, windowColor, darkTheme ? 0.24 : 0.12);
+		colors.speakingColor        = QColor::fromRgb(darkTheme ? 114 : 54, darkTheme ? 217 : 168, darkTheme ? 153 : 97);
+		colors.mutedSpeakingColor   = QColor::fromRgb(darkTheme ? 230 : 190, darkTheme ? 176 : 120, darkTheme ? 96 : 70);
+		return colors;
+	}
+
+	QString normalizedNavigatorText(const QString &text) {
+		return text.simplified();
+	}
+
+	QString occupantLabel(int count) {
+		if (count <= 0) {
+			return QString();
+		}
+
+		return QString::number(count);
+	}
+
+	QColor talkStateColor(int talkState, const NavigatorRowPalette &colors) {
+		switch (static_cast< Settings::TalkState >(talkState)) {
+			case Settings::Talking:
+			case Settings::Whispering:
+			case Settings::Shouting:
+				return colors.speakingColor;
+			case Settings::MutedTalking:
+				return colors.mutedSpeakingColor;
+			case Settings::Passive:
+			default:
+				return QColor();
+		}
+	}
+}
 
 UserDelegate::UserDelegate(QObject *p) : QStyledItemDelegate(p) {
 }
@@ -28,70 +116,163 @@ void UserDelegate::adjustIcons(int iconTotalDimension, int iconIconPadding, int 
 }
 
 void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
-	const QAbstractItemModel *m = index.model();
-	const QModelIndex idxc1     = index.sibling(index.row(), 1);
-	QVariant data               = m->data(idxc1);
-	QList< QVariant > ql        = data.toList();
+	if (!index.isValid() || index.column() != 0) {
+		QStyledItemDelegate::paint(painter, option, index);
+		return;
+	}
 
-	// Allow a UserView's BackgroundRole to override the current theme's default color.
-	QVariant bg = index.data(Qt::BackgroundRole);
-	if (bg.isValid()) {
-		painter->fillRect(option.rect, bg.value< QBrush >());
+	QStyleOptionViewItem opt(option);
+	initStyleOption(&opt, index);
+
+	const NavigatorRowPalette colors = buildNavigatorRowPalette(opt.palette);
+	const QList< QVariant > statusIcons =
+		index.data(UserModel::NavigatorStatusIconsRole).toList();
+	const QString title =
+		normalizedNavigatorText(index.data(UserModel::NavigatorTitleRole).toString());
+	const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
+	const int occupancy = index.data(UserModel::NavigatorOccupancyRole).toInt();
+	const bool currentLocation = index.data(UserModel::NavigatorCurrentLocationRole).toBool();
+	const bool linkedLocation = index.data(UserModel::NavigatorLinkedLocationRole).toBool();
+	const QImage avatarImage =
+		qvariant_cast< QImage >(index.data(UserModel::NavigatorAvatarImageRole));
+	const QString avatarFallback = index.data(UserModel::NavigatorAvatarFallbackRole).toString();
+	const int talkState = index.data(UserModel::NavigatorTalkStateRole).toInt();
+	const bool isSelected = opt.state.testFlag(QStyle::State_Selected);
+	const bool isListener = itemKind == UserModel::NavigatorListenerItem;
+	const QColor primaryTextColor = isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.textColor;
+	const QColor secondaryTextColor = isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.mutedTextColor;
+
+	QRect contentRect = option.rect.adjusted(12, 2, -12, -2);
+	int trailingIconsWidth = 0;
+	if (!statusIcons.isEmpty()) {
+		trailingIconsWidth = static_cast< int >(statusIcons.size() * m_iconTotalDimension);
+	}
+
+	QString occupancyText;
+	if (itemKind == UserModel::NavigatorChannelItem) {
+		occupancyText = occupantLabel(occupancy);
+	}
+
+	QFont chipFont(opt.font);
+	chipFont.setBold(true);
+	chipFont.setPointSizeF(std::max(chipFont.pointSizeF() - 1.0, 8.0));
+	QFontMetrics chipMetrics(chipFont);
+	int occupancyWidth = 0;
+	if (!occupancyText.isEmpty()) {
+		occupancyWidth = chipMetrics.horizontalAdvance(occupancyText) + 16;
+	}
+
+	int textRight = contentRect.right() - trailingIconsWidth;
+	if (trailingIconsWidth > 0) {
+		textRight -= 6;
+	}
+	if (occupancyWidth > 0) {
+		textRight -= occupancyWidth + 8;
 	}
 
 	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing, true);
 
-	QStyleOptionViewItem o = option;
-	initStyleOption(&o, index);
+	int x = contentRect.left();
+	if (itemKind == UserModel::NavigatorChannelItem) {
+		const QIcon channelIcon = qvariant_cast< QIcon >(index.data(Qt::DecorationRole));
+		const QRect iconRect(x, contentRect.center().y() - 9, 18, 18);
+		if (!channelIcon.isNull()) {
+			channelIcon.paint(painter, iconRect, Qt::AlignCenter,
+							  isSelected ? QIcon::Selected : QIcon::Normal, QIcon::On);
+		}
+		if (currentLocation || linkedLocation) {
+			painter->setPen(Qt::NoPen);
+			painter->setBrush(currentLocation ? colors.selectedOutlineColor : colors.linkedColor);
+			painter->drawEllipse(QRect(iconRect.right() - 4, iconRect.top() - 1, 7, 7));
+		}
+		x = iconRect.right() + 10;
+	} else {
+		const QRect avatarRect(x, contentRect.center().y() - 12, 24, 24);
+		painter->setPen(Qt::NoPen);
+		painter->setBrush(isSelected ? opt.palette.color(QPalette::Highlight) : colors.avatarFillColor);
+		painter->drawEllipse(avatarRect);
+		if (!avatarImage.isNull()) {
+			QPainterPath clipPath;
+			clipPath.addEllipse(avatarRect);
+			painter->save();
+			painter->setClipPath(clipPath);
+			const QImage scaledImage =
+				avatarImage.scaled(avatarRect.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+			const QPoint imageTopLeft(
+				avatarRect.center().x() - scaledImage.width() / 2,
+				avatarRect.center().y() - scaledImage.height() / 2);
+			painter->drawImage(imageTopLeft, scaledImage);
+			painter->restore();
+		} else {
+			painter->setPen(isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.avatarTextColor);
+			painter->setFont(chipFont);
+			painter->drawText(avatarRect, Qt::AlignCenter,
+							  avatarFallback.isEmpty() ? QStringLiteral("?") : avatarFallback);
+		}
 
-	QStyle *style        = o.widget->style();
-	QIcon::Mode iconMode = QIcon::Normal;
+		if (const QColor speakingColor = talkStateColor(talkState, colors); speakingColor.isValid()) {
+			const QRect statusDotRect(avatarRect.right() - 5, avatarRect.bottom() - 6, 8, 8);
+			painter->setPen(QPen(colors.surfaceColor, 1.5));
+			painter->setBrush(speakingColor);
+			painter->drawEllipse(statusDotRect);
+		} else if (currentLocation) {
+			const QRect statusDotRect(avatarRect.right() - 5, avatarRect.bottom() - 6, 8, 8);
+			painter->setPen(QPen(colors.surfaceColor, 1.5));
+			painter->setBrush(colors.selectedOutlineColor);
+			painter->drawEllipse(statusDotRect);
+		}
 
-	QPalette::ColorRole colorRole = ((o.state & QStyle::State_Selected) ? QPalette::HighlightedText : QPalette::Text);
-#if defined(Q_OS_WIN)
-	// Qt's Vista Style has the wrong highlight color for treeview items
-	// We can't check for QStyleSheetStyle so we have to search the children list search for a QWindowsVistaStyle
-	QList< QObject * > hierarchy = style->findChildren< QObject * >();
-	hierarchy.insert(0, style);
-	for (QObject *obj : hierarchy) {
-		if (QString::fromUtf8(obj->metaObject()->className()) == QString::fromUtf8("QWindowsVistaStyle")) {
-			colorRole = QPalette::Text;
-			break;
+		if (isListener) {
+			const QIcon listenerIcon = qvariant_cast< QIcon >(index.data(Qt::DecorationRole));
+			const QRect listenerRect(avatarRect.right() - 8, avatarRect.top() - 2, 11, 11);
+			if (!listenerIcon.isNull()) {
+				listenerIcon.paint(painter, listenerRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
+			}
+		}
+
+		x = avatarRect.right() + 10;
+	}
+
+	const QRect textRect(x, contentRect.top(), std::max(20, textRight - x), contentRect.height());
+	QFont titleFont(opt.font);
+	titleFont.setBold(currentLocation || isSelected || itemKind == UserModel::NavigatorChannelItem);
+	painter->setFont(titleFont);
+	painter->setPen(primaryTextColor);
+	painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+					  QFontMetrics(titleFont).elidedText(title, Qt::ElideRight, textRect.width()));
+
+	int iconRight = contentRect.right();
+	if (!statusIcons.isEmpty()) {
+		const int iconPosY = contentRect.center().y() - (m_iconIconDimension / 2);
+		for (int i = static_cast< int >(statusIcons.size()) - 1; i >= 0; --i) {
+			iconRight -= m_iconTotalDimension;
+			const QRect iconRect(iconRight + m_iconIconPadding, iconPosY, m_iconIconDimension, m_iconIconDimension);
+			const QIcon icon = qvariant_cast< QIcon >(statusIcons.at(i));
+			icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 		}
 	}
-#endif
 
-	// draw background
-	style->drawPrimitive(QStyle::PE_PanelItemViewItem, &o, painter, o.widget);
-
-	// resize rect to exclude the icons
-	o.rect = option.rect.adjusted(0, 0, static_cast< int >(-m_iconTotalDimension * ql.count()), 0);
-
-	// draw icon
-	QRect decorationRect = style->subElementRect(QStyle::SE_ItemViewItemDecoration, &o, o.widget);
-	o.icon.paint(painter, decorationRect, o.decorationAlignment, iconMode, QIcon::On);
-
-	// draw text
-	QRect textRect   = style->subElementRect(QStyle::SE_ItemViewItemText, &o, o.widget);
-	QString itemText = o.fontMetrics.elidedText(o.text, o.textElideMode, textRect.width());
-	painter->setFont(o.font);
-	style->drawItemText(painter, textRect, static_cast< int >(o.displayAlignment), o.palette, true, itemText,
-						colorRole);
-
-	// draw icons to original rect
-	const QRect ps     = QRect(option.rect.right() - (static_cast< int >(ql.size() * m_iconTotalDimension)),
-                           option.rect.y(), static_cast< int >(ql.size() * m_iconTotalDimension), option.rect.height());
-	const int iconPosY = (option.rect.height() / 2) - (m_iconIconDimension / 2);
-
-	for (int i = 0; i < ql.size(); ++i) {
-		QRect r = ps;
-		r.setSize(QSize(m_iconIconDimension, m_iconIconDimension));
-		r.translate(i * m_iconTotalDimension + m_iconIconPadding, iconPosY);
-		QRect p = QStyle::alignedRect(option.direction, option.decorationAlignment, r.size(), r);
-		qvariant_cast< QIcon >(ql[i]).paint(painter, p, option.decorationAlignment, iconMode, QIcon::On);
+	if (!occupancyText.isEmpty()) {
+		const QRect chipRect(iconRight - occupancyWidth - 4, contentRect.center().y() - 11, occupancyWidth, 22);
+		painter->setPen(Qt::NoPen);
+		painter->setBrush(isSelected ? opt.palette.color(QPalette::Highlight) : colors.chipColor);
+		painter->drawRoundedRect(chipRect, 11.0f, 11.0f);
+		painter->setFont(chipFont);
+		painter->setPen(isSelected ? opt.palette.color(QPalette::HighlightedText) : secondaryTextColor);
+		painter->drawText(chipRect, Qt::AlignCenter, occupancyText);
 	}
 
 	painter->restore();
+}
+
+QSize UserDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
+	QSize hint = QStyledItemDelegate::sizeHint(option, index);
+	if (!index.isValid() || index.column() != 0) {
+		return hint;
+	}
+
+	return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 14));
 }
 
 bool UserDelegate::helpEvent(QHelpEvent *evt, QAbstractItemView *view, const QStyleOptionViewItem &option,
@@ -126,26 +307,37 @@ UserView::UserView(QWidget *p) : QTreeView(p), m_userDelegate(make_qt_unique< Us
 void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
 	const bool isSelected = option.state & QStyle::State_Selected;
 	const bool isHovered  = index == m_hoveredIndex;
-	if (isSelected || isHovered) {
-		QBrush rowBrush;
+	const bool isCurrentLocation = index.data(UserModel::NavigatorCurrentLocationRole).toBool();
+	const bool isLinkedLocation  = index.data(UserModel::NavigatorLinkedLocationRole).toBool();
+	if (isSelected || isHovered || isCurrentLocation || isLinkedLocation) {
+		const NavigatorRowPalette colors = buildNavigatorRowPalette(option.palette);
+		QColor rowFillColor;
+		QColor borderColor(Qt::transparent);
 		if (isSelected) {
-			rowBrush = option.palette.brush(QPalette::Highlight);
+			rowFillColor = colors.selectedColor;
+			borderColor  = colors.selectedOutlineColor;
+		} else if (isCurrentLocation) {
+			rowFillColor = colors.currentColor;
+			borderColor  = colors.selectedOutlineColor;
+		} else if (isHovered) {
+			rowFillColor = colors.hoverColor;
 		} else {
-			QColor hoverColor = property("rowHoverColor").value< QColor >();
-			if (!hoverColor.isValid()) {
-				hoverColor = option.palette.color(QPalette::Highlight);
-				hoverColor.setAlphaF(0.22f);
-			}
-			rowBrush = hoverColor;
+			rowFillColor = colors.linkedColor;
 		}
 
-		const QRect rowRect = QRect(8, option.rect.top() + 1, viewport()->width() - 16, option.rect.height() - 2);
+		const QRect rowRect = QRect(6, option.rect.top() + 1, viewport()->width() - 12, option.rect.height() - 2);
 		if (rowRect.isValid()) {
 			painter->save();
 			painter->setRenderHint(QPainter::Antialiasing, true);
-			painter->setPen(Qt::NoPen);
-			painter->setBrush(rowBrush);
-			painter->drawRoundedRect(rowRect, 6.0f, 6.0f);
+			painter->setPen(borderColor.alpha() == 0 ? Qt::NoPen : QPen(borderColor, 1.0));
+			painter->setBrush(rowFillColor);
+			painter->drawRoundedRect(rowRect, 10.0f, 10.0f);
+			if (isCurrentLocation && !isSelected) {
+				const QRect accentRect(rowRect.left() + 4, rowRect.top() + 5, 3, rowRect.height() - 10);
+				painter->setPen(Qt::NoPen);
+				painter->setBrush(colors.selectedOutlineColor);
+				painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
+			}
 			painter->restore();
 		}
 	}

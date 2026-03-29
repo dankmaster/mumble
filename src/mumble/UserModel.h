@@ -104,6 +104,24 @@ protected:
 	void removeChannelListener(ModelItem *item, ModelItem *citem = nullptr);
 
 public:
+	enum NavigatorDataRole {
+		NavigatorItemKindRole = Qt::UserRole + 32,
+		NavigatorTitleRole,
+		NavigatorOccupancyRole,
+		NavigatorCurrentLocationRole,
+		NavigatorLinkedLocationRole,
+		NavigatorAvatarImageRole,
+		NavigatorAvatarFallbackRole,
+		NavigatorStatusIconsRole,
+		NavigatorTalkStateRole
+	};
+
+	enum NavigatorItemKind {
+		NavigatorChannelItem = 0,
+		NavigatorUserItem    = 1,
+		NavigatorListenerItem = 2
+	};
+
 	UserModel(QObject *parent = 0);
 	~UserModel() Q_DECL_OVERRIDE;
 
