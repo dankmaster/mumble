@@ -385,36 +385,36 @@ namespace {
 		const QColor highlightedText  = palette.color(QPalette::HighlightedText);
 		const QColor textColor        = palette.color(QPalette::WindowText);
 
-		colors.railColor        = windowColor;
-		colors.textColor        = textColor;
-		colors.selectedTextColor = highlightedText;
+		colors.railColor         = windowColor;
+		colors.textColor         = textColor;
+		colors.selectedTextColor = colors.darkTheme ? textColor : highlightedText;
 		colors.accentColor =
-			colors.darkTheme ? mixColors(highlightColor, textColor, 0.10) : mixColors(highlightColor, baseColor, 0.08);
+			colors.darkTheme ? mixColors(textColor, highlightColor, 0.20) : mixColors(textColor, highlightColor, 0.24);
 
 		if (colors.darkTheme) {
-			colors.cardColor         = mixColors(baseColor, windowColor, 0.24);
-			colors.elevatedCardColor = mixColors(colors.cardColor, colors.accentColor, 0.07);
-			colors.panelColor        = mixColors(baseColor, colors.cardColor, 0.28);
-			colors.inputColor        = mixColors(colors.panelColor, colors.cardColor, 0.26);
-			colors.borderColor       = mixColors(colors.cardColor, colors.accentColor, 0.18);
-			colors.dividerColor      = mixColors(colors.railColor, colors.borderColor, 0.68);
+			colors.cardColor         = mixColors(windowColor, alternateColor, 0.52);
+			colors.elevatedCardColor = mixColors(colors.cardColor, baseColor, 0.14);
+			colors.panelColor        = mixColors(colors.elevatedCardColor, baseColor, 0.10);
+			colors.inputColor        = mixColors(colors.panelColor, baseColor, 0.18);
+			colors.borderColor       = mixColors(colors.cardColor, textColor, 0.12);
+			colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.58);
 		} else {
-			colors.cardColor         = mixColors(windowColor, alternateColor, 0.62);
-			colors.elevatedCardColor = mixColors(colors.cardColor, colors.accentColor, 0.05);
-			colors.panelColor        = mixColors(baseColor, alternateColor, 0.55);
-			colors.inputColor        = mixColors(colors.panelColor, windowColor, 0.38);
-			colors.borderColor       = mixColors(colors.cardColor, colors.accentColor, 0.18);
-			colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.78);
+			colors.cardColor         = mixColors(windowColor, alternateColor, 0.40);
+			colors.elevatedCardColor = mixColors(colors.cardColor, baseColor, 0.18);
+			colors.panelColor        = mixColors(colors.elevatedCardColor, baseColor, 0.08);
+			colors.inputColor        = mixColors(colors.panelColor, windowColor, 0.32);
+			colors.borderColor       = mixColors(colors.cardColor, textColor, 0.16);
+			colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.66);
 		}
 
-		colors.mutedTextColor = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.48 : 0.36);
-		colors.eyebrowColor   = mixColors(colors.accentColor, textColor, colors.darkTheme ? 0.16 : 0.24);
-		colors.hoverColor     = mixColors(colors.panelColor, colors.accentColor, colors.darkTheme ? 0.16 : 0.10);
-		colors.selectedColor  = mixColors(colors.panelColor, colors.accentColor, colors.darkTheme ? 0.44 : 0.18);
+		colors.mutedTextColor = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.42 : 0.34);
+		colors.eyebrowColor   = mixColors(textColor, colors.accentColor, colors.darkTheme ? 0.34 : 0.42);
+		colors.hoverColor     = mixColors(colors.panelColor, textColor, colors.darkTheme ? 0.08 : 0.05);
+		colors.selectedColor  = mixColors(colors.panelColor, highlightColor, colors.darkTheme ? 0.16 : 0.12);
 		colors.scrollbarHandleColor =
-			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.12) : mixColors(colors.panelColor, textColor, 0.10);
+			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.14) : mixColors(colors.panelColor, textColor, 0.10);
 		colors.scrollbarHandleHoverColor =
-			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.24) : mixColors(colors.panelColor, textColor, 0.20);
+			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.24) : mixColors(colors.panelColor, textColor, 0.18);
 
 		return colors;
 	}
@@ -469,23 +469,24 @@ namespace {
 					break;
 			}
 
-			const QColor rowFillColor = selected
-											 ? chrome.selectedColor
-											 : (hovered ? chrome.hoverColor
-														: (utilityRow ? mixColors(chrome.panelColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.10 : 0.05)
-																	  : QColor(Qt::transparent)));
+			const QColor rowFillColor =
+				selected
+					? chrome.selectedColor
+					: (hovered ? chrome.hoverColor
+							   : (utilityRow ? mixColors(chrome.panelColor, chrome.textColor, chrome.darkTheme ? 0.06 : 0.03)
+											 : QColor(Qt::transparent)));
 			const QColor rowOutlineColor =
-				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.30 : 0.14) : QColor(Qt::transparent);
+				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.20 : 0.10) : QColor(Qt::transparent);
 			const QColor textColor = selected ? chrome.selectedTextColor : chrome.textColor;
 			const QColor mutedTextColor = selected ? chrome.selectedTextColor : chrome.mutedTextColor;
 			const QColor chipFillColor =
-				selected ? mixColors(chrome.selectedTextColor, chrome.selectedColor, chrome.darkTheme ? 0.14 : 0.08)
-						 : mixColors(chrome.elevatedCardColor, chrome.selectedColor, utilityRow ? (chrome.darkTheme ? 0.18 : 0.08)
-																								 : (chrome.darkTheme ? 0.24 : 0.10));
+				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.10 : 0.06)
+						 : mixColors(chrome.panelColor, chrome.textColor,
+									 utilityRow ? (chrome.darkTheme ? 0.10 : 0.05) : (chrome.darkTheme ? 0.07 : 0.05));
 			const QColor chipTextColor = selected ? chrome.selectedTextColor : mutedTextColor;
 			const QColor unreadFillColor =
-				selected ? mixColors(chrome.selectedTextColor, chrome.selectedColor, chrome.darkTheme ? 0.16 : 0.10)
-						 : mixColors(chrome.selectedColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.34 : 0.14);
+				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.12 : 0.08)
+						 : mixColors(chrome.selectedColor, chrome.panelColor, chrome.darkTheme ? 0.34 : 0.22);
 			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
 
 			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
