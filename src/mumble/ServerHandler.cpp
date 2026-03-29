@@ -1087,11 +1087,14 @@ void ServerHandler::sendChannelTextMessage(unsigned int channel, const QString &
 }
 
 void ServerHandler::sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_,
+									MumbleProto::ChatBodyFormat bodyFormat,
 									std::optional< unsigned int > replyToMessageID) {
 	MumbleProto::ChatSend message;
 	message.set_scope(scope);
 	message.set_scope_id(scopeID);
 	message.set_message(u8(message_));
+	message.set_body_text(u8(message_));
+	message.set_body_format(bodyFormat);
 	if (replyToMessageID) {
 		message.set_reply_to_message_id(replyToMessageID.value());
 	}
@@ -1122,12 +1125,15 @@ void ServerHandler::removeTextChannel(unsigned int textChannelID) {
 }
 
 void ServerHandler::requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int startOffset,
-									   unsigned int limit) {
+									   unsigned int limit, std::optional< unsigned int > beforeMessageID) {
 	MumbleProto::ChatHistoryRequest request;
 	request.set_scope(scope);
 	request.set_scope_id(scopeID);
 	request.set_start_offset(startOffset);
 	request.set_limit(limit);
+	if (beforeMessageID) {
+		request.set_before_message_id(beforeMessageID.value());
+	}
 	sendMessage(request);
 }
 

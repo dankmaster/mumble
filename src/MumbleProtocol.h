@@ -60,7 +60,14 @@
 	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareOffer, 35)    \
 	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareAnswer, 36)   \
 	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareIceCandidate, 37) \
-	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareStop, 38)
+	PROCESS_MUMBLE_TCP_MESSAGE(ScreenShareStop, 38)     \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetUploadInit, 39) \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetUploadChunk, 40) \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetUploadCommit, 41) \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetState, 42)      \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetRequest, 43)    \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetChunk, 44)      \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatEmbedState, 45)
 
 /**
  * "X-macro" for all Mumble Protobuf UDP messages types.

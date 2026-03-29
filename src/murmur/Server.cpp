@@ -41,11 +41,17 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QMessageAuthenticationCode>
 #include <QtCore/QDateTime>
+#include <QtCore/QDirIterator>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtCore/QRandomGenerator>
 #include <QtCore/QRegularExpression>
 #include <QtCore/QSet>
 #include <QtCore/QUuid>
 #include <QtCore/QXmlStreamAttributes>
 #include <QtCore/QtEndian>
+#include <QtCore/QCryptographicHash>
+#include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QHostInfo>
 #include <QtNetwork/QSslConfiguration>
 
@@ -125,12 +131,15 @@ Server::Server(unsigned int snum, const ::mumble::db::ConnectionParameter &conne
 	hNotify = nullptr;
 #endif
 	qtTimeout = new QTimer(this);
+	qtChatAssetRetention = new QTimer(this);
+	qtChatAssetRetention->setInterval(15 * 60 * 1000);
+	connect(qtChatAssetRetention, &QTimer::timeout, this, &Server::runChatAssetRetentionSweep);
 
 	iCodecAlpha = iCodecBeta = 0;
 	bPreferAlpha             = false;
 	bOpus                    = true;
 
-	qnamNetwork = nullptr;
+	qnamNetwork = new QNetworkAccessManager(this);
 
 	readParams();
 
@@ -150,6 +159,8 @@ Server::Server(unsigned int snum, const ::mumble::db::ConnectionParameter &conne
 
 	if (!bValid)
 		return;
+
+	qtChatAssetRetention->start();
 
 	for (SslServer *ss : qlServer) {
 		sockaddr_storage addr;
@@ -377,6 +388,11 @@ void Server::readParams() {
 	qsScreenShareRelayAPIKey           = Meta::mp->qsScreenShareRelayAPIKey;
 	qsScreenShareRelayAPISecret        = Meta::mp->qsScreenShareRelayAPISecret;
 	bScreenShareDiagnosticsLogging     = Meta::mp->screenShareDiagnosticsLogging;
+	qsChatAssetStoragePath            = Meta::mp->qsChatAssetStoragePath;
+	uiChatAssetMaxBytes               = Meta::mp->uiChatAssetMaxBytes;
+	uiChatAssetTotalQuotaBytes        = Meta::mp->uiChatAssetTotalQuotaBytes;
+	uiChatAttachmentLimit             = Meta::mp->uiChatAttachmentLimit;
+	bChatPreviewFetchEnabled          = Meta::mp->bChatPreviewFetchEnabled;
 	iDefaultChan                       = Meta::mp->iDefaultChan;
 	bRememberChan                      = Meta::mp->bRememberChan;
 	iRememberChanDuration              = Meta::mp->iRememberChanDuration;
@@ -474,6 +490,11 @@ void Server::readParams() {
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_relay_api_key", qsScreenShareRelayAPIKey);
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_relay_api_secret", qsScreenShareRelayAPISecret);
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_diagnostics_logging", bScreenShareDiagnosticsLogging);
+	m_dbWrapper.getConfigurationTo(iServerNum, "chat_asset_storage_path", qsChatAssetStoragePath);
+	m_dbWrapper.getConfigurationTo(iServerNum, "chat_asset_max_bytes", uiChatAssetMaxBytes);
+	m_dbWrapper.getConfigurationTo(iServerNum, "chat_asset_total_quota_bytes", uiChatAssetTotalQuotaBytes);
+	m_dbWrapper.getConfigurationTo(iServerNum, "chat_attachment_limit", uiChatAttachmentLimit);
+	m_dbWrapper.getConfigurationTo(iServerNum, "chat_preview_fetch_enabled", bChatPreviewFetchEnabled);
 	uiScreenShareMaxWidth =
 		Mumble::ScreenShare::sanitizeLimit(uiScreenShareMaxWidth, Meta::mp->uiScreenShareMaxWidth,
 										   Mumble::ScreenShare::HARD_MAX_WIDTH);
@@ -486,6 +507,10 @@ void Server::readParams() {
 	qsScreenShareRelayUrl = Mumble::ScreenShare::normalizeRelayUrl(qsScreenShareRelayUrl);
 	qsScreenShareRelayAPIKey = qsScreenShareRelayAPIKey.trimmed();
 	qsScreenShareRelayAPISecret = qsScreenShareRelayAPISecret.trimmed();
+	qsChatAssetStoragePath = qsChatAssetStoragePath.trimmed();
+	if (uiChatAttachmentLimit == 0) {
+		uiChatAttachmentLimit = 1;
+	}
 	m_dbWrapper.getConfigurationTo(iServerNum, "defaultchannel", iDefaultChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannel", bRememberChan);
 	m_dbWrapper.getConfigurationTo(iServerNum, "rememberchannelduration", iRememberChanDuration);
@@ -563,9 +588,163 @@ void Server::readParams() {
 								   broadcastListenerVolumeAdjustments);
 }
 
+QString Server::chatAssetStorageRootPath() const {
+	if (!qsChatAssetStoragePath.isEmpty()) {
+		const QFileInfo configuredPath(qsChatAssetStoragePath);
+		if (configuredPath.isAbsolute()) {
+			return configuredPath.absoluteFilePath();
+		}
+
+		return Meta::mp->qdBasePath.absoluteFilePath(qsChatAssetStoragePath);
+	}
+
+	return Meta::mp->qdBasePath.absoluteFilePath(QStringLiteral("chat-assets"));
+}
+
+QString Server::chatAssetServerRootPath() const {
+	return QDir(chatAssetStorageRootPath()).absoluteFilePath(QStringLiteral("server-%1").arg(iServerNum));
+}
+
+QString Server::chatAssetIncomingRootPath() const {
+	return QDir(chatAssetServerRootPath()).absoluteFilePath(QStringLiteral("incoming"));
+}
+
+QString Server::chatAssetObjectRootPath() const {
+	return QDir(chatAssetServerRootPath()).absoluteFilePath(QStringLiteral("objects"));
+}
+
+QString Server::chatAssetAbsolutePath(const QString &storageKey) const {
+	return QDir(chatAssetStorageRootPath()).absoluteFilePath(storageKey);
+}
+
+QString Server::chatAssetStorageKey(unsigned int assetID, const QString &sha256) const {
+	Q_UNUSED(assetID);
+	const QString normalizedHash = sha256.toLower();
+	return QStringLiteral("server-%1/objects/%2/%3/%4-%5.bin")
+		.arg(iServerNum)
+		.arg(normalizedHash.left(2))
+		.arg(normalizedHash.mid(2, 2))
+		.arg(normalizedHash.left(12))
+		.arg(normalizedHash);
+}
+
+bool Server::ensureChatAssetStorageReady(QString *error) const {
+	QDir rootDir;
+	if (!rootDir.mkpath(chatAssetIncomingRootPath()) || !rootDir.mkpath(chatAssetObjectRootPath())) {
+		if (error) {
+			*error = QStringLiteral("Failed to initialize chat asset storage under %1")
+						 .arg(chatAssetStorageRootPath());
+		}
+		return false;
+	}
+
+	return true;
+}
+
+quint64 Server::chatAssetStoredBytes() const {
+	const QDir objectRoot(chatAssetObjectRootPath());
+	if (!objectRoot.exists()) {
+		return 0;
+	}
+
+	quint64 totalBytes = 0;
+	QDirIterator it(objectRoot.absolutePath(), QDir::Files, QDirIterator::Subdirectories);
+	while (it.hasNext()) {
+		it.next();
+		totalBytes += static_cast< quint64 >(it.fileInfo().size());
+	}
+
+	return totalBytes;
+}
+
+bool Server::canAccessChatAsset(ServerUser *user, unsigned int assetID) {
+	if (!user) {
+		return false;
+	}
+
+	QHash< unsigned int, ::msdb::DBTextChannel > textChannels;
+	for (const auto &textChannel : m_dbWrapper.getTextChannels(iServerNum)) {
+		textChannels.insert(textChannel.textChannelID, textChannel);
+	}
+
+	for (unsigned int threadID : m_dbWrapper.getChatAssetThreadIDs(iServerNum, assetID)) {
+		const ::msdb::DBChatThread thread = m_dbWrapper.getChatThread(iServerNum, threadID);
+		Channel *permissionChannel = nullptr;
+		const QString scopeKey     = QString::fromStdString(thread.scopeKey);
+		switch (thread.scope) {
+			case ::msdb::ChatThreadScope::Channel:
+				if (!scopeKey.startsWith(QStringLiteral("channel:"))) {
+					continue;
+				}
+				permissionChannel = qhChannels.value(scopeKey.mid(8).toUInt());
+				break;
+			case ::msdb::ChatThreadScope::ServerGlobal:
+				permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+				break;
+			case ::msdb::ChatThreadScope::TextChannel: {
+				if (!scopeKey.startsWith(QStringLiteral("text:"))) {
+					continue;
+				}
+				const unsigned int textChannelID = scopeKey.mid(5).toUInt();
+				const auto it = textChannels.constFind(textChannelID);
+				if (it == textChannels.cend()) {
+					continue;
+				}
+				permissionChannel = qhChannels.value(it->aclChannelID);
+				break;
+			}
+			case ::msdb::ChatThreadScope::Private:
+				continue;
+		}
+		if (!permissionChannel) {
+			continue;
+		}
+
+		if (ChanACL::hasPermission(user, permissionChannel, ChanACL::TextMessage, &acCache)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void Server::runChatAssetRetentionSweep() {
+	const auto staleUploadCutoff = std::chrono::system_clock::now() - std::chrono::hours(1);
+	for (auto it = qhPendingChatAssetUploads.begin(); it != qhPendingChatAssetUploads.end();) {
+		if (it->createdAt >= staleUploadCutoff) {
+			++it;
+			continue;
+		}
+
+		if (!it->tempFilePath.isEmpty()) {
+			QFile::remove(it->tempFilePath);
+		}
+		it = qhPendingChatAssetUploads.erase(it);
+	}
+
+	const QDir incomingDir(chatAssetIncomingRootPath());
+	if (!incomingDir.exists()) {
+		return;
+	}
+
+	const QDateTime staleFileCutoff = QDateTime::currentDateTimeUtc().addDays(-1);
+	QDirIterator it(incomingDir.absolutePath(), QDir::Files, QDirIterator::Subdirectories);
+	while (it.hasNext()) {
+		it.next();
+		const QFileInfo info = it.fileInfo();
+		if (!info.exists() || info.lastModified().toUTC() >= staleFileCutoff) {
+			continue;
+		}
+
+		QFile::remove(info.absoluteFilePath());
+	}
+}
+
 void Server::setLiveConf(const QString &key, const QString &value) {
 	QString v = value.trimmed().isEmpty() ? QString() : value;
 	int i     = v.toInt();
+	bool ulongLongOk = false;
+	const quint64 ulongLongValue = v.toULongLong(&ulongLongOk);
 	if ((key == "password") || (key == "serverpassword"))
 		qsPassword = !v.isNull() ? v : Meta::mp->qsPassword;
 	else if (key == "timeout")
@@ -618,6 +797,19 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 			mpsc.set_allow_html(bAllowHTML);
 			sendAll(mpsc);
 		}
+	} else if (key == "chat_asset_storage_path") {
+		qsChatAssetStoragePath = !v.isNull() ? v.trimmed() : Meta::mp->qsChatAssetStoragePath;
+	} else if (key == "chat_asset_max_bytes") {
+		uiChatAssetMaxBytes =
+			(ulongLongOk && ulongLongValue > 0) ? ulongLongValue : Meta::mp->uiChatAssetMaxBytes;
+	} else if (key == "chat_asset_total_quota_bytes") {
+		uiChatAssetTotalQuotaBytes = ulongLongOk ? ulongLongValue : Meta::mp->uiChatAssetTotalQuotaBytes;
+	} else if (key == "chat_attachment_limit") {
+		uiChatAttachmentLimit =
+			i > 0 ? static_cast< unsigned int >(i) : Meta::mp->uiChatAttachmentLimit;
+	} else if (key == "chat_preview_fetch_enabled") {
+		bChatPreviewFetchEnabled =
+			!v.isNull() ? QVariant(v).toBool() : Meta::mp->bChatPreviewFetchEnabled;
 	} else if (key == "persistentglobalchat") {
 		const bool enabled = !v.isNull() ? QVariant(v).toBool() : false;
 		if (enabled != bPersistentGlobalChatEnabled) {

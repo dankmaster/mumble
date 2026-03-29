@@ -38,7 +38,8 @@ namespace server {
 				static constexpr const char *author_user_id  = "author_user_id";
 				static constexpr const char *author_session  = "author_session";
 				static constexpr const char *author_name     = "author_name";
-				static constexpr const char *body            = "body";
+				static constexpr const char *body_text       = "body_text";
+				static constexpr const char *body_format     = "body_format";
 				static constexpr const char *created_at      = "created_at";
 				static constexpr const char *edited_at       = "edited_at";
 				static constexpr const char *deleted_at      = "deleted_at";
@@ -56,6 +57,8 @@ namespace server {
 				getMessages(unsigned int serverID, unsigned int threadID,
 							unsigned int maxEntries  = static_cast< unsigned int >(std::numeric_limits< int >::max()),
 							unsigned int startOffset = 0);
+			std::vector< DBChatMessage > getMessagesBefore(unsigned int serverID, unsigned int threadID,
+														 unsigned int beforeMessageID, unsigned int maxEntries);
 
 			unsigned int getFreeMessageID(unsigned int serverID);
 

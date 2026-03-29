@@ -6,9 +6,14 @@
 #ifndef MUMBLE_SERVER_DATABASE_DBCHATMESSAGE_H_
 #define MUMBLE_SERVER_DATABASE_DBCHATMESSAGE_H_
 
+#include "ChatDataTypes.h"
+#include "DBChatMessageAttachment.h"
+#include "DBChatMessageEmbed.h"
+
 #include <chrono>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace mumble {
 namespace server {
@@ -22,7 +27,10 @@ namespace server {
 			std::optional< unsigned int > authorUserID     = {};
 			std::optional< unsigned int > authorSession    = {};
 			std::optional< std::string > authorName        = {};
-			std::string body                               = {};
+			std::string bodyText                           = {};
+			ChatMessageBodyFormat bodyFormat               = ChatMessageBodyFormat::PlainText;
+			std::vector< DBChatMessageAttachment > attachments = {};
+			std::vector< DBChatMessageEmbed > embeds       = {};
 			std::chrono::system_clock::time_point createdAt = {};
 			std::chrono::system_clock::time_point editedAt  = {};
 			std::chrono::system_clock::time_point deletedAt = {};

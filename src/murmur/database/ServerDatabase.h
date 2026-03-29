@@ -25,6 +25,9 @@ namespace server {
 		class ChatThreadTable;
 		class ChatMessageTable;
 		class ChatReadStateTable;
+		class ChatAssetTable;
+		class ChatMessageAttachmentTable;
+		class ChatMessageEmbedTable;
 		class TextChannelTable;
 		class UserPropertyTable;
 		class GroupTable;
@@ -41,7 +44,7 @@ namespace server {
 			 * has to be accompanied by increasing this number. A decrease is never allowed!
 			 * Using a schema version like this allows us to be able to create migration paths between schema versions.
 			 */
-			static constexpr unsigned int DB_SCHEMA_VERSION = 15;
+			static constexpr unsigned int DB_SCHEMA_VERSION = 16;
 
 			ServerDatabase(::mumble::db::Backend backend);
 			~ServerDatabase() = default;
@@ -60,6 +63,9 @@ namespace server {
 			ChatThreadTable &getChatThreadTable();
 			ChatMessageTable &getChatMessageTable();
 			ChatReadStateTable &getChatReadStateTable();
+			ChatAssetTable &getChatAssetTable();
+			ChatMessageAttachmentTable &getChatMessageAttachmentTable();
+			ChatMessageEmbedTable &getChatMessageEmbedTable();
 			TextChannelTable &getTextChannelTable();
 			UserPropertyTable &getUserPropertyTable();
 			GroupTable &getGroupTable();

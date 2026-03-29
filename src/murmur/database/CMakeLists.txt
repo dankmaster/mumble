@@ -37,6 +37,9 @@ add_library(mumble_server_database STATIC
 	"ChatThreadTable.cpp"
 	"ChatMessageTable.cpp"
 	"ChatReadStateTable.cpp"
+	"ChatAssetTable.cpp"
+	"ChatMessageAttachmentTable.cpp"
+	"ChatMessageEmbedTable.cpp"
 	"TextChannelTable.cpp"
 )
 

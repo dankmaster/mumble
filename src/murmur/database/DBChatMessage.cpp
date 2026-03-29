@@ -18,7 +18,8 @@ namespace server {
 				   && lhs.replyToMessageID == rhs.replyToMessageID && lhs.authorUserID == rhs.authorUserID
 				   && lhs.authorSession == rhs.authorSession
 				   && lhs.authorName == rhs.authorName
-				   && lhs.body == rhs.body && toEpochSeconds(lhs.createdAt) == toEpochSeconds(rhs.createdAt)
+				   && lhs.bodyText == rhs.bodyText && lhs.bodyFormat == rhs.bodyFormat
+				   && toEpochSeconds(lhs.createdAt) == toEpochSeconds(rhs.createdAt)
 				   && toEpochSeconds(lhs.editedAt) == toEpochSeconds(rhs.editedAt)
 				   && toEpochSeconds(lhs.deletedAt) == toEpochSeconds(rhs.deletedAt);
 		}

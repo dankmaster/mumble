@@ -23,6 +23,7 @@ option(bundle-qt-translations "Bundle Qt's translations as well" ${static})
 option(bundled-speex "Build the included version of Speex instead of looking for one on the system." ON)
 option(rnnoise "Use RNNoise for machine learning noise reduction." ON)
 option(bundled-rnnoise "Build the included version of RNNoise instead of looking for one on the system." ${rnnoise})
+option(dtln "Use DTLN for machine learning speech cleanup." OFF)
 
 option(manual-plugin "Include the built-in \"manual\" positional audio plugin." ON)
 
@@ -145,6 +146,8 @@ set(MUMBLE_SOURCES
 	"Database.h"
 	"DeveloperConsole.cpp"
 	"DeveloperConsole.h"
+	"DTLNSpeechCleanup.cpp"
+	"DTLNSpeechCleanup.h"
 	"EchoCancelOption.cpp"
 	"EchoCancelOption.h"
 	"EnumStringConversions.cpp"
@@ -210,6 +213,8 @@ set(MUMBLE_SOURCES
 	"PTTButtonWidget.cpp"
 	"PTTButtonWidget.h"
 	"PTTButtonWidget.ui"
+	"PersistentChatRender.cpp"
+	"PersistentChatRender.h"
 	"QtWidgetUtils.cpp"
 	"QtWidgetUtils.h"
 	"RichTextEditor.cpp"
@@ -317,6 +322,8 @@ set(MUMBLE_SOURCES
 	"widgets/MultiColumnTreeWidget.h"
 	"widgets/PersistentChatListWidget.cpp"
 	"widgets/PersistentChatListWidget.h"
+	"widgets/PersistentChatMessageGroupWidget.cpp"
+	"widgets/PersistentChatMessageGroupWidget.h"
 	"widgets/RichTextItemDelegate.cpp"
 	"widgets/RichTextItemDelegate.h"
 	"widgets/SearchDialogItemDelegate.cpp"
@@ -802,6 +809,38 @@ if(rnnoise)
 
 		target_link_libraries(mumble_client_object_lib PRIVATE ${rnnoise_LIBRARIES})
 	endif()
+endif()
+
+if(dtln)
+	find_package(ONNXRuntime REQUIRED)
+
+	target_compile_definitions(mumble_client_object_lib PRIVATE "USE_DTLN")
+	target_include_directories(mumble_client_object_lib SYSTEM PRIVATE ${ONNXRUNTIME_INCLUDE_DIR})
+	target_link_libraries(mumble_client_object_lib PRIVATE ONNXRuntime::ONNXRuntime)
+
+	set(DTLN_MODEL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dtln")
+	set(DTLN_MODEL_OUTPUT_DIR "${CMAKE_BINARY_DIR}/dtln")
+	set(DTLN_MODEL_FILES
+		"${DTLN_MODEL_SOURCE_DIR}/model_1.onnx"
+		"${DTLN_MODEL_SOURCE_DIR}/model_2.onnx"
+	)
+
+	foreach(DTLN_MODEL_FILE ${DTLN_MODEL_FILES})
+		add_custom_command(TARGET mumble POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${DTLN_MODEL_OUTPUT_DIR}"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DTLN_MODEL_FILE}" "${DTLN_MODEL_OUTPUT_DIR}"
+		)
+	endforeach()
+
+	if(DEFINED ONNXRUNTIME_RUNTIME AND NOT "${ONNXRUNTIME_RUNTIME}" STREQUAL "")
+		add_custom_command(TARGET mumble POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ONNXRUNTIME_RUNTIME}" "$<TARGET_FILE_DIR:mumble>"
+		)
+
+		install(FILES "${ONNXRUNTIME_RUNTIME}" DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}" COMPONENT mumble_client)
+	endif()
+
+	install(FILES ${DTLN_MODEL_FILES} DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}/dtln" COMPONENT mumble_client)
 endif()
 
 if(qtspeech)

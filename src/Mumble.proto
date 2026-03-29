@@ -707,12 +707,66 @@ enum ChatScope {
 	TextChannel = 3;
 }
 
+enum ChatBodyFormat {
+	ChatBodyFormatPlainText = 0;
+	ChatBodyFormatMarkdownLite = 1;
+}
+
+enum ChatAssetKind {
+	ChatAssetKindUnknown = 0;
+	ChatAssetKindImage = 1;
+	ChatAssetKindVideo = 2;
+	ChatAssetKindDocument = 3;
+	ChatAssetKindBinary = 4;
+}
+
+enum ChatAssetTransferState {
+	ChatAssetTransferStateUnknown = 0;
+	ChatAssetTransferStatePending = 1;
+	ChatAssetTransferStateAccepted = 2;
+	ChatAssetTransferStateComplete = 3;
+	ChatAssetTransferStateRejected = 4;
+}
+
+enum ChatEmbedStatus {
+	ChatEmbedStatusPending = 0;
+	ChatEmbedStatusReady = 1;
+	ChatEmbedStatusBlocked = 2;
+	ChatEmbedStatusFailed = 3;
+}
+
+message ChatAssetRef {
+	required uint32 asset_id = 1;
+	optional string filename = 2;
+	optional string mime = 3;
+	optional uint64 byte_size = 4;
+	optional ChatAssetKind kind = 5 [default = ChatAssetKindUnknown];
+	optional uint32 width = 6;
+	optional uint32 height = 7;
+	optional uint64 duration_ms = 8;
+	optional bool inline_safe = 9 [default = false];
+	optional uint32 preview_asset_id = 10;
+}
+
+message ChatEmbedRef {
+	required string canonical_url = 1;
+	optional ChatEmbedStatus status = 2 [default = ChatEmbedStatusPending];
+	optional string title = 3;
+	optional string description = 4;
+	optional string site_name = 5;
+	optional uint32 preview_asset_id = 6;
+	optional string error_code = 7;
+}
+
 // Sent by the client to submit a persistent chat message to the server.
 message ChatSend {
 	optional ChatScope scope = 1 [default = Channel];
 	optional uint32 scope_id = 2 [default = 0];
 	required string message = 3;
 	optional uint32 reply_to_message_id = 4;
+	optional string body_text = 5;
+	optional ChatBodyFormat body_format = 6 [default = ChatBodyFormatPlainText];
+	repeated uint32 attachment_asset_ids = 7 [packed = true];
 }
 
 // Sent by the server to deliver a persistent chat message to clients.
@@ -729,6 +783,10 @@ message ChatMessage {
 	optional uint64 deleted_at = 10;
 	optional string actor_name = 11;
 	optional uint32 reply_to_message_id = 12;
+	optional string body_text = 13;
+	optional ChatBodyFormat body_format = 14 [default = ChatBodyFormatPlainText];
+	repeated ChatAssetRef attachments = 15;
+	repeated ChatEmbedRef embeds = 16;
 }
 
 // Sent by the client to request a paginated chunk of chat history.
@@ -737,6 +795,7 @@ message ChatHistoryRequest {
 	optional uint32 scope_id = 2 [default = 0];
 	optional uint32 start_offset = 3 [default = 0];
 	optional uint32 limit = 4 [default = 50];
+	optional uint32 before_message_id = 5;
 }
 
 // Sent by the server to return a paginated chunk of chat history.
@@ -748,6 +807,8 @@ message ChatHistoryResponse {
 	repeated ChatMessage messages = 5;
 	optional bool has_more = 6 [default = false];
 	optional uint32 last_read_message_id = 7;
+	optional bool has_older = 8 [default = false];
+	optional uint32 oldest_message_id = 9;
 }
 
 // Sent by the client or server to update persisted read state for a thread.
@@ -758,6 +819,62 @@ message ChatReadStateUpdate {
 	optional uint32 user_id = 4;
 	optional uint32 last_read_message_id = 5;
 	optional uint64 updated_at = 6;
+}
+
+message ChatAssetUploadInit {
+	optional string filename = 1;
+	optional string mime = 2;
+	optional uint64 byte_size = 3;
+	optional ChatAssetKind kind = 4 [default = ChatAssetKindUnknown];
+	optional bool request_inline = 5 [default = false];
+	optional string sha256 = 6;
+}
+
+message ChatAssetUploadChunk {
+	optional uint64 upload_id = 1;
+	optional uint64 offset = 2;
+	optional bytes data = 3;
+	optional bool final_chunk = 4 [default = false];
+}
+
+message ChatAssetUploadCommit {
+	optional uint64 upload_id = 1;
+	optional string filename = 2;
+	optional string sha256 = 3;
+}
+
+message ChatAssetState {
+	optional uint64 upload_id = 1;
+	optional ChatAssetTransferState state = 2 [default = ChatAssetTransferStateUnknown];
+	optional string reason = 3;
+	optional ChatAssetRef asset = 4;
+	optional uint64 accepted_byte_size = 5;
+}
+
+message ChatAssetRequest {
+	optional uint32 asset_id = 1;
+	optional uint64 offset = 2;
+	optional uint32 max_bytes = 3 [default = 65536];
+}
+
+message ChatAssetChunk {
+	optional uint32 asset_id = 1;
+	optional uint64 offset = 2;
+	optional bytes data = 3;
+	optional bool eof = 4 [default = false];
+	optional uint64 total_size = 5;
+	optional string mime = 6;
+	optional uint32 width = 7;
+	optional uint32 height = 8;
+	optional ChatAssetKind kind = 9 [default = ChatAssetKindUnknown];
+}
+
+message ChatEmbedState {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 thread_id = 3;
+	optional uint32 message_id = 4;
+	repeated ChatEmbedRef embeds = 5;
 }
 
 // Sent by the publisher to request that the server create a new screen-share session.

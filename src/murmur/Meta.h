@@ -179,6 +179,11 @@ public:
 	QString qsScreenShareRelayAPISecret;
 	/// Whether extra screen-share diagnostics should be written into the server log
 	bool screenShareDiagnosticsLogging;
+	QString qsChatAssetStoragePath;
+	quint64 uiChatAssetMaxBytes;
+	quint64 uiChatAssetTotalQuotaBytes;
+	unsigned int uiChatAttachmentLimit;
+	bool bChatPreviewFetchEnabled;
 
 	/// The number of seconds to keep rolling stats for per client
 	unsigned int rollingStatsWindow;

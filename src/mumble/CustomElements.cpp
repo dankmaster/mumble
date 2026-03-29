@@ -170,6 +170,10 @@ void ChatbarTextEdit::resetViewportChrome() {
 	}
 }
 
+bool ChatbarTextEdit::isShowingDefaultText() const {
+	return bDefaultVisible;
+}
+
 QSize ChatbarTextEdit::minimumSizeHint() const {
 	return QSize(0, fontMetrics().height());
 }

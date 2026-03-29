@@ -16,10 +16,12 @@
 #include "MumbleProtocol.h"
 
 #include <array>
+#include <memory>
 #include <mutex>
 #include <vector>
 
 class ClientUser;
+class DTLNSpeechCleanup;
 struct DenoiseState;
 struct OpusDecoder;
 
@@ -65,10 +67,14 @@ protected:
 	unsigned int m_remoteSpeechCleanupFrameSize = 0;
 	std::array< float, 480 > m_remoteSpeechCleanupInputBuffer = {};
 	std::array< float, 480 > m_remoteSpeechCleanupOutputBuffer = {};
+#endif
+#ifdef USE_DTLN
+	std::unique_ptr< DTLNSpeechCleanup > m_dtlnSpeechCleanup;
+	std::array< float, 5760 > m_remoteSpeechCleanupMonoBuffer = {};
+#endif
 
 	bool isEffectivelyDualMono(const float *samples, unsigned int sampleCount) const;
 	void applyRemoteSpeechCleanup(float *samples, unsigned int sampleCount);
-#endif
 
 public:
 	Mumble::Protocol::audio_context_t m_audioContext;

@@ -30,6 +30,7 @@
 #include "Timer.h"
 
 class AudioInput;
+class DTLNSpeechCleanup;
 struct OpusEncoder;
 struct DenoiseState;
 
@@ -190,6 +191,9 @@ private:
 	OpusEncoder *opusState;
 #ifdef USE_RNNOISE
 	DenoiseState *denoiseState;
+#endif
+#ifdef USE_DTLN
+	std::unique_ptr< DTLNSpeechCleanup > m_dtlnSpeechCleanup;
 #endif
 	bool selectCodec();
 	void selectNoiseCancel();

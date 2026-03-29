@@ -32,6 +32,9 @@
 #include "murmur/database/ChannelProperty.h"
 #include "murmur/database/ChannelPropertyTable.h"
 #include "murmur/database/ChatMessageTable.h"
+#include "murmur/database/ChatAssetTable.h"
+#include "murmur/database/ChatMessageAttachmentTable.h"
+#include "murmur/database/ChatMessageEmbedTable.h"
 #include "murmur/database/ChatReadStateTable.h"
 #include "murmur/database/ChatThreadTable.h"
 #include "murmur/database/TextChannelTable.h"
@@ -42,6 +45,8 @@
 #include "murmur/database/DBBan.h"
 #include "murmur/database/DBChannel.h"
 #include "murmur/database/DBChatMessage.h"
+#include "murmur/database/DBChatAsset.h"
+#include "murmur/database/DBChatMessageAttachment.h"
 #include "murmur/database/DBChatReadState.h"
 #include "murmur/database/DBChatThread.h"
 #include "murmur/database/DBTextChannel.h"
@@ -875,6 +880,25 @@ void DBWrapper::getConfigurationTo(unsigned int serverID, const std::string &con
 	WRAPPER_END
 }
 
+void DBWrapper::getConfigurationTo(unsigned int serverID, const std::string &configKey, quint64 &outVar) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+
+	std::string property = m_serverDB.getConfigTable().getConfig(serverID, configKey);
+
+	if (!property.empty()) {
+		try {
+			outVar = static_cast< quint64 >(std::stoull(property));
+		} catch (const std::invalid_argument &) {
+			std::throw_with_nested(
+				::mdb::FormatException("Fetched property for key \"" + configKey + "\" can't be parsed as a number"));
+		}
+	}
+
+	WRAPPER_END
+}
+
 void DBWrapper::getConfigurationTo(unsigned int serverID, const std::string &configKey, std::optional< bool > &outVar) {
 	WRAPPER_BEGIN
 
@@ -986,6 +1010,17 @@ std::size_t DBWrapper::getLogSize(unsigned int serverID) {
 	WRAPPER_END
 }
 
+::msdb::DBChatThread DBWrapper::getChatThread(unsigned int serverID, unsigned int threadID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(threadID);
+
+	return m_serverDB.getChatThreadTable().getThread(serverID, threadID);
+
+	WRAPPER_END
+}
+
 std::optional< ::msdb::DBChatThread > DBWrapper::getChatThreadByScope(unsigned int serverID, ::msdb::ChatThreadScope scope,
 																	  const std::string &scopeKey) {
 	WRAPPER_BEGIN
@@ -1076,7 +1111,9 @@ void DBWrapper::removeTextChannel(unsigned int serverID, unsigned int textChanne
 	WRAPPER_END
 }
 
-::msdb::DBChatMessage DBWrapper::addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
+::msdb::DBChatMessage DBWrapper::addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &bodyText,
+												 ::msdb::ChatMessageBodyFormat bodyFormat,
+												 const std::vector< ::msdb::DBChatMessageAttachment > &attachments,
 												 std::optional< unsigned int > replyToMessageID,
 												 std::optional< unsigned int > authorUserID,
 												 std::optional< unsigned int > authorSession,
@@ -1093,10 +1130,15 @@ void DBWrapper::removeTextChannel(unsigned int serverID, unsigned int textChanne
 	message.authorUserID  = authorUserID;
 	message.authorSession = authorSession;
 	message.authorName    = authorName;
-	message.body          = body;
+	message.bodyText      = bodyText;
+	message.bodyFormat    = bodyFormat;
+	message.attachments   = attachments;
 	message.createdAt     = std::chrono::system_clock::now();
 
 	m_serverDB.getChatMessageTable().addMessage(message);
+	if (!attachments.empty()) {
+		m_serverDB.getChatMessageAttachmentTable().addAttachments(serverID, message.messageID, attachments);
+	}
 	m_serverDB.getChatThreadTable().touchThread(serverID, threadID, message.createdAt);
 
 	transaction.commit();
@@ -1113,14 +1155,157 @@ std::vector< ::msdb::DBChatMessage > DBWrapper::getChatMessages(unsigned int ser
 	assertValidID(serverID);
 	assertValidID(threadID);
 
+	std::vector< ::msdb::DBChatMessage > messages;
 	if (amount < 0) {
-		return m_serverDB.getChatMessageTable().getMessages(serverID, threadID,
-															std::numeric_limits< unsigned int >::max(), startOffset);
+		messages = m_serverDB.getChatMessageTable().getMessages(serverID, threadID,
+																std::numeric_limits< unsigned int >::max(), startOffset);
+	} else {
+		assert(amount >= 0);
+		messages = m_serverDB.getChatMessageTable().getMessages(serverID, threadID,
+																static_cast< unsigned int >(amount), startOffset);
 	}
 
-	assert(amount >= 0);
-	return m_serverDB.getChatMessageTable().getMessages(serverID, threadID, static_cast< unsigned int >(amount),
-														startOffset);
+	for (::msdb::DBChatMessage &message : messages) {
+		message.attachments =
+			m_serverDB.getChatMessageAttachmentTable().getAttachments(serverID, message.messageID);
+		message.embeds = m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, message.messageID);
+	}
+
+	return messages;
+
+	WRAPPER_END
+}
+
+std::vector< ::msdb::DBChatMessage > DBWrapper::getChatMessagesBefore(unsigned int serverID, unsigned int threadID,
+																	  unsigned int beforeMessageID, unsigned int amount) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(threadID);
+	assertValidID(beforeMessageID);
+
+	std::vector< ::msdb::DBChatMessage > messages =
+		m_serverDB.getChatMessageTable().getMessagesBefore(serverID, threadID, beforeMessageID, amount);
+
+	for (::msdb::DBChatMessage &message : messages) {
+		message.attachments =
+			m_serverDB.getChatMessageAttachmentTable().getAttachments(serverID, message.messageID);
+		message.embeds = m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, message.messageID);
+	}
+
+	return messages;
+
+	WRAPPER_END
+}
+
+::msdb::DBChatAsset DBWrapper::addChatAsset(const ::msdb::DBChatAsset &asset) {
+	WRAPPER_BEGIN
+
+	assertValidID(asset.serverID);
+
+	::msdb::DBChatAsset storedAsset = asset;
+	if (storedAsset.assetID == 0) {
+		storedAsset.assetID = m_serverDB.getChatAssetTable().getFreeAssetID(asset.serverID);
+	}
+	if (storedAsset.createdAt == std::chrono::system_clock::time_point()) {
+		storedAsset.createdAt = std::chrono::system_clock::now();
+	}
+	if (storedAsset.lastAccessedAt == std::chrono::system_clock::time_point()) {
+		storedAsset.lastAccessedAt = storedAsset.createdAt;
+	}
+
+	m_serverDB.getChatAssetTable().addAsset(storedAsset);
+	return storedAsset;
+
+	WRAPPER_END
+}
+
+::msdb::DBChatAsset DBWrapper::getChatAsset(unsigned int serverID, unsigned int assetID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(assetID);
+
+	return m_serverDB.getChatAssetTable().getAsset(serverID, assetID);
+
+	WRAPPER_END
+}
+
+bool DBWrapper::chatAssetExists(unsigned int serverID, unsigned int assetID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(assetID);
+
+	return m_serverDB.getChatAssetTable().assetExists(serverID, assetID);
+
+	WRAPPER_END
+}
+
+std::vector< unsigned int > DBWrapper::getChatAssetThreadIDs(unsigned int serverID, unsigned int assetID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(assetID);
+
+	std::vector< unsigned int > threadIDs =
+		m_serverDB.getChatMessageAttachmentTable().getThreadIDsForAsset(serverID, assetID);
+	for (unsigned int threadID : m_serverDB.getChatMessageEmbedTable().getThreadIDsForPreviewAsset(serverID, assetID)) {
+		if (std::find(threadIDs.begin(), threadIDs.end(), threadID) == threadIDs.end()) {
+			threadIDs.push_back(threadID);
+		}
+	}
+
+	return threadIDs;
+
+	WRAPPER_END
+}
+
+void DBWrapper::touchChatAsset(unsigned int serverID, unsigned int assetID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(assetID);
+
+	m_serverDB.getChatAssetTable().touchAsset(serverID, assetID);
+
+	WRAPPER_END
+}
+
+void DBWrapper::updateChatAssetPreviewAssetID(unsigned int serverID, unsigned int assetID,
+											  std::optional< unsigned int > previewAssetID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(assetID);
+	if (previewAssetID) {
+		assertValidID(previewAssetID.value());
+	}
+
+	m_serverDB.getChatAssetTable().updatePreviewAssetID(serverID, assetID, previewAssetID);
+
+	WRAPPER_END
+}
+
+std::vector< ::msdb::DBChatMessageEmbed > DBWrapper::getChatMessageEmbeds(unsigned int serverID, unsigned int messageID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(messageID);
+
+	return m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, messageID);
+
+	WRAPPER_END
+}
+
+void DBWrapper::setChatMessageEmbeds(unsigned int serverID, unsigned int messageID,
+									 const std::vector< ::msdb::DBChatMessageEmbed > &embeds) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(messageID);
+
+	m_serverDB.getChatMessageEmbedTable().setEmbeds(serverID, messageID, embeds);
 
 	WRAPPER_END
 }

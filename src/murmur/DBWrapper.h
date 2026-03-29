@@ -8,6 +8,7 @@
 
 #include "NonCopyable.h"
 #include "murmur/database/DBChannel.h"
+#include "murmur/database/DBChatAsset.h"
 #include "murmur/database/DBChatMessage.h"
 #include "murmur/database/DBChatReadState.h"
 #include "murmur/database/DBChatThread.h"
@@ -83,6 +84,7 @@ public:
 	void getConfigurationTo(unsigned int serverID, const std::string &configKey, bool &outVar);
 	void getConfigurationTo(unsigned int serverID, const std::string &configKey, int &outVar);
 	void getConfigurationTo(unsigned int serverID, const std::string &configKey, unsigned int &outVar);
+	void getConfigurationTo(unsigned int serverID, const std::string &configKey, quint64 &outVar);
 	void getConfigurationTo(unsigned int serverID, const std::string &configKey, std::optional< bool > &outVar);
 
 	std::vector< std::pair< std::string, std::string > > getAllConfigurations(unsigned int serverID);
@@ -98,6 +100,7 @@ public:
 	::mumble::server::db::DBChatThread
 		ensureChatThread(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey,
 						 std::optional< unsigned int > createdByUserID = std::nullopt);
+	::mumble::server::db::DBChatThread getChatThread(unsigned int serverID, unsigned int threadID);
 	std::optional< ::mumble::server::db::DBChatThread >
 		getChatThreadByScope(unsigned int serverID, ::mumble::server::db::ChatThreadScope scope, const std::string &scopeKey);
 	std::vector< ::mumble::server::db::DBChatThread > getChatThreads(unsigned int serverID, unsigned int startOffset = 0,
@@ -109,13 +112,30 @@ public:
 													   unsigned int position);
 	void updateTextChannel(const ::mumble::server::db::DBTextChannel &textChannel);
 	void removeTextChannel(unsigned int serverID, unsigned int textChannelID);
-	::mumble::server::db::DBChatMessage addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &body,
-													 std::optional< unsigned int > replyToMessageID = std::nullopt,
-													 std::optional< unsigned int > authorUserID = std::nullopt,
-													 std::optional< unsigned int > authorSession = std::nullopt,
-													 std::optional< std::string > authorName = std::nullopt);
+	::mumble::server::db::DBChatMessage
+		addChatMessage(unsigned int serverID, unsigned int threadID, const std::string &bodyText,
+					   ::mumble::server::db::ChatMessageBodyFormat bodyFormat =
+						   ::mumble::server::db::ChatMessageBodyFormat::PlainText,
+					   const std::vector< ::mumble::server::db::DBChatMessageAttachment > &attachments = {},
+					   std::optional< unsigned int > replyToMessageID = std::nullopt,
+					   std::optional< unsigned int > authorUserID = std::nullopt,
+					   std::optional< unsigned int > authorSession = std::nullopt,
+					   std::optional< std::string > authorName = std::nullopt);
 	std::vector< ::mumble::server::db::DBChatMessage > getChatMessages(unsigned int serverID, unsigned int threadID,
 																	   unsigned int startOffset = 0, int amount = -1);
+	std::vector< ::mumble::server::db::DBChatMessage > getChatMessagesBefore(unsigned int serverID, unsigned int threadID,
+																		  unsigned int beforeMessageID, unsigned int amount);
+	::mumble::server::db::DBChatAsset addChatAsset(const ::mumble::server::db::DBChatAsset &asset);
+	::mumble::server::db::DBChatAsset getChatAsset(unsigned int serverID, unsigned int assetID);
+	bool chatAssetExists(unsigned int serverID, unsigned int assetID);
+	std::vector< unsigned int > getChatAssetThreadIDs(unsigned int serverID, unsigned int assetID);
+	void updateChatAssetPreviewAssetID(unsigned int serverID, unsigned int assetID,
+									   std::optional< unsigned int > previewAssetID);
+	void touchChatAsset(unsigned int serverID, unsigned int assetID);
+	std::vector< ::mumble::server::db::DBChatMessageEmbed > getChatMessageEmbeds(unsigned int serverID,
+																				   unsigned int messageID);
+	void setChatMessageEmbeds(unsigned int serverID, unsigned int messageID,
+							  const std::vector< ::mumble::server::db::DBChatMessageEmbed > &embeds);
 	void setChatReadState(const ::mumble::server::db::DBChatReadState &readState);
 	std::optional< ::mumble::server::db::DBChatReadState > getChatReadState(unsigned int serverID, unsigned int threadID,
 																			 unsigned int userID);

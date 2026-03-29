@@ -136,6 +136,11 @@ MetaParams::MetaParams() {
 	qsScreenShareRelayAPIKey.clear();
 	qsScreenShareRelayAPISecret.clear();
 	screenShareDiagnosticsLogging = false;
+	qsChatAssetStoragePath.clear();
+	uiChatAssetMaxBytes        = 25ULL * 1024ULL * 1024ULL;
+	uiChatAssetTotalQuotaBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+	uiChatAttachmentLimit      = 4;
+	bChatPreviewFetchEnabled   = false;
 
 	rollingStatsWindow = 300;
 
@@ -381,6 +386,16 @@ void MetaParams::read(QString fname) {
 		typeCheckedFromSettings("screen_share_relay_api_secret", qsScreenShareRelayAPISecret).trimmed();
 	screenShareDiagnosticsLogging =
 		typeCheckedFromSettings("screen_share_diagnostics_logging", screenShareDiagnosticsLogging);
+	qsChatAssetStoragePath =
+		typeCheckedFromSettings("chat_asset_storage_path", qsChatAssetStoragePath).trimmed();
+	uiChatAssetMaxBytes =
+		typeCheckedFromSettings< quint64 >("chat_asset_max_bytes", uiChatAssetMaxBytes);
+	uiChatAssetTotalQuotaBytes =
+		typeCheckedFromSettings< quint64 >("chat_asset_total_quota_bytes", uiChatAssetTotalQuotaBytes);
+	uiChatAttachmentLimit =
+		typeCheckedFromSettings< unsigned int >("chat_attachment_limit", uiChatAttachmentLimit);
+	bChatPreviewFetchEnabled =
+		typeCheckedFromSettings("chat_preview_fetch_enabled", bChatPreviewFetchEnabled);
 
 	rollingStatsWindow = typeCheckedFromSettings("rollingStatsWindow", rollingStatsWindow);
 
@@ -463,6 +478,12 @@ void MetaParams::read(QString fname) {
 	qmConfig.insert(QLatin1String("screen_share_relay_url"), qsScreenShareRelayUrl);
 	qmConfig.insert(QLatin1String("screen_share_diagnostics_logging"),
 					screenShareDiagnosticsLogging ? QLatin1String("true") : QLatin1String("false"));
+	qmConfig.insert(QLatin1String("chat_asset_storage_path"), qsChatAssetStoragePath);
+	qmConfig.insert(QLatin1String("chat_asset_max_bytes"), QString::number(uiChatAssetMaxBytes));
+	qmConfig.insert(QLatin1String("chat_asset_total_quota_bytes"), QString::number(uiChatAssetTotalQuotaBytes));
+	qmConfig.insert(QLatin1String("chat_attachment_limit"), QString::number(uiChatAttachmentLimit));
+	qmConfig.insert(QLatin1String("chat_preview_fetch_enabled"),
+					bChatPreviewFetchEnabled ? QLatin1String("true") : QLatin1String("false"));
 	qmConfig.insert(QLatin1String("bandwidth"), QString::number(iMaxBandwidth));
 	qmConfig.insert(QLatin1String("users"), QString::number(iMaxUsers));
 	qmConfig.insert(QLatin1String("defaultchannel"), QString::number(iDefaultChan));

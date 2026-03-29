@@ -51,6 +51,7 @@
 #endif
 
 #include <functional>
+#include <chrono>
 #include <optional>
 #include <span>
 #include <vector>
@@ -139,6 +140,11 @@ public:
 	QString qsScreenShareRelayAPIKey;
 	QString qsScreenShareRelayAPISecret;
 	bool bScreenShareDiagnosticsLogging = false;
+	QString qsChatAssetStoragePath;
+	quint64 uiChatAssetMaxBytes = 25ULL * 1024ULL * 1024ULL;
+	quint64 uiChatAssetTotalQuotaBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+	unsigned int uiChatAttachmentLimit = 4;
+	bool bChatPreviewFetchEnabled = false;
 	QString qsPassword;
 	QString qsWelcomeText;
 	QString qsWelcomeTextFile;
@@ -359,6 +365,26 @@ public:
 	QHash< unsigned int, QString > qhScreenShareStreamByOwnerSession;
 	QHash< unsigned int, QString > qhScreenShareStreamByChannel;
 
+	struct PendingChatAssetUpload {
+		quint64 uploadID = 0;
+		unsigned int ownerSession = 0;
+		std::optional< unsigned int > ownerUserID = std::nullopt;
+		QString filename;
+		QString mime;
+		QString sha256;
+		::mumble::server::db::ChatAssetKind kind = ::mumble::server::db::ChatAssetKind::Unknown;
+		bool requestInline = false;
+		quint64 expectedByteSize = 0;
+		quint64 receivedByteSize = 0;
+		bool finalChunkReceived = false;
+		QString tempFilePath;
+		std::chrono::system_clock::time_point createdAt = std::chrono::system_clock::now();
+	};
+
+	QHash< quint64, PendingChatAssetUpload > qhPendingChatAssetUploads;
+	QHash< QString, unsigned int > qhChatPreviewFetchesByHost;
+	QTimer *qtChatAssetRetention = nullptr;
+
 	std::vector< Ban > m_bans;
 
 	DBWrapper m_dbWrapper;
@@ -410,11 +436,29 @@ public:
 	bool isTextAllowed(QString &str, bool &changed);
 	void sendPersistentChatUnsupported(ServerUser *uSource);
 	void sendTextChannelSync(ServerUser *uSource);
-	void persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
-										unsigned int scopeID, Channel *permissionChannel,
-										::mumble::server::db::ChatThreadScope dbScope,
-										std::optional< unsigned int > replyToMessageID = std::nullopt,
-										const QSet< ServerUser * > &legacyFallbackRecipients = {});
+	bool ensureChatAssetStorageReady(QString *error = nullptr) const;
+	QString chatAssetStorageRootPath() const;
+	QString chatAssetServerRootPath() const;
+	QString chatAssetIncomingRootPath() const;
+	QString chatAssetObjectRootPath() const;
+	QString chatAssetAbsolutePath(const QString &storageKey) const;
+	QString chatAssetStorageKey(unsigned int assetID, const QString &sha256) const;
+	quint64 chatAssetStoredBytes() const;
+	bool canAccessChatAsset(ServerUser *user, unsigned int assetID);
+	void runChatAssetRetentionSweep();
+	void scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageID, MumbleProto::ChatScope scope,
+								unsigned int scopeID, unsigned int permissionChannelID,
+								const ::mumble::server::db::DBChatMessageEmbed &embed);
+	void applyChatEmbedFetchResult(unsigned int threadID, unsigned int messageID, MumbleProto::ChatScope scope,
+								   unsigned int scopeID, unsigned int permissionChannelID,
+								   const ::mumble::server::db::DBChatMessageEmbed &embed);
+	void persistAndBroadcastChatMessage(
+		ServerUser *uSource, const QString &bodyText,
+		::mumble::server::db::ChatMessageBodyFormat bodyFormat, MumbleProto::ChatScope scope, unsigned int scopeID,
+		Channel *permissionChannel, ::mumble::server::db::ChatThreadScope dbScope,
+		const std::vector< ::mumble::server::db::DBChatMessageAttachment > &attachments = {},
+		std::optional< unsigned int > replyToMessageID = std::nullopt,
+		const QSet< ServerUser * > &legacyFallbackRecipients = {});
 
 	void setLiveConf(const QString &key, const QString &value);
 	bool supportsScreenShareSignaling(const ServerUser *user) const;

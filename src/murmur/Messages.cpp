@@ -27,15 +27,30 @@
 
 #include <algorithm>
 #include <cassert>
+#include <memory>
 #include <optional>
 #include <set>
 #include <unordered_map>
 
 #include <QtCore/QDateTime>
+#include <QtCore/QBuffer>
+#include <QtCore/QCryptographicHash>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtCore/QRegularExpressionMatchIterator>
+#include <QtCore/QRandomGenerator>
 #include <QtCore/QStack>
 #include <QtCore/QTimeZone>
 #include <QtCore/QUuid>
 #include <QtCore/QtEndian>
+#include <QtGui/QImage>
+#include <QtGui/QImageReader>
+#include <QtGui/QImageWriter>
+#include <QtNetwork/QHostAddress>
+#include <QtNetwork/QHostInfo>
+#include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkReply>
+#include <QtNetwork/QNetworkRequest>
 
 #include <tracy/Tracy.hpp>
 
@@ -343,6 +358,476 @@ namespace {
 		return lhs.message.threadID > rhs.message.threadID;
 	}
 
+	msdb::ChatMessageBodyFormat dbBodyFormatFromProto(MumbleProto::ChatBodyFormat format) {
+		switch (format) {
+			case MumbleProto::ChatBodyFormatMarkdownLite:
+				return msdb::ChatMessageBodyFormat::MarkdownLite;
+			case MumbleProto::ChatBodyFormatPlainText:
+			default:
+				return msdb::ChatMessageBodyFormat::PlainText;
+		}
+	}
+
+	MumbleProto::ChatBodyFormat protoBodyFormatFromDB(msdb::ChatMessageBodyFormat format) {
+		switch (format) {
+			case msdb::ChatMessageBodyFormat::MarkdownLite:
+				return MumbleProto::ChatBodyFormatMarkdownLite;
+			case msdb::ChatMessageBodyFormat::PlainText:
+			default:
+				return MumbleProto::ChatBodyFormatPlainText;
+		}
+	}
+
+	MumbleProto::ChatAssetKind protoAssetKindFromDB(msdb::ChatAssetKind kind) {
+		switch (kind) {
+			case msdb::ChatAssetKind::Image:
+				return MumbleProto::ChatAssetKindImage;
+			case msdb::ChatAssetKind::Video:
+				return MumbleProto::ChatAssetKindVideo;
+			case msdb::ChatAssetKind::Document:
+				return MumbleProto::ChatAssetKindDocument;
+			case msdb::ChatAssetKind::Binary:
+				return MumbleProto::ChatAssetKindBinary;
+			case msdb::ChatAssetKind::Unknown:
+			default:
+				return MumbleProto::ChatAssetKindUnknown;
+		}
+	}
+
+	msdb::ChatAssetKind dbAssetKindFromProto(MumbleProto::ChatAssetKind kind) {
+		switch (kind) {
+			case MumbleProto::ChatAssetKindImage:
+				return msdb::ChatAssetKind::Image;
+			case MumbleProto::ChatAssetKindVideo:
+				return msdb::ChatAssetKind::Video;
+			case MumbleProto::ChatAssetKindDocument:
+				return msdb::ChatAssetKind::Document;
+			case MumbleProto::ChatAssetKindBinary:
+				return msdb::ChatAssetKind::Binary;
+			case MumbleProto::ChatAssetKindUnknown:
+			default:
+				return msdb::ChatAssetKind::Unknown;
+		}
+	}
+
+	MumbleProto::ChatAssetTransferState protoTransferStateFromInt(MumbleProto::ChatAssetTransferState state) {
+		return state;
+	}
+
+	MumbleProto::ChatEmbedStatus protoEmbedStatusFromDB(msdb::ChatEmbedStatus status) {
+		switch (status) {
+			case msdb::ChatEmbedStatus::Ready:
+				return MumbleProto::ChatEmbedStatusReady;
+			case msdb::ChatEmbedStatus::Blocked:
+				return MumbleProto::ChatEmbedStatusBlocked;
+			case msdb::ChatEmbedStatus::Failed:
+				return MumbleProto::ChatEmbedStatusFailed;
+			case msdb::ChatEmbedStatus::Pending:
+			default:
+				return MumbleProto::ChatEmbedStatusPending;
+		}
+	}
+
+	QString structuredChatLegacyHtml(const QString &bodyText, msdb::ChatMessageBodyFormat bodyFormat) {
+		Q_UNUSED(bodyFormat);
+		return bodyText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+	}
+
+	MumbleProto::ChatAssetRef protoAssetRefFromDB(const msdb::DBChatMessageAttachment &attachment) {
+		MumbleProto::ChatAssetRef protoAttachment;
+		protoAttachment.set_asset_id(attachment.assetID);
+		if (!attachment.filename.empty()) {
+			protoAttachment.set_filename(attachment.filename);
+		}
+		if (!attachment.mime.empty()) {
+			protoAttachment.set_mime(attachment.mime);
+		}
+		protoAttachment.set_byte_size(attachment.byteSize);
+		protoAttachment.set_kind(protoAssetKindFromDB(attachment.kind));
+		if (attachment.width > 0) {
+			protoAttachment.set_width(attachment.width);
+		}
+		if (attachment.height > 0) {
+			protoAttachment.set_height(attachment.height);
+		}
+		if (attachment.durationMs > 0) {
+			protoAttachment.set_duration_ms(attachment.durationMs);
+		}
+		protoAttachment.set_inline_safe(attachment.inlineSafe);
+		if (attachment.previewAssetID) {
+			protoAttachment.set_preview_asset_id(attachment.previewAssetID.value());
+		}
+		return protoAttachment;
+	}
+
+	MumbleProto::ChatEmbedRef protoEmbedRefFromDB(const msdb::DBChatMessageEmbed &embed) {
+		MumbleProto::ChatEmbedRef protoEmbed;
+		protoEmbed.set_canonical_url(embed.canonicalUrl);
+		protoEmbed.set_status(protoEmbedStatusFromDB(embed.status));
+		if (!embed.title.empty()) {
+			protoEmbed.set_title(embed.title);
+		}
+		if (!embed.description.empty()) {
+			protoEmbed.set_description(embed.description);
+		}
+		if (!embed.siteName.empty()) {
+			protoEmbed.set_site_name(embed.siteName);
+		}
+		if (embed.previewAssetID) {
+			protoEmbed.set_preview_asset_id(embed.previewAssetID.value());
+		}
+		if (!embed.errorCode.empty()) {
+			protoEmbed.set_error_code(embed.errorCode);
+		}
+		return protoEmbed;
+	}
+
+	MumbleProto::ChatAssetRef protoAssetRefFromAsset(const msdb::DBChatAsset &asset, const QString &filename,
+													 bool inlineSafe) {
+		MumbleProto::ChatAssetRef ref;
+		ref.set_asset_id(asset.assetID);
+		if (!filename.isEmpty()) {
+			ref.set_filename(u8(filename));
+		}
+		ref.set_mime(asset.mime);
+		ref.set_byte_size(asset.byteSize);
+		ref.set_kind(protoAssetKindFromDB(asset.kind));
+		if (asset.width > 0) {
+			ref.set_width(asset.width);
+		}
+		if (asset.height > 0) {
+			ref.set_height(asset.height);
+		}
+		if (asset.durationMs > 0) {
+			ref.set_duration_ms(asset.durationMs);
+		}
+		ref.set_inline_safe(inlineSafe);
+		if (asset.previewAssetID) {
+			ref.set_preview_asset_id(asset.previewAssetID.value());
+		}
+		return ref;
+	}
+
+	QString normalizedMime(const QString &mime) {
+		return mime.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
+	}
+
+	msdb::ChatAssetKind inferredAssetKind(const QString &mime) {
+		if (mime.startsWith(QLatin1String("image/"))) {
+			return msdb::ChatAssetKind::Image;
+		}
+		if (mime.startsWith(QLatin1String("video/"))) {
+			return msdb::ChatAssetKind::Video;
+		}
+		if (mime == QLatin1String("application/pdf") || mime.startsWith(QLatin1String("text/"))) {
+			return msdb::ChatAssetKind::Document;
+		}
+		return msdb::ChatAssetKind::Binary;
+	}
+
+	bool isAllowedChatAssetMime(msdb::ChatAssetKind kind, const QString &mime) {
+		static const QSet< QString > imageMimes = {
+			QStringLiteral("image/png"),
+			QStringLiteral("image/jpeg"),
+			QStringLiteral("image/webp"),
+			QStringLiteral("image/gif"),
+			QStringLiteral("image/bmp"),
+		};
+		static const QSet< QString > videoMimes = {
+			QStringLiteral("video/mp4"),
+			QStringLiteral("video/webm"),
+			QStringLiteral("video/quicktime"),
+		};
+		static const QSet< QString > documentMimes = {
+			QStringLiteral("application/pdf"),
+			QStringLiteral("text/plain"),
+			QStringLiteral("text/markdown"),
+		};
+		static const QSet< QString > binaryMimes = {
+			QStringLiteral("application/octet-stream"),
+			QStringLiteral("application/zip"),
+		};
+
+		switch (kind) {
+			case msdb::ChatAssetKind::Image:
+				return imageMimes.contains(mime);
+			case msdb::ChatAssetKind::Video:
+				return videoMimes.contains(mime);
+			case msdb::ChatAssetKind::Document:
+				return documentMimes.contains(mime);
+			case msdb::ChatAssetKind::Binary:
+				return binaryMimes.contains(mime);
+			case msdb::ChatAssetKind::Unknown:
+			default:
+				return false;
+		}
+	}
+
+	bool isInlineSafeAsset(msdb::ChatAssetKind kind, const QString &mime, bool requestInline) {
+		if (!requestInline) {
+			return false;
+		}
+
+		return kind == msdb::ChatAssetKind::Image
+			   && mime != QLatin1String("image/svg+xml")
+			   && mime != QLatin1String("image/svg");
+	}
+
+	bool isValidSha256Hex(const QString &sha256) {
+		if (sha256.size() != 64) {
+			return false;
+		}
+
+		for (const QChar ch : sha256) {
+			if (!ch.isDigit() && (ch.toLower() < QLatin1Char('a') || ch.toLower() > QLatin1Char('f'))) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	constexpr int CHAT_PREVIEW_TIMEOUT_MSEC        = 8000;
+	constexpr qint64 CHAT_PREVIEW_MAX_PAGE_BYTES   = 512 * 1024;
+	constexpr qint64 CHAT_PREVIEW_MAX_IMAGE_BYTES  = 4 * 1024 * 1024;
+	constexpr int CHAT_PREVIEW_MAX_REDIRECTS       = 3;
+	constexpr int CHAT_PREVIEW_MAX_CONCURRENT_HOST = 2;
+	constexpr int CHAT_PREVIEW_THUMBNAIL_WIDTH     = 640;
+	constexpr int CHAT_PREVIEW_THUMBNAIL_HEIGHT    = 480;
+
+	bool isSanitizableImageMime(const QString &mime) {
+		return mime == QLatin1String("image/png") || mime == QLatin1String("image/jpeg")
+			   || mime == QLatin1String("image/webp") || mime == QLatin1String("image/gif")
+			   || mime == QLatin1String("image/bmp");
+	}
+
+	bool isDirectImageUrl(const QUrl &url) {
+		const QString path = url.path().toLower();
+		return path.endsWith(QLatin1String(".png")) || path.endsWith(QLatin1String(".jpg"))
+			   || path.endsWith(QLatin1String(".jpeg")) || path.endsWith(QLatin1String(".webp"))
+			   || path.endsWith(QLatin1String(".gif")) || path.endsWith(QLatin1String(".bmp"));
+	}
+
+	QImage decodeChatImage(const QByteArray &bytes) {
+		QBuffer buffer;
+		buffer.setData(bytes);
+		if (!buffer.open(QIODevice::ReadOnly)) {
+			return QImage();
+		}
+
+		QImageReader reader(&buffer);
+		reader.setAutoTransform(true);
+		return reader.read();
+	}
+
+	QByteArray encodeChatImage(const QImage &image, const char *format, int quality = -1) {
+		QByteArray encoded;
+		QBuffer buffer(&encoded);
+		if (!buffer.open(QIODevice::WriteOnly)) {
+			return QByteArray();
+		}
+
+		QImageWriter writer(&buffer, format);
+		writer.setQuality(quality);
+		if (!writer.write(image)) {
+			return QByteArray();
+		}
+
+		return encoded;
+	}
+
+	struct SanitizedChatImage {
+		QByteArray bytes;
+		QString mime;
+		unsigned int width = 0;
+		unsigned int height = 0;
+	};
+
+	std::optional< SanitizedChatImage > sanitizeChatImageBytes(const QByteArray &bytes, bool thumbnailOnly = false) {
+		const QImage image = decodeChatImage(bytes);
+		if (image.isNull()) {
+			return std::nullopt;
+		}
+
+		QImage normalized =
+			thumbnailOnly
+				? image.scaled(CHAT_PREVIEW_THUMBNAIL_WIDTH, CHAT_PREVIEW_THUMBNAIL_HEIGHT, Qt::KeepAspectRatio,
+							   Qt::SmoothTransformation)
+				: image;
+		SanitizedChatImage result;
+		result.width  = static_cast< unsigned int >(normalized.width());
+		result.height = static_cast< unsigned int >(normalized.height());
+
+		if (normalized.hasAlphaChannel()) {
+			result.bytes = encodeChatImage(normalized, "PNG");
+			result.mime  = QStringLiteral("image/png");
+		} else {
+			result.bytes = encodeChatImage(normalized, "JPEG", 90);
+			result.mime  = QStringLiteral("image/jpeg");
+		}
+
+		if (result.bytes.isEmpty()) {
+			return std::nullopt;
+		}
+
+		return result;
+	}
+
+	bool isBlockedPreviewAddress(const QHostAddress &address) {
+		if (address.isNull() || address.isLoopback() || address.isBroadcast() || address.isMulticast()) {
+			return true;
+		}
+
+		if (address.protocol() == QAbstractSocket::IPv4Protocol) {
+			const quint32 ip = address.toIPv4Address();
+			const quint32 firstOctet = (ip >> 24) & 0xffU;
+			const quint32 secondOctet = (ip >> 16) & 0xffU;
+			if (firstOctet == 0 || firstOctet == 10 || firstOctet == 127) {
+				return true;
+			}
+			if (firstOctet == 169 && secondOctet == 254) {
+				return true;
+			}
+			if (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
+				return true;
+			}
+			if (firstOctet == 192 && secondOctet == 168) {
+				return true;
+			}
+			if (firstOctet == 100 && secondOctet >= 64 && secondOctet <= 127) {
+				return true;
+			}
+			return false;
+		}
+
+		const Q_IPV6ADDR ipv6 = address.toIPv6Address();
+		if ((ipv6[0] & 0xfeU) == 0xfcU) {
+			return true;
+		}
+		if (ipv6[0] == 0xfeU && (ipv6[1] & 0xc0U) == 0x80U) {
+			return true;
+		}
+		if (ipv6[0] == 0xfeU && (ipv6[1] & 0xc0U) == 0xc0U) {
+			return true;
+		}
+		return address == QHostAddress::AnyIPv6 || address == QHostAddress::Any;
+	}
+
+	bool isSafePreviewUrl(const QUrl &url) {
+		if (!url.isValid() || url.scheme() != QLatin1String("https") || url.host().trimmed().isEmpty()) {
+			return false;
+		}
+
+		const QHostAddress directAddress(url.host());
+		if (!directAddress.isNull()) {
+			return !isBlockedPreviewAddress(directAddress);
+		}
+
+		const QHostInfo resolved = QHostInfo::fromName(url.host());
+		if (resolved.error() != QHostInfo::NoError || resolved.addresses().isEmpty()) {
+			return false;
+		}
+
+		for (const QHostAddress &address : resolved.addresses()) {
+			if (isBlockedPreviewAddress(address)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	QList< QUrl > extractPreviewableUrls(const QString &text) {
+		static const QRegularExpression urlPattern(
+			QStringLiteral(R"((https://[^\s<>()\[\]{}"']+))"),
+			QRegularExpression::CaseInsensitiveOption);
+		QList< QUrl > urls;
+		QRegularExpressionMatchIterator it = urlPattern.globalMatch(text);
+		while (it.hasNext()) {
+			const QRegularExpressionMatch match = it.next();
+			const QUrl url(match.captured(1));
+			if (!url.isValid()) {
+				continue;
+			}
+			urls.append(url);
+		}
+		return urls;
+	}
+
+	QString decodeHtmlEntityPreviewText(QString text) {
+		text.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+		text.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+		text.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
+		text.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+		text.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+		return text.trimmed();
+	}
+
+	QString extractHtmlTitle(const QString &html) {
+		static const QRegularExpression titlePattern(
+			QStringLiteral(R"(<title[^>]*>(.*?)</title>)"),
+			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+		const QRegularExpressionMatch match = titlePattern.match(html);
+		return match.hasMatch() ? decodeHtmlEntityPreviewText(match.captured(1)) : QString();
+	}
+
+	QHash< QString, QString > extractMetaTags(const QString &html) {
+		QHash< QString, QString > tags;
+		static const QRegularExpression metaPattern(
+			QStringLiteral(R"(<meta\b([^>]+)>)"),
+			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+		static const QRegularExpression attrPattern(
+			QStringLiteral(R"(([A-Za-z_:.-]+)\s*=\s*(['"])(.*?)\2)"),
+			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+
+		QRegularExpressionMatchIterator metaIt = metaPattern.globalMatch(html);
+		while (metaIt.hasNext()) {
+			const QString attrs = metaIt.next().captured(1);
+			QHash< QString, QString > parsedAttrs;
+			QRegularExpressionMatchIterator attrIt = attrPattern.globalMatch(attrs);
+			while (attrIt.hasNext()) {
+				const QRegularExpressionMatch attr = attrIt.next();
+				parsedAttrs.insert(attr.captured(1).toLower(), decodeHtmlEntityPreviewText(attr.captured(3)));
+			}
+
+			const QString key = parsedAttrs.value(QStringLiteral("property"), parsedAttrs.value(QStringLiteral("name"))).toLower();
+			const QString content = parsedAttrs.value(QStringLiteral("content"));
+			if (!key.isEmpty() && !content.isEmpty()) {
+				tags.insert(key, content);
+			}
+		}
+
+		return tags;
+	}
+
+	quint64 randomUploadID(const QHash< quint64, Server::PendingChatAssetUpload > &pendingUploads) {
+		quint64 uploadID = 0;
+		do {
+			uploadID = QRandomGenerator::global()->generate64();
+		} while (uploadID == 0 || pendingUploads.contains(uploadID));
+
+		return uploadID;
+	}
+
+	void sendChatAssetState(Server *server, ServerUser *recipient, quint64 uploadID,
+							MumbleProto::ChatAssetTransferState state, const QString &reason = QString(),
+							quint64 acceptedByteSize = 0,
+							const std::optional< MumbleProto::ChatAssetRef > &asset = std::nullopt) {
+		MumbleProto::ChatAssetState response;
+		response.set_upload_id(uploadID);
+		response.set_state(protoTransferStateFromInt(state));
+		if (!reason.isEmpty()) {
+			response.set_reason(u8(reason));
+		}
+		if (acceptedByteSize > 0) {
+			response.set_accepted_byte_size(acceptedByteSize);
+		}
+		if (asset) {
+			*response.mutable_asset() = asset.value();
+		}
+		server->sendMessage(recipient, response);
+	}
+
 	MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
 													 unsigned int scopeID,
 													 const std::optional< std::string > &resolvedAuthorName = std::nullopt) {
@@ -363,7 +848,15 @@ namespace {
 		if (message.replyToMessageID) {
 			protoMessage.set_reply_to_message_id(message.replyToMessageID.value());
 		}
-		protoMessage.set_message(message.body);
+		protoMessage.set_body_text(message.bodyText);
+		protoMessage.set_body_format(protoBodyFormatFromDB(message.bodyFormat));
+		protoMessage.set_message(u8(structuredChatLegacyHtml(u8(message.bodyText), message.bodyFormat)));
+		for (const msdb::DBChatMessageAttachment &attachment : message.attachments) {
+			*protoMessage.add_attachments() = protoAssetRefFromDB(attachment);
+		}
+		for (const msdb::DBChatMessageEmbed &embed : message.embeds) {
+			*protoMessage.add_embeds() = protoEmbedRefFromDB(embed);
+		}
 		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
 		protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
 		protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
@@ -389,7 +882,11 @@ namespace {
 		if (message.has_actor()) {
 			legacyMessage.set_actor(message.actor());
 		}
-		legacyMessage.set_message(message.message());
+		const QString bodyText = message.has_body_text() ? u8(message.body_text()) : u8(message.message());
+		const MumbleProto::ChatBodyFormat bodyFormat =
+			message.has_body_format() ? message.body_format() : MumbleProto::ChatBodyFormatPlainText;
+		legacyMessage.set_message(u8(structuredChatLegacyHtml(
+			bodyText, dbBodyFormatFromProto(bodyFormat))));
 
 		switch (message.has_scope() ? message.scope() : MumbleProto::Channel) {
 			case MumbleProto::Channel:
@@ -453,11 +950,11 @@ void Server::sendTextChannelSync(ServerUser *uSource) {
 	sendMessage(uSource, sync);
 }
 
-void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &text, MumbleProto::ChatScope scope,
-											  unsigned int scopeID, Channel *permissionChannel,
-											  ::msdb::ChatThreadScope dbScope,
-											  std::optional< unsigned int > replyToMessageID,
-											  const QSet< ServerUser * > &legacyFallbackRecipients) {
+void Server::persistAndBroadcastChatMessage(
+	ServerUser *uSource, const QString &bodyText, ::msdb::ChatMessageBodyFormat bodyFormat,
+	MumbleProto::ChatScope scope, unsigned int scopeID, Channel *permissionChannel, ::msdb::ChatThreadScope dbScope,
+	const std::vector< ::msdb::DBChatMessageAttachment > &attachments,
+	std::optional< unsigned int > replyToMessageID, const QSet< ServerUser * > &legacyFallbackRecipients) {
 	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
 	const std::optional< std::string > authorName =
 		uSource->qsName.isEmpty() ? std::nullopt : std::optional< std::string >(u8(uSource->qsName));
@@ -469,8 +966,42 @@ void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &
 	::msdb::DBChatThread thread =
 		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
 	::msdb::DBChatMessage storedMessage =
-		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, text.toStdString(), replyToMessageID, authorUserID, uSource->uiSession,
-								   authorName);
+		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, u8(bodyText), bodyFormat, attachments, replyToMessageID,
+								   authorUserID, uSource->uiSession, authorName);
+
+	const auto now = std::chrono::system_clock::now();
+	std::vector< ::msdb::DBChatMessageEmbed > initialEmbeds;
+	if (bChatPreviewFetchEnabled) {
+		QSet< QString > seenUrls;
+		const QList< QUrl > previewUrls = extractPreviewableUrls(bodyText);
+		for (const QUrl &previewUrl : previewUrls) {
+			const QString canonicalUrl = previewUrl.adjusted(QUrl::RemoveFragment).toString();
+			if (canonicalUrl.isEmpty() || seenUrls.contains(canonicalUrl)) {
+				continue;
+			}
+			seenUrls.insert(canonicalUrl);
+
+			::msdb::DBChatMessageEmbed embed(iServerNum, storedMessage.messageID);
+			embed.urlHash      = u8(QString::fromLatin1(
+								   QCryptographicHash::hash(canonicalUrl.toUtf8(), QCryptographicHash::Sha256).toHex()));
+			embed.canonicalUrl = u8(canonicalUrl);
+			embed.status       =
+				isSafePreviewUrl(previewUrl) ? ::msdb::ChatEmbedStatus::Pending : ::msdb::ChatEmbedStatus::Blocked;
+			embed.errorCode = embed.status == ::msdb::ChatEmbedStatus::Blocked ? "blocked_target" : "";
+			embed.fetchedAt = now;
+			embed.expiresAt = now + std::chrono::hours(24 * 7);
+			initialEmbeds.push_back(std::move(embed));
+
+			if (initialEmbeds.size() >= 3) {
+				break;
+			}
+		}
+	}
+
+	if (!initialEmbeds.empty()) {
+		m_dbWrapper.setChatMessageEmbeds(iServerNum, storedMessage.messageID, initialEmbeds);
+		storedMessage.embeds = initialEmbeds;
+	}
 
 	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID, authorName);
 
@@ -505,6 +1036,285 @@ void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &
 			}
 		}
 	}
+
+	if (bChatPreviewFetchEnabled && permissionChannel) {
+		for (const ::msdb::DBChatMessageEmbed &embed : initialEmbeds) {
+			if (embed.status == ::msdb::ChatEmbedStatus::Pending) {
+				scheduleChatEmbedFetch(thread.threadID, storedMessage.messageID, scope, scopeID,
+									   static_cast< unsigned int >(permissionChannel->iId), embed);
+			}
+		}
+	}
+}
+
+void Server::applyChatEmbedFetchResult(unsigned int threadID, unsigned int messageID, MumbleProto::ChatScope scope,
+									   unsigned int scopeID, unsigned int permissionChannelID,
+									   const ::msdb::DBChatMessageEmbed &embed) {
+	QMutexLocker qml(&qmCache);
+
+	std::vector< ::msdb::DBChatMessageEmbed > embeds = m_dbWrapper.getChatMessageEmbeds(iServerNum, messageID);
+	bool replaced                                      = false;
+	for (auto &currentEmbed : embeds) {
+		if (currentEmbed.urlHash == embed.urlHash) {
+			currentEmbed = embed;
+			replaced     = true;
+			break;
+		}
+	}
+	if (!replaced) {
+		embeds.push_back(embed);
+	}
+
+	m_dbWrapper.setChatMessageEmbeds(iServerNum, messageID, embeds);
+
+	Channel *permissionChannel = qhChannels.value(permissionChannelID);
+	if (!permissionChannel) {
+		return;
+	}
+
+	MumbleProto::ChatEmbedState state;
+	state.set_scope(scope);
+	state.set_scope_id(scopeID);
+	state.set_thread_id(threadID);
+	state.set_message_id(messageID);
+	for (const auto &currentEmbed : embeds) {
+		*state.add_embeds() = protoEmbedRefFromDB(currentEmbed);
+	}
+
+	for (ServerUser *currentUser : recipientsWithTextAccess(qhUsers, permissionChannel, acCache)) {
+		if (clientSupportsPersistentChat(currentUser)) {
+			sendMessage(currentUser, state);
+		}
+	}
+}
+
+void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageID, MumbleProto::ChatScope scope,
+									unsigned int scopeID, unsigned int permissionChannelID,
+									const ::msdb::DBChatMessageEmbed &initialEmbed) {
+	if (!qnamNetwork) {
+		return;
+	}
+
+	const auto persistPreviewImage = [this](const SanitizedChatImage &thumbnail) -> std::optional< unsigned int > {
+		const QString sha256 =
+			QString::fromLatin1(QCryptographicHash::hash(thumbnail.bytes, QCryptographicHash::Sha256).toHex());
+		const QString storageKey = chatAssetStorageKey(0, sha256);
+		const QString objectPath = chatAssetAbsolutePath(storageKey);
+		QDir rootDir;
+		if (!rootDir.mkpath(QFileInfo(objectPath).absolutePath())) {
+			return std::nullopt;
+		}
+		if (!QFile::exists(objectPath)) {
+			QFile objectFile(objectPath);
+			if (!objectFile.open(QIODevice::WriteOnly) || objectFile.write(thumbnail.bytes) != thumbnail.bytes.size()) {
+				return std::nullopt;
+			}
+			objectFile.close();
+		}
+
+		::msdb::DBChatAsset asset;
+		asset.serverID       = iServerNum;
+		asset.sha256         = u8(sha256);
+		asset.storageKey     = u8(storageKey);
+		asset.mime           = u8(thumbnail.mime);
+		asset.byteSize       = static_cast< std::uint64_t >(thumbnail.bytes.size());
+		asset.kind           = ::msdb::ChatAssetKind::Image;
+		asset.width          = thumbnail.width;
+		asset.height         = thumbnail.height;
+		asset.retentionClass = ::msdb::ChatAssetRetentionClass::PreviewCache;
+
+		return m_dbWrapper.addChatAsset(asset).assetID;
+	};
+
+	const auto finish = [this, threadID, messageID, scope, scopeID, permissionChannelID](::msdb::DBChatMessageEmbed embed) {
+		embed.fetchedAt = std::chrono::system_clock::now();
+		QMetaObject::invokeMethod(
+			this,
+			[this, threadID, messageID, scope, scopeID, permissionChannelID, embed]() {
+				applyChatEmbedFetchResult(threadID, messageID, scope, scopeID, permissionChannelID, embed);
+			},
+			Qt::QueuedConnection);
+	};
+
+	const auto updateHostCount = [this](const QString &hostKey, int delta) {
+		if (hostKey.isEmpty()) {
+			return;
+		}
+
+		const unsigned int current = qhChatPreviewFetchesByHost.value(hostKey, 0);
+		if (delta > 0) {
+			qhChatPreviewFetchesByHost.insert(hostKey, current + static_cast< unsigned int >(delta));
+		} else {
+			const unsigned int decrease = static_cast< unsigned int >(-delta);
+			if (current <= decrease) {
+				qhChatPreviewFetchesByHost.remove(hostKey);
+			} else {
+				qhChatPreviewFetchesByHost.insert(hostKey, current - decrease);
+			}
+		}
+	};
+
+	auto embedState      = std::make_shared< ::msdb::DBChatMessageEmbed >(initialEmbed);
+	auto pageTitle       = std::make_shared< QString >();
+	auto pageDescription = std::make_shared< QString >();
+	auto pageSiteName    = std::make_shared< QString >();
+
+	auto fetchImage = std::make_shared< std::function< void(QUrl, unsigned int) > >();
+	*fetchImage = [this, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, persistPreviewImage, finish,
+				   updateHostCount](QUrl imageUrl, unsigned int redirectCount) mutable {
+		if (redirectCount > CHAT_PREVIEW_MAX_REDIRECTS || !isSafePreviewUrl(imageUrl)) {
+			embedState->status    = ::msdb::ChatEmbedStatus::Blocked;
+			embedState->errorCode = "blocked_target";
+			finish(*embedState);
+			return;
+		}
+
+		const QString hostKey = imageUrl.host().trimmed().toLower();
+		if (qhChatPreviewFetchesByHost.value(hostKey, 0) >= CHAT_PREVIEW_MAX_CONCURRENT_HOST) {
+			embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+			embedState->errorCode = "host_busy";
+			finish(*embedState);
+			return;
+		}
+
+		updateHostCount(hostKey, +1);
+		QNetworkRequest request(imageUrl);
+		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+		request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
+		QNetworkReply *reply = qnamNetwork->get(request);
+		reply->setReadBufferSize(CHAT_PREVIEW_MAX_IMAGE_BYTES);
+		connect(reply, &QNetworkReply::finished, this,
+				[this, reply, hostKey, fetchImage, embedState, pageTitle, pageDescription, pageSiteName,
+				 persistPreviewImage, finish, updateHostCount, redirectCount]() mutable {
+					updateHostCount(hostKey, -1);
+					const QVariant redirectTarget = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
+					const QString contentType =
+						reply->header(QNetworkRequest::ContentTypeHeader).toString().section(';', 0, 0).trimmed().toLower();
+					const QByteArray bytes = reply->readAll();
+					const bool success     = reply->error() == QNetworkReply::NoError;
+					const QUrl sourceUrl   = reply->request().url();
+					reply->deleteLater();
+
+					if (redirectTarget.isValid()) {
+						(*fetchImage)(sourceUrl.resolved(redirectTarget.toUrl()), redirectCount + 1);
+						return;
+					}
+
+					embedState->title       = u8(*pageTitle);
+					embedState->description = u8(*pageDescription);
+					embedState->siteName    = u8(*pageSiteName);
+
+					if (!success || bytes.size() > CHAT_PREVIEW_MAX_IMAGE_BYTES
+						|| (!contentType.startsWith(QLatin1String("image/")) && !contentType.isEmpty())) {
+						embedState->status    = ::msdb::ChatEmbedStatus::Ready;
+						embedState->errorCode = success ? "" : "image_fetch_failed";
+						finish(*embedState);
+						return;
+					}
+
+					if (const auto thumbnail = sanitizeChatImageBytes(bytes, true); thumbnail) {
+						embedState->previewAssetID = persistPreviewImage(*thumbnail);
+					}
+
+					embedState->status    = ::msdb::ChatEmbedStatus::Ready;
+					embedState->errorCode = "";
+					finish(*embedState);
+				});
+	};
+
+	auto fetchPage = std::make_shared< std::function< void(QUrl, unsigned int) > >();
+	*fetchPage = [this, fetchPage, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, finish,
+				  updateHostCount](QUrl pageUrl, unsigned int redirectCount) mutable {
+		if (redirectCount > CHAT_PREVIEW_MAX_REDIRECTS || !isSafePreviewUrl(pageUrl)) {
+			embedState->status    = ::msdb::ChatEmbedStatus::Blocked;
+			embedState->errorCode = "blocked_target";
+			finish(*embedState);
+			return;
+		}
+
+		const QString hostKey = pageUrl.host().trimmed().toLower();
+		if (qhChatPreviewFetchesByHost.value(hostKey, 0) >= CHAT_PREVIEW_MAX_CONCURRENT_HOST) {
+			embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+			embedState->errorCode = "host_busy";
+			finish(*embedState);
+			return;
+		}
+
+		updateHostCount(hostKey, +1);
+		QNetworkRequest request(pageUrl);
+		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+		request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
+		QNetworkReply *reply = qnamNetwork->get(request);
+		reply->setReadBufferSize(CHAT_PREVIEW_MAX_PAGE_BYTES);
+		connect(reply, &QNetworkReply::finished, this,
+				[this, reply, fetchPage, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, finish,
+				 updateHostCount, hostKey, redirectCount]() mutable {
+					updateHostCount(hostKey, -1);
+					const QVariant redirectTarget = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
+					const QString contentType =
+						reply->header(QNetworkRequest::ContentTypeHeader).toString().section(';', 0, 0).trimmed().toLower();
+					const QByteArray bytes = reply->readAll();
+					const bool success     = reply->error() == QNetworkReply::NoError;
+					const QUrl sourceUrl   = reply->request().url();
+					reply->deleteLater();
+
+					if (redirectTarget.isValid()) {
+						(*fetchPage)(sourceUrl.resolved(redirectTarget.toUrl()), redirectCount + 1);
+						return;
+					}
+
+					if (!success || bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
+						embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+						embedState->errorCode = "fetch_failed";
+						finish(*embedState);
+						return;
+					}
+
+					if (contentType.startsWith(QLatin1String("image/")) || isDirectImageUrl(sourceUrl)) {
+						*pageTitle       = QFileInfo(sourceUrl.path()).fileName();
+						*pageDescription = QObject::tr("Direct image preview");
+						*pageSiteName    = sourceUrl.host();
+						(*fetchImage)(sourceUrl, 0);
+						return;
+					}
+
+					if (!contentType.isEmpty() && !contentType.contains(QLatin1String("html"))
+						&& !contentType.contains(QLatin1String("xml"))) {
+						embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+						embedState->errorCode = "unsupported_content_type";
+						finish(*embedState);
+						return;
+					}
+
+					const QString html                     = QString::fromUtf8(bytes);
+					const QHash< QString, QString > metaTags = extractMetaTags(html);
+					*pageTitle =
+						metaTags.value(QLatin1String("og:title"),
+									   metaTags.value(QLatin1String("twitter:title"), extractHtmlTitle(html)));
+					*pageDescription =
+						metaTags.value(QLatin1String("og:description"),
+									   metaTags.value(QLatin1String("twitter:description"),
+													  metaTags.value(QLatin1String("description"))));
+					*pageSiteName = metaTags.value(QLatin1String("og:site_name"), sourceUrl.host());
+
+					embedState->title       = u8(pageTitle->isEmpty() ? sourceUrl.host() : *pageTitle);
+					embedState->description = u8(*pageDescription);
+					embedState->siteName    = u8(pageSiteName->isEmpty() ? sourceUrl.host() : *pageSiteName);
+
+					const QString imageUrlString =
+						metaTags.value(QLatin1String("og:image"), metaTags.value(QLatin1String("twitter:image")));
+					if (imageUrlString.isEmpty()) {
+						embedState->status    = ::msdb::ChatEmbedStatus::Ready;
+						embedState->errorCode = "";
+						finish(*embedState);
+						return;
+					}
+
+					(*fetchImage)(sourceUrl.resolved(QUrl(imageUrlString)), 0);
+				});
+	};
+
+	(*fetchPage)(QUrl(QString::fromStdString(initialEmbed.canonicalUrl)), 0);
 }
 
 /// Checks whether the given channel has restrictions affecting the ENTER privilege
@@ -2130,8 +2940,9 @@ void Server::msgTextMessage(ServerUser *uSource, MumbleProto::TextMessage &msg) 
 	if (msg.channel_id_size() == 1 && msg.tree_id_size() == 0 && msg.session_size() == 0) {
 		Channel *channel = qhChannels.value(msg.channel_id(0));
 		if (channel) {
-			persistAndBroadcastChatMessage(uSource, text, MumbleProto::Channel, channel->iId, channel,
-										   ::msdb::ChatThreadScope::Channel, std::nullopt, users);
+			persistAndBroadcastChatMessage(uSource, text, ::msdb::ChatMessageBodyFormat::PlainText,
+										   MumbleProto::Channel, channel->iId, channel,
+										   ::msdb::ChatThreadScope::Channel, {}, std::nullopt, users);
 			emit userTextMessage(uSource, tm);
 			return;
 		}
@@ -2158,18 +2969,15 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		inferPersistentChatSupport(uSource);
 	}
 
-	QString text = u8(msg.message());
-	bool changed = false;
-
-	if (!isTextAllowed(text, changed)) {
+	QString bodyText = msg.has_body_text() ? u8(msg.body_text()) : u8(msg.message());
+	const msdb::ChatMessageBodyFormat bodyFormat =
+		dbBodyFormatFromProto(msg.has_body_format() ? msg.body_format() : MumbleProto::ChatBodyFormatPlainText);
+	if (bodyText.isEmpty()) {
+		return;
+	}
+	if (iMaxTextMessageLength != 0 && bodyText.length() > iMaxTextMessageLength) {
 		PERM_DENIED_TYPE(TextTooLong);
 		return;
-	}
-	if (text.isEmpty()) {
-		return;
-	}
-	if (changed) {
-		msg.set_message(u8(text));
 	}
 	const std::optional< unsigned int > replyToMessageID =
 		msg.has_reply_to_message_id() && msg.reply_to_message_id() > 0
@@ -2235,8 +3043,50 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		legacyFallbackRecipients.remove(uSource);
 	}
 
-	persistAndBroadcastChatMessage(uSource, text, scope, scopeID, permissionChannel, dbScope, replyToMessageID,
-								   legacyFallbackRecipients);
+	std::vector< msdb::DBChatMessageAttachment > attachments;
+	if (msg.attachment_asset_ids_size() > 0
+		&& static_cast< unsigned int >(msg.attachment_asset_ids_size()) > uiChatAttachmentLimit) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
+		denied.set_reason(u8(QStringLiteral("Too many attachments for one message.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
+	attachments.reserve(static_cast< std::size_t >(msg.attachment_asset_ids_size()));
+	for (int i = 0; i < msg.attachment_asset_ids_size(); ++i) {
+		const unsigned int assetID = msg.attachment_asset_ids(i);
+		if (assetID == 0 || !m_dbWrapper.chatAssetExists(iServerNum, assetID)) {
+			continue;
+		}
+
+		const msdb::DBChatAsset asset = m_dbWrapper.getChatAsset(iServerNum, assetID);
+		const bool ownedBySender =
+			(asset.ownerSession && asset.ownerSession.value() == uSource->uiSession)
+			|| (asset.ownerUserID && uSource->iId >= 0
+				&& asset.ownerUserID.value() == static_cast< unsigned int >(uSource->iId));
+		if (!ownedBySender && !canAccessChatAsset(uSource, assetID)) {
+			continue;
+		}
+
+		msdb::DBChatMessageAttachment attachment(iServerNum, 0, assetID);
+		attachment.displayOrder = static_cast< unsigned int >(attachments.size());
+		attachment.filename     = std::string();
+		attachment.mime         = asset.mime;
+		attachment.byteSize     = asset.byteSize;
+		attachment.kind         = asset.kind;
+		attachment.width        = asset.width;
+		attachment.height       = asset.height;
+		attachment.durationMs   = asset.durationMs;
+		attachment.inlineSafe   =
+			isInlineSafeAsset(asset.kind, QString::fromStdString(asset.mime), true);
+		attachment.previewAssetID = asset.previewAssetID;
+		attachments.push_back(std::move(attachment));
+	}
+
+	persistAndBroadcastChatMessage(uSource, bodyText, bodyFormat, scope, scopeID, permissionChannel, dbScope,
+								   attachments, replyToMessageID, legacyFallbackRecipients);
 }
 
 void Server::msgChatMessage(ServerUser *, MumbleProto::ChatMessage &) {
@@ -2287,8 +3137,12 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 			return;
 	}
 
-	const unsigned int limit       = msg.has_limit() ? std::clamp(msg.limit(), 1U, 200U) : 50U;
+	const unsigned int limit       = msg.has_limit() ? std::clamp(msg.limit(), 1U, 100U) : 50U;
 	const unsigned int startOffset = msg.has_start_offset() ? msg.start_offset() : 0;
+	const std::optional< unsigned int > beforeMessageID =
+		msg.has_before_message_id() && msg.before_message_id() > 0
+			? std::optional< unsigned int >(msg.before_message_id())
+			: std::nullopt;
 
 	MumbleProto::ChatHistoryResponse response;
 	response.set_scope(scope);
@@ -2314,6 +3168,7 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 		return std::nullopt;
 	};
 	response.set_has_more(false);
+	response.set_has_older(false);
 
 	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
 		MumbleProto::PermissionDenied denied;
@@ -2403,10 +3258,18 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	response.set_thread_id(thread->threadID);
 
 	std::vector< ::msdb::DBChatMessage > messages =
-		m_dbWrapper.getChatMessages(iServerNum, thread->threadID, startOffset, static_cast< int >(limit + 1));
+		beforeMessageID ? m_dbWrapper.getChatMessagesBefore(iServerNum, thread->threadID, beforeMessageID.value(),
+															limit + 1)
+						: m_dbWrapper.getChatMessages(iServerNum, thread->threadID, startOffset,
+													 static_cast< int >(limit + 1));
 	if (messages.size() > limit) {
 		messages.erase(messages.begin());
 		response.set_has_more(true);
+		response.set_has_older(true);
+	}
+
+	if (!messages.empty()) {
+		response.set_oldest_message_id(messages.front().messageID);
 	}
 
 	for (const ::msdb::DBChatMessage &currentMessage : messages) {
@@ -2517,6 +3380,386 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 	if (persistedReadState) {
 		sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
 	}
+}
+
+void Server::msgChatAssetUploadInit(ServerUser *uSource, MumbleProto::ChatAssetUploadInit &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	const QString mime = normalizedMime(msg.has_mime() ? u8(msg.mime()) : QString());
+	if (mime.isEmpty() || !msg.has_byte_size() || msg.byte_size() == 0) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Missing asset metadata."));
+		return;
+	}
+	if (uiChatAssetMaxBytes > 0 && msg.byte_size() > uiChatAssetMaxBytes) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Asset exceeds the configured size limit."));
+		return;
+	}
+	if (uiChatAssetTotalQuotaBytes > 0
+		&& chatAssetStoredBytes() + static_cast< quint64 >(msg.byte_size()) > uiChatAssetTotalQuotaBytes) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Server chat asset quota exceeded."));
+		return;
+	}
+
+	msdb::ChatAssetKind kind =
+		dbAssetKindFromProto(msg.has_kind() ? msg.kind() : MumbleProto::ChatAssetKindUnknown);
+	if (kind == msdb::ChatAssetKind::Unknown) {
+		kind = inferredAssetKind(mime);
+	}
+	if (!isAllowedChatAssetMime(kind, mime)) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Asset MIME type is not allowed by server policy."));
+		return;
+	}
+
+	const QString declaredHash = msg.has_sha256() ? u8(msg.sha256()).trimmed().toLower() : QString();
+	if (!declaredHash.isEmpty() && !isValidSha256Hex(declaredHash)) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Invalid SHA-256 checksum."));
+		return;
+	}
+
+	QString storageError;
+	if (!ensureChatAssetStorageReady(&storageError)) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected, storageError);
+		return;
+	}
+
+	PendingChatAssetUpload upload;
+	upload.uploadID         = randomUploadID(qhPendingChatAssetUploads);
+	upload.ownerSession     = uSource->uiSession;
+	upload.ownerUserID      = persistedUserID(uSource);
+	upload.filename         = msg.has_filename() ? u8(msg.filename()) : QString();
+	upload.mime             = mime;
+	upload.sha256           = declaredHash;
+	upload.kind             = kind;
+	upload.requestInline    = msg.has_request_inline() && msg.request_inline();
+	upload.expectedByteSize = msg.byte_size();
+	upload.tempFilePath =
+		QDir(chatAssetIncomingRootPath()).absoluteFilePath(QStringLiteral("%1-%2.part")
+															   .arg(upload.ownerSession)
+															   .arg(upload.uploadID));
+
+	QFile tempFile(upload.tempFilePath);
+	if (tempFile.exists() && !tempFile.remove()) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Failed to reset temporary upload state."));
+		return;
+	}
+	if (!tempFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+		sendChatAssetState(this, uSource, 0, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Failed to open temporary upload file."));
+		return;
+	}
+	tempFile.close();
+
+	qhPendingChatAssetUploads.insert(upload.uploadID, upload);
+	sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateAccepted, QString(),
+					   upload.expectedByteSize);
+}
+
+void Server::msgChatAssetUploadChunk(ServerUser *uSource, MumbleProto::ChatAssetUploadChunk &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	if (!msg.has_upload_id() || !qhPendingChatAssetUploads.contains(msg.upload_id())) {
+		return;
+	}
+
+	PendingChatAssetUpload &upload = qhPendingChatAssetUploads[msg.upload_id()];
+	if (upload.ownerSession != uSource->uiSession) {
+		return;
+	}
+	if (!msg.has_offset() || msg.offset() != upload.receivedByteSize) {
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Upload chunks must be sent sequentially."));
+		QFile::remove(upload.tempFilePath);
+		qhPendingChatAssetUploads.remove(upload.uploadID);
+		return;
+	}
+
+	const QByteArray data = blob(msg.data());
+	if (data.isEmpty()) {
+		return;
+	}
+	if (data.size() > 256 * 1024) {
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Upload chunk exceeds the maximum allowed size."));
+		QFile::remove(upload.tempFilePath);
+		qhPendingChatAssetUploads.remove(upload.uploadID);
+		return;
+	}
+	if (upload.receivedByteSize + static_cast< quint64 >(data.size()) > upload.expectedByteSize) {
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Upload exceeds declared asset size."));
+		QFile::remove(upload.tempFilePath);
+		qhPendingChatAssetUploads.remove(upload.uploadID);
+		return;
+	}
+
+	QFile tempFile(upload.tempFilePath);
+	if (!tempFile.open(QIODevice::WriteOnly | QIODevice::Append)) {
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Failed to append upload chunk to temporary file."));
+		QFile::remove(upload.tempFilePath);
+		qhPendingChatAssetUploads.remove(upload.uploadID);
+		return;
+	}
+	if (static_cast< quint64 >(tempFile.size()) != upload.receivedByteSize) {
+		tempFile.close();
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Temporary upload file is out of sync."));
+		QFile::remove(upload.tempFilePath);
+		qhPendingChatAssetUploads.remove(upload.uploadID);
+		return;
+	}
+	if (tempFile.write(data) != data.size()) {
+		tempFile.close();
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected,
+						   QStringLiteral("Failed to write upload chunk."));
+		QFile::remove(upload.tempFilePath);
+		qhPendingChatAssetUploads.remove(upload.uploadID);
+		return;
+	}
+	tempFile.close();
+
+	upload.receivedByteSize += static_cast< quint64 >(data.size());
+	upload.finalChunkReceived = upload.finalChunkReceived || (msg.has_final_chunk() && msg.final_chunk());
+}
+
+void Server::msgChatAssetUploadCommit(ServerUser *uSource, MumbleProto::ChatAssetUploadCommit &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	if (!msg.has_upload_id() || !qhPendingChatAssetUploads.contains(msg.upload_id())) {
+		return;
+	}
+
+	PendingChatAssetUpload upload = qhPendingChatAssetUploads.take(msg.upload_id());
+	if (upload.ownerSession != uSource->uiSession) {
+		qhPendingChatAssetUploads.insert(upload.uploadID, upload);
+		return;
+	}
+
+	auto reject = [&](const QString &reason) {
+		sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateRejected, reason);
+		QFile::remove(upload.tempFilePath);
+	};
+
+	if (upload.receivedByteSize != upload.expectedByteSize) {
+		reject(QStringLiteral("Upload size does not match declared asset size."));
+		return;
+	}
+	if (!upload.finalChunkReceived) {
+		reject(QStringLiteral("Upload is missing a final chunk marker."));
+		return;
+	}
+
+	const QString commitFilename = msg.has_filename() ? u8(msg.filename()) : QString();
+	if (!commitFilename.isEmpty()) {
+		upload.filename = commitFilename;
+	}
+
+	const QString commitHash = msg.has_sha256() ? u8(msg.sha256()).trimmed().toLower() : QString();
+	if (!commitHash.isEmpty()) {
+		if (!isValidSha256Hex(commitHash)) {
+			reject(QStringLiteral("Invalid SHA-256 checksum."));
+			return;
+		}
+		upload.sha256 = commitHash;
+	}
+
+	QFile tempFile(upload.tempFilePath);
+	if (!tempFile.open(QIODevice::ReadOnly)) {
+		reject(QStringLiteral("Failed to read back temporary upload file."));
+		return;
+	}
+	const QByteArray fileBytes = tempFile.readAll();
+	tempFile.close();
+	if (static_cast< quint64 >(fileBytes.size()) != upload.expectedByteSize) {
+		reject(QStringLiteral("Temporary upload file size is invalid."));
+		return;
+	}
+
+	const QString computedHash =
+		QString::fromLatin1(QCryptographicHash::hash(fileBytes, QCryptographicHash::Sha256).toHex());
+	if (!upload.sha256.isEmpty() && computedHash != upload.sha256) {
+		reject(QStringLiteral("SHA-256 checksum mismatch."));
+		return;
+	}
+	upload.sha256 = computedHash;
+
+	QByteArray storedBytes = fileBytes;
+	QString storedMime     = upload.mime;
+	unsigned int storedWidth = 0;
+	unsigned int storedHeight = 0;
+	std::optional< SanitizedChatImage > previewThumbnail;
+	if (upload.kind == msdb::ChatAssetKind::Image && isSanitizableImageMime(upload.mime)) {
+		const auto sanitizedImage = sanitizeChatImageBytes(fileBytes, false);
+		if (!sanitizedImage) {
+			reject(QStringLiteral("Uploaded image could not be decoded safely."));
+			return;
+		}
+
+		storedBytes   = sanitizedImage->bytes;
+		storedMime    = sanitizedImage->mime;
+		storedWidth   = sanitizedImage->width;
+		storedHeight  = sanitizedImage->height;
+		previewThumbnail = sanitizeChatImageBytes(storedBytes, true);
+	}
+
+	const QString storedHash =
+		QString::fromLatin1(QCryptographicHash::hash(storedBytes, QCryptographicHash::Sha256).toHex());
+	const QString storageKey  = chatAssetStorageKey(0, storedHash);
+	const QString objectPath  = chatAssetAbsolutePath(storageKey);
+	const QString objectDir   = QFileInfo(objectPath).absolutePath();
+	QDir rootDir;
+	if (!rootDir.mkpath(objectDir)) {
+		reject(QStringLiteral("Failed to create final asset storage directory."));
+		return;
+	}
+
+	if (QFile::exists(objectPath)) {
+		if (!QFile::remove(upload.tempFilePath)) {
+			reject(QStringLiteral("Failed to discard duplicate temporary upload file."));
+			return;
+		}
+	} else {
+		if (upload.kind == msdb::ChatAssetKind::Image && isSanitizableImageMime(upload.mime)) {
+			QFile objectFile(objectPath);
+			if (!objectFile.open(QIODevice::WriteOnly) || objectFile.write(storedBytes) != storedBytes.size()) {
+				reject(QStringLiteral("Failed to write normalized image into permanent storage."));
+				return;
+			}
+			objectFile.close();
+			QFile::remove(upload.tempFilePath);
+		} else if (!QFile::rename(upload.tempFilePath, objectPath)) {
+			reject(QStringLiteral("Failed to move upload into permanent storage."));
+			return;
+		}
+	}
+
+	msdb::DBChatAsset storedAsset;
+	storedAsset.serverID       = iServerNum;
+	storedAsset.ownerUserID    = upload.ownerUserID;
+	storedAsset.ownerSession   = upload.ownerSession;
+	storedAsset.sha256         = u8(storedHash);
+	storedAsset.storageKey     = u8(storageKey);
+	storedAsset.mime           = u8(storedMime);
+	storedAsset.byteSize       = static_cast< std::uint64_t >(storedBytes.size());
+	storedAsset.kind           = upload.kind;
+	storedAsset.width          = storedWidth;
+	storedAsset.height         = storedHeight;
+	storedAsset.retentionClass = msdb::ChatAssetRetentionClass::DefaultStorage;
+
+	storedAsset = m_dbWrapper.addChatAsset(storedAsset);
+	if (previewThumbnail) {
+		const QString previewHash =
+			QString::fromLatin1(QCryptographicHash::hash(previewThumbnail->bytes, QCryptographicHash::Sha256).toHex());
+		const QString previewStorageKey = chatAssetStorageKey(0, previewHash);
+		const QString previewObjectPath = chatAssetAbsolutePath(previewStorageKey);
+		if (rootDir.mkpath(QFileInfo(previewObjectPath).absolutePath()) && !QFile::exists(previewObjectPath)) {
+			QFile previewFile(previewObjectPath);
+			if (previewFile.open(QIODevice::WriteOnly)
+				&& previewFile.write(previewThumbnail->bytes) == previewThumbnail->bytes.size()) {
+				previewFile.close();
+			}
+		}
+
+		msdb::DBChatAsset previewAsset;
+		previewAsset.serverID       = iServerNum;
+		previewAsset.sha256         = u8(previewHash);
+		previewAsset.storageKey     = u8(previewStorageKey);
+		previewAsset.mime           = u8(previewThumbnail->mime);
+		previewAsset.byteSize       = static_cast< std::uint64_t >(previewThumbnail->bytes.size());
+		previewAsset.kind           = msdb::ChatAssetKind::Image;
+		previewAsset.width          = previewThumbnail->width;
+		previewAsset.height         = previewThumbnail->height;
+		previewAsset.retentionClass = msdb::ChatAssetRetentionClass::PreviewCache;
+		previewAsset                = m_dbWrapper.addChatAsset(previewAsset);
+		storedAsset.previewAssetID  = previewAsset.assetID;
+		m_dbWrapper.updateChatAssetPreviewAssetID(iServerNum, storedAsset.assetID, previewAsset.assetID);
+	}
+
+	sendChatAssetState(this, uSource, upload.uploadID, MumbleProto::ChatAssetTransferStateComplete, QString(),
+					   storedAsset.byteSize,
+					   protoAssetRefFromAsset(storedAsset, upload.filename,
+											  isInlineSafeAsset(upload.kind, storedMime, upload.requestInline)));
+}
+
+void Server::msgChatAssetState(ServerUser *, MumbleProto::ChatAssetState &) {
+}
+
+void Server::msgChatAssetRequest(ServerUser *uSource, MumbleProto::ChatAssetRequest &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	if (!msg.has_asset_id() || msg.asset_id() == 0 || !m_dbWrapper.chatAssetExists(iServerNum, msg.asset_id())
+		|| !canAccessChatAsset(uSource, msg.asset_id())) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
+		denied.set_reason(u8(QStringLiteral("Access to this chat asset is not permitted.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
+	const msdb::DBChatAsset asset = m_dbWrapper.getChatAsset(iServerNum, msg.asset_id());
+	const QString assetPath       = chatAssetAbsolutePath(u8(asset.storageKey));
+	QFile assetFile(assetPath);
+	if (!assetFile.open(QIODevice::ReadOnly)) {
+		MumbleProto::PermissionDenied denied;
+		denied.set_session(uSource->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
+		denied.set_reason(u8(QStringLiteral("Chat asset is unavailable on the server.")));
+		sendMessage(uSource, denied);
+		return;
+	}
+
+	const quint64 offset = msg.has_offset() ? msg.offset() : 0;
+	const quint32 requestedBytes = msg.has_max_bytes() ? msg.max_bytes() : 65536U;
+	const quint32 maxBytes       = std::clamp(requestedBytes, 1024U, 262144U);
+	if (offset > static_cast< quint64 >(assetFile.size())) {
+		return;
+	}
+
+	if (!assetFile.seek(static_cast< qint64 >(offset))) {
+		return;
+	}
+
+	MumbleProto::ChatAssetChunk chunk;
+	chunk.set_asset_id(asset.assetID);
+	chunk.set_offset(offset);
+	chunk.set_data(blob(assetFile.read(static_cast< qint64 >(maxBytes))));
+	chunk.set_eof(offset + static_cast< quint64 >(chunk.data().size()) >= asset.byteSize);
+	chunk.set_total_size(asset.byteSize);
+	chunk.set_mime(asset.mime);
+	if (asset.width > 0) {
+		chunk.set_width(asset.width);
+	}
+	if (asset.height > 0) {
+		chunk.set_height(asset.height);
+	}
+	chunk.set_kind(protoAssetKindFromDB(asset.kind));
+	sendMessage(uSource, chunk);
+	m_dbWrapper.touchChatAsset(iServerNum, asset.assetID);
+}
+
+void Server::msgChatAssetChunk(ServerUser *, MumbleProto::ChatAssetChunk &) {
+}
+
+void Server::msgChatEmbedState(ServerUser *, MumbleProto::ChatEmbedState &) {
 }
 
 void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSync &msg) {

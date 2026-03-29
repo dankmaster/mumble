@@ -70,6 +70,7 @@ public:
 	void setDefaultText(const QString &, bool = false);
 	unsigned int completeAtCursor();
 	void resetViewportChrome();
+	bool isShowingDefaultText() const;
 signals:
 	void tabPressed(void);
 	void backtabPressed(void);

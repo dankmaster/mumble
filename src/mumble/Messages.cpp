@@ -1416,6 +1416,83 @@ void MainWindow::msgChatReadStateUpdate(const MumbleProto::ChatReadStateUpdate &
 	handlePersistentChatReadState(msg);
 }
 
+void MainWindow::msgChatAssetUploadInit(const MumbleProto::ChatAssetUploadInit &) {
+}
+
+void MainWindow::msgChatAssetUploadChunk(const MumbleProto::ChatAssetUploadChunk &) {
+}
+
+void MainWindow::msgChatAssetUploadCommit(const MumbleProto::ChatAssetUploadCommit &) {
+}
+
+void MainWindow::msgChatAssetState(const MumbleProto::ChatAssetState &) {
+}
+
+void MainWindow::msgChatAssetRequest(const MumbleProto::ChatAssetRequest &) {
+}
+
+void MainWindow::msgChatAssetChunk(const MumbleProto::ChatAssetChunk &msg) {
+	if (!msg.has_asset_id() || msg.asset_id() == 0) {
+		return;
+	}
+
+	auto it = m_persistentChatAssetDownloads.find(msg.asset_id());
+	if (it == m_persistentChatAssetDownloads.end()) {
+		PersistentChatAssetDownload download;
+		download.assetID = msg.asset_id();
+		it = m_persistentChatAssetDownloads.insert(msg.asset_id(), download);
+	}
+
+	if (msg.has_offset() && msg.offset() != static_cast< quint64 >(it->bytes.size())) {
+		return;
+	}
+
+	if (msg.has_total_size()) {
+		it->totalSize = msg.total_size();
+	}
+	if (msg.has_data() && !msg.data().empty()) {
+		it->bytes.append(msg.data().data(), static_cast< int >(msg.data().size()));
+	}
+	it->nextOffset = static_cast< quint64 >(it->bytes.size());
+
+	const bool complete = (msg.has_eof() && msg.eof())
+						  || (it->totalSize > 0 && static_cast< quint64 >(it->bytes.size()) >= it->totalSize);
+	if (!complete) {
+		if (Global::get().sh && Global::get().sh->isRunning()) {
+			MumbleProto::ChatAssetRequest request;
+			request.set_asset_id(msg.asset_id());
+			request.set_offset(it->nextOffset);
+			request.set_max_bytes(262144);
+			Global::get().sh->sendMessage(request);
+		}
+		return;
+	}
+
+	QImage image;
+	image.loadFromData(it->bytes);
+	for (const QString &previewKey : it->previewKeys) {
+		auto previewIt = m_persistentChatPreviews.find(previewKey);
+		if (previewIt == m_persistentChatPreviews.end()) {
+			continue;
+		}
+
+		previewIt->thumbnailFinished = true;
+		if (!image.isNull()) {
+			previewIt->thumbnailImage = image;
+			previewIt->failed         = false;
+		} else {
+			previewIt->failed = true;
+		}
+		updatePersistentChatPreviewViewIfVisible(previewKey);
+	}
+
+	m_persistentChatAssetDownloads.erase(it);
+}
+
+void MainWindow::msgChatEmbedState(const MumbleProto::ChatEmbedState &msg) {
+	handlePersistentChatEmbedState(msg);
+}
+
 void MainWindow::msgScreenShareCreate(const MumbleProto::ScreenShareCreate &) {
 }
 

@@ -7,6 +7,7 @@
 
 #include "API.h"
 #include "AudioOutput.h"
+#include "DTLNSpeechCleanup.h"
 #include "MainWindow.h"
 #include "MumbleProtocol.h"
 #include "NetworkConfig.h"
@@ -34,7 +35,7 @@ extern "C" {
 #include <limits>
 #include <span>
 
-#ifdef USE_RNNOISE
+#if defined(USE_RNNOISE) || defined(USE_DTLN)
 /// Clip the given float value to a range that can be safely converted into a short (without causing integer overflow)
 static short clampFloatSample(float v) {
 	return static_cast< short >(std::clamp(v, static_cast< float >(std::numeric_limits< short >::min()),
@@ -250,6 +251,9 @@ AudioInput::AudioInput()
 
 #ifdef USE_RNNOISE
 	denoiseState = rnnoise_create(nullptr);
+#endif
+#ifdef USE_DTLN
+	m_dtlnSpeechCleanup = std::make_unique< DTLNSpeechCleanup >();
 #endif
 
 	qWarning("AudioInput: %d bits/s, %d hz, %d sample", iAudioQuality, iSampleRate, iFrameSize);
@@ -822,6 +826,12 @@ void AudioInput::selectNoiseCancel() {
 			noiseCancel = Settings::NoiseCancelSpeex;
 		}
 #endif
+#ifdef USE_DTLN
+		if (backend == Settings::DTLNBackend && (!m_dtlnSpeechCleanup || !m_dtlnSpeechCleanup->isReady())) {
+			qInfo("AudioInput: Ignoring request to enable DTLN: backend initialization failed");
+			noiseCancel = Settings::NoiseCancelSpeex;
+		}
+#endif
 	}
 
 	bool preprocessorDenoise = false;
@@ -927,6 +937,22 @@ void AudioInput::encodeAudioFrame(AudioChunk chunk) {
 
 		for (unsigned int i = 0; i < 480; i++) {
 			psSource[i] = clampFloatSample(denoiseFrames[i]);
+		}
+	}
+#endif
+#ifdef USE_DTLN
+	if ((noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth)
+		&& Global::get().s.noiseCancelBackend == Settings::DTLNBackend && m_dtlnSpeechCleanup
+		&& m_dtlnSpeechCleanup->isReady()) {
+		std::array< float, 480 > dtlnFrame = {};
+		for (unsigned int i = 0; i < 480; ++i) {
+			dtlnFrame[i] = static_cast< float >(psSource[i]) / 32768.0f;
+		}
+
+		m_dtlnSpeechCleanup->processNormalizedMonoInPlace(dtlnFrame.data(), static_cast< unsigned int >(dtlnFrame.size()));
+
+		for (unsigned int i = 0; i < 480; ++i) {
+			psSource[i] = clampFloatSample(dtlnFrame[i] * 32768.0f);
 		}
 	}
 #endif

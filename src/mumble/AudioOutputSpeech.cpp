@@ -7,6 +7,7 @@
 
 #include "Audio.h"
 #include "ClientUser.h"
+#include "DTLNSpeechCleanup.h"
 #include "PacketDataStream.h"
 #include "SpeechCleanup.h"
 #include "Utils.h"
@@ -25,9 +26,9 @@
 std::mutex AudioOutputSpeech::s_audioCachesMutex;
 std::vector< AudioOutputCache > AudioOutputSpeech::s_audioCaches(100);
 
-#ifdef USE_RNNOISE
 namespace {
 	constexpr unsigned int REMOTE_SPEECH_CLEANUP_FRAME_SIZE = 480;
+	constexpr unsigned int REMOTE_SPEECH_CLEANUP_MAX_MONO_SAMPLES = (SAMPLE_RATE * 120) / 1000;
 	constexpr float REMOTE_SPEECH_CLEANUP_STEREO_EPSILON    = 1.0e-4f;
 
 	float remoteSpeechCleanupMixFactor(Settings::RemoteSpeechCleanupPreset preset) {
@@ -43,7 +44,6 @@ namespace {
 		}
 	}
 } // namespace
-#endif
 
 void AudioOutputSpeech::invalidateAudioOutputCache(void *maskedIndex) {
 	// The given "pointer" actually is to be understood as an index
@@ -118,6 +118,9 @@ AudioOutputSpeech::AudioOutputSpeech(ClientUser *user, unsigned int freq, Mumble
 			m_remoteSpeechCleanupFrameSize = static_cast< unsigned int >(rnnoiseFrameSize);
 		}
 	}
+#endif
+#ifdef USE_DTLN
+	m_dtlnSpeechCleanup = std::make_unique< DTLNSpeechCleanup >();
 #endif
 
 	// iAudioBufferSize: size (in unit of float) of the buffer used to store decoded pcm data.
@@ -213,7 +216,6 @@ AudioOutputSpeech::~AudioOutputSpeech() {
 	delete[] fResamplerBuffer;
 }
 
-#ifdef USE_RNNOISE
 bool AudioOutputSpeech::isEffectivelyDualMono(const float *samples, unsigned int sampleCount) const {
 	if (!samples || !bStereo || sampleCount < 2 || sampleCount % 2 != 0) {
 		return false;
@@ -229,16 +231,59 @@ bool AudioOutputSpeech::isEffectivelyDualMono(const float *samples, unsigned int
 }
 
 void AudioOutputSpeech::applyRemoteSpeechCleanup(float *samples, unsigned int sampleCount) {
-	if (!samples || !p || !p->isRemoteSpeechCleanupEnabled()
-		|| Global::get().s.remoteSpeechCleanupBackend != Settings::RNNoiseBackend || !m_remoteSpeechCleanupState || !bStereo
-		|| sampleCount == 0 || m_remoteSpeechCleanupFrameSize != REMOTE_SPEECH_CLEANUP_FRAME_SIZE
+	if (!samples || !p || !p->isRemoteSpeechCleanupEnabled() || !bStereo || sampleCount == 0
 		|| !isEffectivelyDualMono(samples, sampleCount)) {
+		return;
+	}
+
+	switch (Global::get().s.remoteSpeechCleanupBackend) {
+		case Settings::RNNoiseBackend:
+#ifdef USE_RNNOISE
+			break;
+#else
+			return;
+#endif
+		case Settings::DTLNBackend:
+#ifdef USE_DTLN
+			break;
+#else
+			return;
+#endif
+	}
+
+	const unsigned int samplesPerChannel = sampleCount / 2;
+	if (samplesPerChannel > REMOTE_SPEECH_CLEANUP_MAX_MONO_SAMPLES) {
+		return;
+	}
+
+#ifdef USE_DTLN
+	if (Global::get().s.remoteSpeechCleanupBackend == Settings::DTLNBackend) {
+		if (!m_dtlnSpeechCleanup || !m_dtlnSpeechCleanup->isReady()) {
+			return;
+		}
+
+		for (unsigned int i = 0; i < samplesPerChannel; ++i) {
+			m_remoteSpeechCleanupMonoBuffer[i] = samples[2 * i];
+		}
+
+		m_dtlnSpeechCleanup->processNormalizedMonoInPlace(m_remoteSpeechCleanupMonoBuffer.data(), samplesPerChannel,
+														 remoteSpeechCleanupMixFactor(Global::get().s.remoteSpeechCleanupPreset));
+
+		for (unsigned int i = 0; i < samplesPerChannel; ++i) {
+			samples[2 * i]     = m_remoteSpeechCleanupMonoBuffer[i];
+			samples[2 * i + 1] = m_remoteSpeechCleanupMonoBuffer[i];
+		}
+		return;
+	}
+#endif
+
+#ifdef USE_RNNOISE
+	if (!m_remoteSpeechCleanupState || m_remoteSpeechCleanupFrameSize != REMOTE_SPEECH_CLEANUP_FRAME_SIZE) {
 		return;
 	}
 
 	const float mixFactor = remoteSpeechCleanupMixFactor(Global::get().s.remoteSpeechCleanupPreset);
 	const float dryFactor = 1.0f - mixFactor;
-	const unsigned int samplesPerChannel = sampleCount / 2;
 
 	for (unsigned int offset = 0; offset < samplesPerChannel; offset += REMOTE_SPEECH_CLEANUP_FRAME_SIZE) {
 		const unsigned int chunkSize = std::min(REMOTE_SPEECH_CLEANUP_FRAME_SIZE, samplesPerChannel - offset);
@@ -260,8 +305,8 @@ void AudioOutputSpeech::applyRemoteSpeechCleanup(float *samples, unsigned int sa
 			samples[2 * (offset + i) + 1] = blended;
 		}
 	}
-}
 #endif
+}
 
 void AudioOutputSpeech::addFrameToBuffer(const Mumble::Protocol::AudioData &audioData) {
 	QMutexLocker lock(&qmJitter);
