@@ -53,10 +53,7 @@
     </spacer>
    </item>
    <item>
-    <widget class="Line" name="line_2">
-     <property name="styleSheet">
-      <string notr="true">background-color: rgb(94, 94, 94);</string>
-     </property>
+   <widget class="Line" name="line_2">
      <property name="lineWidth">
       <number>1</number>
      </property>
@@ -133,10 +130,7 @@
     </widget>
    </item>
    <item>
-    <widget class="Line" name="line">
-     <property name="styleSheet">
-      <string notr="true">background-color: rgb(94, 94, 94);</string>
-     </property>
+   <widget class="Line" name="line">
      <property name="lineWidth">
       <number>1</number>
      </property>

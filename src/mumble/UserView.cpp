@@ -11,6 +11,7 @@
 #include "MainWindow.h"
 #include "ServerHandler.h"
 #include "Settings.h"
+#include "UiTheme.h"
 #include "UserModel.h"
 #include "Global.h"
 
@@ -18,6 +19,7 @@
 #include <QtGui/QHelpEvent>
 #include <QtGui/QPainter>
 #include <QtGui/QPainterPath>
+#include <QtGui/QPolygonF>
 #include <QtWidgets/QWhatsThis>
 
 namespace {
@@ -36,27 +38,20 @@ namespace {
 	struct NavigatorRowPalette {
 		QColor surfaceColor;
 		QColor hoverColor;
-		QColor selectedColor;
-		QColor selectedOutlineColor;
-		QColor currentColor;
-		QColor linkedColor;
-		QColor channelHoverColor;
-		QColor channelSelectedColor;
-		QColor channelCurrentColor;
-		QColor channelLinkedColor;
+		QColor currentRoomTintColor;
+		QColor currentRoomBorderColor;
 		QColor textColor;
 		QColor mutedTextColor;
 		QColor channelTextColor;
-		QColor channelChipColor;
-		QColor channelChipTextColor;
-		QColor accentColor;
 		QColor avatarFillColor;
 		QColor avatarTextColor;
-		QColor chipColor;
-		QColor chipTextColor;
+		QColor avatarBorderColor;
 		QColor iconTintColor;
 		QColor speakingColor;
-		QColor mutedSpeakingColor;
+		QColor idleColor;
+		QColor dangerColor;
+		QColor presenceCutoutColor;
+		QColor branchColor;
 	};
 
 	NavigatorRowPalette buildNavigatorRowPalette(const QPalette &palette) {
@@ -68,29 +63,43 @@ namespace {
 		const QColor highlightColor = palette.color(QPalette::Highlight);
 		const QColor textColor      = palette.color(QPalette::WindowText);
 
+		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+			colors.surfaceColor         = tokens->mantle;
+			colors.hoverColor           = tokens->surface0;
+			colors.currentRoomTintColor = uiThemeColorWithAlpha(tokens->green, 0.08);
+			colors.currentRoomBorderColor = tokens->green;
+			colors.textColor            = tokens->text;
+			colors.mutedTextColor       = tokens->overlay0;
+			colors.channelTextColor     = tokens->subtext0;
+			colors.avatarFillColor      = tokens->surface0;
+			colors.avatarTextColor      = tokens->text;
+			colors.avatarBorderColor    = tokens->surface1;
+			colors.iconTintColor        = tokens->overlay0;
+			colors.speakingColor        = tokens->green;
+			colors.idleColor            = tokens->yellow;
+			colors.dangerColor          = tokens->red;
+			colors.presenceCutoutColor  = tokens->mantle;
+			colors.branchColor          = tokens->subtext0;
+			return colors;
+		}
+
 		colors.surfaceColor         = mixRowColors(baseColor, alternateColor, darkTheme ? 0.74 : 0.14);
 		colors.hoverColor           = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.04 : 0.03);
-		colors.selectedColor        = mixRowColors(alternateColor, highlightColor, darkTheme ? 0.28 : 0.14);
-		colors.selectedOutlineColor = mixRowColors(highlightColor, textColor, darkTheme ? 0.20 : 0.10);
-		colors.currentColor         = mixRowColors(alternateColor, highlightColor, darkTheme ? 0.14 : 0.10);
-		colors.linkedColor          = mixRowColors(baseColor, alternateColor, darkTheme ? 0.76 : 0.06);
-		colors.channelHoverColor    = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.03 : 0.02);
-		colors.channelSelectedColor = mixRowColors(baseColor, highlightColor, darkTheme ? 0.20 : 0.12);
-		colors.channelCurrentColor  = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.16 : 0.10);
-		colors.channelLinkedColor   = mixRowColors(colors.surfaceColor, highlightColor, darkTheme ? 0.06 : 0.03);
+		colors.currentRoomTintColor =
+			QColor::fromRgbF(0.25f, 0.68f, 0.46f, darkTheme ? 0.08f : 0.10f);
+		colors.currentRoomBorderColor = QColor::fromRgb(darkTheme ? 114 : 54, darkTheme ? 217 : 168, darkTheme ? 153 : 97);
 		colors.textColor            = textColor;
 		colors.mutedTextColor       = mixRowColors(textColor, windowColor, darkTheme ? 0.38 : 0.28);
 		colors.channelTextColor     = mixRowColors(textColor, windowColor, darkTheme ? 0.12 : 0.08);
-		colors.channelChipColor     = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.08 : 0.05);
-		colors.channelChipTextColor = mixRowColors(textColor, windowColor, darkTheme ? 0.10 : 0.04);
-		colors.accentColor          = mixRowColors(textColor, highlightColor, darkTheme ? 0.18 : 0.12);
 		colors.avatarFillColor      = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.05);
 		colors.avatarTextColor      = colors.textColor;
-		colors.chipColor            = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.10 : 0.06);
-		colors.chipTextColor        = mixRowColors(colors.textColor, highlightColor, darkTheme ? 0.02 : 0.01);
+		colors.avatarBorderColor    = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.18 : 0.10);
 		colors.iconTintColor        = mixRowColors(colors.textColor, windowColor, darkTheme ? 0.20 : 0.10);
 		colors.speakingColor        = QColor::fromRgb(darkTheme ? 114 : 54, darkTheme ? 217 : 168, darkTheme ? 153 : 97);
-		colors.mutedSpeakingColor   = QColor::fromRgb(darkTheme ? 230 : 190, darkTheme ? 176 : 120, darkTheme ? 96 : 70);
+		colors.idleColor            = QColor::fromRgb(darkTheme ? 230 : 190, darkTheme ? 176 : 120, darkTheme ? 96 : 70);
+		colors.dangerColor          = QColor::fromRgb(darkTheme ? 231 : 188, darkTheme ? 92 : 64, darkTheme ? 101 : 72);
+		colors.presenceCutoutColor  = colors.surfaceColor;
+		colors.branchColor          = colors.mutedTextColor;
 		return colors;
 	}
 
@@ -103,21 +112,79 @@ namespace {
 			return QString();
 		}
 
-		return QString::number(count);
+		return QString::fromLatin1("(%1)").arg(count);
 	}
 
-	QColor talkStateColor(int talkState, const NavigatorRowPalette &colors) {
-		switch (static_cast< Settings::TalkState >(talkState)) {
-			case Settings::Talking:
-			case Settings::Whispering:
-			case Settings::Shouting:
-				return colors.speakingColor;
-			case Settings::MutedTalking:
-				return colors.mutedSpeakingColor;
-			case Settings::Passive:
-			default:
-				return QColor();
+	QPolygonF branchIndicatorPolygon(const QRectF &rect, bool expanded) {
+		const qreal left    = rect.left() + 0.5;
+		const qreal right   = rect.right() - 0.5;
+		const qreal top     = rect.top() + 0.5;
+		const qreal bottom  = rect.bottom() - 0.5;
+		const qreal centerX = rect.center().x();
+		const qreal centerY = rect.center().y();
+		QPolygonF polygon;
+		if (expanded) {
+			polygon << QPointF(left, top + 1.0) << QPointF(right, top + 1.0) << QPointF(centerX, bottom);
+			return polygon;
 		}
+
+		polygon << QPointF(left + 1.0, top) << QPointF(right, centerY) << QPointF(left + 1.0, bottom);
+		return polygon;
+	}
+
+	QModelIndex resolveTreeRowIndex(const QTreeView *view, const QPoint &position) {
+		if (!view || !view->viewport() || !view->model() || position.y() < 0
+			|| position.y() >= view->viewport()->height()) {
+			return QModelIndex();
+		}
+
+		QModelIndex idx = view->indexAt(position);
+		if (idx.isValid()) {
+			return idx;
+		}
+
+		const int viewportWidth = view->viewport()->width();
+		if (viewportWidth <= 0) {
+			return QModelIndex();
+		}
+
+		const int probeXs[] = { qBound(0, position.x(), viewportWidth - 1),
+								qBound(0, viewportWidth / 2, viewportWidth - 1),
+								qBound(0, viewportWidth - 12, viewportWidth - 1),
+								qBound(0, 12, viewportWidth - 1) };
+		for (const int probeX : probeXs) {
+			idx = view->indexAt(QPoint(probeX, position.y()));
+			if (idx.isValid()) {
+				return idx;
+			}
+		}
+
+		for (int probeX = 4; probeX < viewportWidth; probeX += 24) {
+			idx = view->indexAt(QPoint(probeX, position.y()));
+			if (idx.isValid()) {
+				return idx;
+			}
+		}
+
+		return QModelIndex();
+	}
+
+	QColor alphaColor(const QColor &color, qreal alpha) {
+		QColor adjusted = color;
+		adjusted.setAlphaF(qBound< qreal >(0.0, alpha, 1.0));
+		return adjusted;
+	}
+
+	QPixmap tintedIconPixmap(const QIcon &icon, const QSize &size, const QColor &color) {
+		QPixmap pixmap = icon.pixmap(size);
+		if (pixmap.isNull()) {
+			return pixmap;
+		}
+
+		QPainter painter(&pixmap);
+		painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+		painter.fillRect(pixmap.rect(), color);
+		return pixmap;
 	}
 }
 
@@ -141,8 +208,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 
 	const QPalette effectivePalette = opt.widget ? opt.widget->palette() : opt.palette;
 	const NavigatorRowPalette colors = buildNavigatorRowPalette(effectivePalette);
-	const QList< QVariant > statusIcons =
-		index.data(UserModel::NavigatorStatusIconsRole).toList();
+	const QList< QVariant > statusIcons = index.data(UserModel::NavigatorStatusIconsRole).toList();
 	const QString title =
 		normalizedNavigatorText(index.data(UserModel::NavigatorTitleRole).toString());
 	const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
@@ -153,104 +219,99 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 		qvariant_cast< QImage >(index.data(UserModel::NavigatorAvatarImageRole));
 	const QString avatarFallback = index.data(UserModel::NavigatorAvatarFallbackRole).toString();
 	const int talkState = index.data(UserModel::NavigatorTalkStateRole).toInt();
-	const bool isSelected = opt.state.testFlag(QStyle::State_Selected);
+	const bool idle = index.data(UserModel::NavigatorIdleRole).toBool();
+	const bool muted = index.data(UserModel::NavigatorMutedRole).toBool();
+	const bool deafened = index.data(UserModel::NavigatorDeafenedRole).toBool();
 	const bool isChannel  = itemKind == UserModel::NavigatorChannelItem;
 	const bool isListener = itemKind == UserModel::NavigatorListenerItem;
 	const bool hasChildren = index.model() && index.model()->hasChildren(index);
-	const QColor channelContainerTextColor = mixRowColors(colors.textColor, colors.channelTextColor, 0.45);
-	const QColor channelPathTextColor      = mixRowColors(colors.textColor, colors.channelTextColor, 0.20);
+	const bool isRoot = isChannel && !index.parent().isValid();
+	const bool talking =
+		!isChannel && !isListener && static_cast< Settings::TalkState >(talkState) != Settings::Passive;
 	const QColor primaryTextColor =
-		isSelected
-			? opt.palette.color(QPalette::HighlightedText)
-			: (isChannel
-				   ? (currentLocation ? colors.textColor
-									  : (hasChildren ? channelContainerTextColor
-													 : ((linkedLocation || occupancy > 0) ? channelPathTextColor
-																					   : colors.channelTextColor)))
-				   : colors.textColor);
-	const QColor secondaryTextColor =
-		isSelected
-			? opt.palette.color(QPalette::HighlightedText)
-			: (isChannel ? colors.channelChipTextColor : colors.mutedTextColor);
+		isChannel
+			? ((currentLocation || isRoot || linkedLocation || occupancy > 0 || hasChildren) ? colors.textColor
+																							  : colors.channelTextColor)
+			: (idle ? colors.mutedTextColor : colors.textColor);
+	const QColor secondaryTextColor = colors.mutedTextColor;
+	const UserView *view = qobject_cast< const UserView * >(opt.widget);
 
-	QRect contentRect = option.rect.adjusted(10, 1, -10, -1);
-	int trailingIconsWidth = 0;
-	if (!statusIcons.isEmpty()) {
-		trailingIconsWidth = static_cast< int >(statusIcons.size() * m_iconTotalDimension);
-	}
+	QRect contentRect = option.rect.adjusted(isChannel ? 12 : 24, 1, -12, -1);
+	const int statusIconsWidth = static_cast< int >(statusIcons.size() * m_iconTotalDimension);
+	int iconRight = contentRect.right();
 
 	QString occupancyText;
-	if (itemKind == UserModel::NavigatorChannelItem) {
+	if (itemKind == UserModel::NavigatorChannelItem && Global::get().s.bShowUserCount) {
 		occupancyText = occupantLabel(occupancy);
 	}
+	const bool showInlineStatus = !isChannel && !isListener && (muted || deafened);
+	const int inlineStatusWidth = showInlineStatus ? 14 : 0;
 
-	QFont chipFont(opt.font);
-	chipFont.setBold(true);
-	chipFont.setPointSizeF(std::max(chipFont.pointSizeF() - 1.0, 8.0));
-	QFontMetrics chipMetrics(chipFont);
+	QFont secondaryFont(opt.font);
+	secondaryFont.setPointSizeF(std::max(secondaryFont.pointSizeF() - 0.5, 8.0));
+	QFontMetrics secondaryMetrics(secondaryFont);
 	int occupancyWidth = 0;
 	if (!occupancyText.isEmpty()) {
-		occupancyWidth = chipMetrics.horizontalAdvance(occupancyText) + 14;
+		occupancyWidth = secondaryMetrics.horizontalAdvance(occupancyText);
 	}
-
-	int textRight = contentRect.right() - trailingIconsWidth;
-	if (trailingIconsWidth > 0) {
-		textRight -= 4;
+	int textRight = contentRect.right();
+	if (statusIconsWidth > 0) {
+		textRight -= statusIconsWidth + 4;
 	}
 	if (occupancyWidth > 0) {
-		textRight -= occupancyWidth + 6;
+		textRight -= occupancyWidth + 8;
+	}
+	if (inlineStatusWidth > 0) {
+		textRight -= inlineStatusWidth + 6;
 	}
 
 	painter->save();
 	painter->setRenderHint(QPainter::Antialiasing, true);
 
 	int x = contentRect.left();
-	if (isChannel) {
-		const QIcon channelIcon = qvariant_cast< QIcon >(index.data(Qt::DecorationRole));
-		const QRect iconRect(x, contentRect.center().y() - 8, 16, 16);
-		if (!channelIcon.isNull()) {
-			channelIcon.paint(painter, iconRect, Qt::AlignCenter,
-							  isSelected ? QIcon::Selected : QIcon::Normal, QIcon::On);
+	if (!isChannel) {
+		const int avatarSize = 20;
+		const QRect avatarRect(x, contentRect.center().y() - (avatarSize / 2), avatarSize, avatarSize);
+		if (talking) {
+			const qreal glowOutset = view && view->presencePulseExpanded() ? 3.0 : 1.0;
+			const QColor glowColor =
+				alphaColor(colors.speakingColor, view && view->presencePulseExpanded() ? 0.14 : 0.26);
+			painter->setPen(QPen(glowColor, view && view->presencePulseExpanded() ? 2.0 : 3.0));
+			painter->setBrush(Qt::NoBrush);
+			const QRectF glowRect = QRectF(avatarRect).adjusted(-glowOutset, -glowOutset, glowOutset, glowOutset);
+			painter->drawEllipse(glowRect);
 		}
-		if (currentLocation || linkedLocation) {
-			painter->setPen(Qt::NoPen);
-			painter->setBrush(currentLocation ? colors.accentColor : colors.channelChipColor);
-			painter->drawEllipse(QRect(iconRect.right() - 4, iconRect.top() - 1, 7, 7));
-		}
-		x = iconRect.right() + 8;
-	} else {
-		const QRect avatarRect(x, contentRect.center().y() - 11, 22, 22);
-		painter->setPen(Qt::NoPen);
-		painter->setBrush(isSelected ? opt.palette.color(QPalette::Highlight) : colors.avatarFillColor);
+
+		painter->setPen(QPen(talking ? colors.speakingColor : colors.avatarBorderColor, talking ? 2.0 : 1.0));
+		painter->setBrush(colors.avatarFillColor);
 		painter->drawEllipse(avatarRect);
 		if (!avatarImage.isNull()) {
+			const QRect imageRect = avatarRect.adjusted(1, 1, -1, -1);
 			QPainterPath clipPath;
-			clipPath.addEllipse(avatarRect);
+			clipPath.addEllipse(imageRect);
 			painter->save();
 			painter->setClipPath(clipPath);
 			const QImage scaledImage =
-				avatarImage.scaled(avatarRect.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+				avatarImage.scaled(imageRect.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
 			const QPoint imageTopLeft(
-				avatarRect.center().x() - scaledImage.width() / 2,
-				avatarRect.center().y() - scaledImage.height() / 2);
+				imageRect.center().x() - scaledImage.width() / 2,
+				imageRect.center().y() - scaledImage.height() / 2);
 			painter->drawImage(imageTopLeft, scaledImage);
 			painter->restore();
 		} else {
-			painter->setPen(isSelected ? opt.palette.color(QPalette::HighlightedText) : colors.avatarTextColor);
-			painter->setFont(chipFont);
+			painter->setPen(colors.avatarTextColor);
+			QFont avatarFont(opt.font);
+			avatarFont.setBold(true);
+			avatarFont.setPointSizeF(std::max(avatarFont.pointSizeF() - 1.5, 8.0));
+			painter->setFont(avatarFont);
 			painter->drawText(avatarRect, Qt::AlignCenter,
 							  avatarFallback.isEmpty() ? QStringLiteral("?") : avatarFallback);
 		}
 
-		if (const QColor speakingColor = talkStateColor(talkState, colors); speakingColor.isValid()) {
-			const QRect statusDotRect(avatarRect.right() - 4, avatarRect.bottom() - 5, 7, 7);
-			painter->setPen(QPen(colors.surfaceColor, 1.5));
-			painter->setBrush(speakingColor);
-			painter->drawEllipse(statusDotRect);
-		} else if (currentLocation) {
-			const QRect statusDotRect(avatarRect.right() - 4, avatarRect.bottom() - 5, 7, 7);
-			painter->setPen(QPen(colors.surfaceColor, 1.5));
-			painter->setBrush(colors.selectedOutlineColor);
+		if (!talking) {
+			const QRect statusDotRect(avatarRect.right() - 6, avatarRect.bottom() - 6, 8, 8);
+			painter->setPen(QPen(colors.presenceCutoutColor, 2.0));
+			painter->setBrush(idle ? colors.idleColor : colors.speakingColor);
 			painter->drawEllipse(statusDotRect);
 		}
 
@@ -262,18 +323,46 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 			}
 		}
 
-		x = avatarRect.right() + 8;
+		x = avatarRect.right() + 9;
 	}
 
 	const QRect textRect(x, contentRect.top(), std::max(20, textRight - x), contentRect.height());
 	QFont titleFont(opt.font);
-	titleFont.setBold(isSelected || currentLocation || (isChannel && hasChildren));
+	titleFont.setBold(isRoot);
+	if (isChannel && currentLocation && !isRoot) {
+		titleFont.setWeight(QFont::DemiBold);
+	}
+	if (isListener) {
+		titleFont.setItalic(true);
+	}
+	const QFontMetrics titleMetrics(titleFont);
 	painter->setFont(titleFont);
 	painter->setPen(primaryTextColor);
-	painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
-					  QFontMetrics(titleFont).elidedText(title, Qt::ElideRight, textRect.width()));
+	const QString titleText = titleMetrics.elidedText(title, Qt::ElideRight, textRect.width());
+	painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft, titleText);
 
-	int iconRight = contentRect.right();
+	const int titleWidth = titleMetrics.horizontalAdvance(titleText);
+	int titleRight = textRect.left() + titleWidth;
+	if (showInlineStatus) {
+		static const QIcon muteIcon(QLatin1String("skin:muted_server.svg"));
+		static const QIcon deafIcon(QLatin1String("skin:deafened_server.svg"));
+		const QRect inlineStatusRect(titleRight + 6, contentRect.center().y() - 6, 12, 12);
+		const QIcon &audioStateIcon = deafened ? deafIcon : muteIcon;
+		painter->drawPixmap(inlineStatusRect.topLeft(),
+							tintedIconPixmap(audioStateIcon, inlineStatusRect.size(), colors.dangerColor));
+		titleRight = inlineStatusRect.right();
+	}
+	if (!occupancyText.isEmpty()) {
+		const int occupancyLeft = std::min(textRect.right() - occupancyWidth, titleRight + 8);
+		if (occupancyLeft > titleRight) {
+			const QRect occupancyRect(occupancyLeft, contentRect.top(), occupancyWidth, contentRect.height());
+			painter->setFont(secondaryFont);
+			painter->setPen(secondaryTextColor);
+			painter->drawText(occupancyRect, Qt::AlignVCenter | Qt::AlignLeft, occupancyText);
+			painter->setFont(titleFont);
+		}
+	}
+
 	if (!statusIcons.isEmpty()) {
 		const int iconPosY = contentRect.center().y() - (m_iconIconDimension / 2);
 		for (int i = static_cast< int >(statusIcons.size()) - 1; i >= 0; --i) {
@@ -282,21 +371,6 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 			const QIcon icon = qvariant_cast< QIcon >(statusIcons.at(i));
 			icon.paint(painter, iconRect, Qt::AlignCenter, QIcon::Normal, QIcon::On);
 		}
-	}
-
-	if (!occupancyText.isEmpty()) {
-		const QRect chipRect(iconRight - occupancyWidth - 4, contentRect.center().y() - 10, occupancyWidth, 20);
-		painter->setPen(Qt::NoPen);
-		const QColor occupancyFillColor =
-			isSelected ? opt.palette.color(QPalette::Highlight)
-					   : (isChannel
-							  ? (currentLocation ? colors.channelCurrentColor : colors.channelChipColor)
-							  : colors.chipColor);
-		painter->setBrush(occupancyFillColor);
-		painter->drawRoundedRect(chipRect, 10.0f, 10.0f);
-		painter->setFont(chipFont);
-		painter->setPen(isSelected ? opt.palette.color(QPalette::HighlightedText) : secondaryTextColor);
-		painter->drawText(chipRect, Qt::AlignCenter, occupancyText);
 	}
 
 	painter->restore();
@@ -308,7 +382,10 @@ QSize UserDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelInd
 		return hint;
 	}
 
-	return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 10));
+	const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
+	const int minimumHeight =
+		itemKind == UserModel::NavigatorChannelItem ? 32 : (itemKind == UserModel::NavigatorUserItem ? 28 : 28);
+	return QSize(hint.width(), std::max(hint.height(), minimumHeight));
 }
 
 bool UserDelegate::helpEvent(QHelpEvent *evt, QAbstractItemView *view, const QStyleOptionViewItem &option,
@@ -319,7 +396,9 @@ bool UserDelegate::helpEvent(QHelpEvent *evt, QAbstractItemView *view, const QSt
 		QVariant data                    = m->data(firstColumnIdx);
 		QList< QVariant > iconList       = data.toList();
 		const auto offset                = static_cast< int >(iconList.size() * -m_iconTotalDimension);
-		const int firstIconPos           = option.rect.topRight().x() + offset;
+		const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
+		const QRect contentRect = option.rect.adjusted(itemKind == UserModel::NavigatorChannelItem ? 12 : 24, 1, -12, -1);
+		const int firstIconPos  = contentRect.topRight().x() + offset;
 
 		if (evt->pos().x() >= firstIconPos) {
 			return QStyledItemDelegate::helpEvent(evt, view, option, firstColumnIdx);
@@ -331,50 +410,64 @@ bool UserDelegate::helpEvent(QHelpEvent *evt, QAbstractItemView *view, const QSt
 UserView::UserView(QWidget *p) : QTreeView(p), m_userDelegate(make_qt_unique< UserDelegate >(this)) {
 	adjustIcons();
 	setItemDelegate(m_userDelegate.get());
+	m_presencePulseTimer = new QTimer(this);
+	m_presencePulseTimer->setInterval(400);
+	connect(m_presencePulseTimer, &QTimer::timeout, this, [this]() {
+		m_presencePulseExpanded = !m_presencePulseExpanded;
+		viewport()->update();
+	});
+	m_presencePulseTimer->start();
 
 	// Because in Qt fonts take some time to initialize properly, we have to delay the call
 	// to adjustIcons a bit in order to give the fonts the necessary time (so we can read out
 	// the actual font details).
 	QTimer::singleShot(0, [this]() { adjustIcons(); });
+}
 
-	connect(this, SIGNAL(doubleClicked(const QModelIndex &)), this, SLOT(nodeActivated(const QModelIndex &)));
+void UserView::drawBranches(QPainter *painter, const QRect &rect, const QModelIndex &index) const {
+	if (!index.isValid() || !model() || !model()->hasChildren(index)) {
+		return;
+	}
+
+	const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
+	if (itemKind != UserModel::NavigatorChannelItem || !index.parent().isValid()) {
+		return;
+	}
+
+	const NavigatorRowPalette colors = buildNavigatorRowPalette(viewport()->palette());
+	const qreal indicatorSize = 10.0;
+	const QRectF indicatorRect(rect.center().x() - (indicatorSize / 2.0),
+							   rect.center().y() - (indicatorSize / 2.0), indicatorSize, indicatorSize);
+
+	painter->save();
+	painter->setRenderHint(QPainter::Antialiasing, true);
+	painter->setPen(Qt::NoPen);
+	painter->setBrush(colors.branchColor);
+	painter->drawPolygon(branchIndicatorPolygon(indicatorRect, isExpanded(index)));
+	painter->restore();
 }
 
 void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
-	const bool isSelected = option.state & QStyle::State_Selected;
-	const bool isHovered  = index == m_hoveredIndex;
+	const bool isHovered = index == m_hoveredIndex;
 	const bool isCurrentLocation = index.data(UserModel::NavigatorCurrentLocationRole).toBool();
-	const bool isLinkedLocation  = index.data(UserModel::NavigatorLinkedLocationRole).toBool();
-	if (isSelected || isHovered || isCurrentLocation || isLinkedLocation) {
+	const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
+	const bool isChannel = itemKind == UserModel::NavigatorChannelItem;
+	const bool shouldDrawCurrentRoom = isChannel && isCurrentLocation;
+	const bool shouldDrawHover = isHovered && !shouldDrawCurrentRoom;
+	if (shouldDrawCurrentRoom || shouldDrawHover) {
 		const NavigatorRowPalette colors = buildNavigatorRowPalette(viewport()->palette());
-		const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
-		const bool isChannel = itemKind == UserModel::NavigatorChannelItem;
-		QColor rowFillColor;
-		QColor borderColor(Qt::transparent);
-		if (isSelected) {
-			rowFillColor = isChannel ? colors.channelSelectedColor : colors.selectedColor;
-			borderColor  = colors.selectedOutlineColor;
-		} else if (isCurrentLocation) {
-			rowFillColor = isChannel ? colors.channelCurrentColor : colors.currentColor;
-			borderColor  = colors.selectedOutlineColor;
-		} else if (isHovered) {
-			rowFillColor = isChannel ? colors.channelHoverColor : colors.hoverColor;
-		} else {
-			rowFillColor = isChannel ? colors.channelLinkedColor : colors.linkedColor;
-		}
-
-		const QRect rowRect = QRect(5, option.rect.top() + 1, viewport()->width() - 10, option.rect.height() - 2);
+		const QColor rowFillColor = shouldDrawCurrentRoom ? colors.currentRoomTintColor : colors.hoverColor;
+		const QRect rowRect = option.rect.adjusted(0, 2, -4, -2);
 		if (rowRect.isValid()) {
 			painter->save();
-			painter->setRenderHint(QPainter::Antialiasing, true);
-			painter->setPen(borderColor.alpha() == 0 ? Qt::NoPen : QPen(borderColor, 1.0));
+			painter->setPen(Qt::NoPen);
 			painter->setBrush(rowFillColor);
-			painter->drawRoundedRect(rowRect, 9.0f, 9.0f);
-			if (isCurrentLocation && !isSelected) {
-				const QRect accentRect(rowRect.left() + 4, rowRect.top() + 4, 3, rowRect.height() - 8);
+			painter->drawRect(rowRect);
+			if (shouldDrawCurrentRoom) {
+				const QRect accentRect(rowRect.left(), rowRect.top(), 2, rowRect.height());
 				painter->setPen(Qt::NoPen);
-				painter->setBrush(colors.selectedOutlineColor);
-				painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
+				painter->setBrush(colors.currentRoomBorderColor);
+				painter->drawRect(accentRect);
 			}
 			painter->restore();
 		}
@@ -397,6 +490,23 @@ void UserView::mouseMoveEvent(QMouseEvent *event) {
 	}
 
 	QTreeView::mouseMoveEvent(event);
+}
+
+void UserView::mouseDoubleClickEvent(QMouseEvent *event) {
+	if (event->button() != Qt::LeftButton) {
+		QTreeView::mouseDoubleClickEvent(event);
+		return;
+	}
+
+	const QModelIndex idx = resolveTreeRowIndex(this, event->pos());
+	if (!idx.isValid()) {
+		QTreeView::mouseDoubleClickEvent(event);
+		return;
+	}
+
+	setCurrentIndex(idx);
+	nodeActivated(idx);
+	event->accept();
 }
 
 void UserView::leaveEvent(QEvent *event) {
@@ -443,7 +553,7 @@ bool UserView::event(QEvent *evt) {
 void UserView::mouseReleaseEvent(QMouseEvent *evt) {
 	QPoint clickPosition = evt->pos();
 
-	QModelIndex idx = indexAt(clickPosition);
+	QModelIndex idx = resolveTreeRowIndex(this, clickPosition);
 	if ((evt->button() == Qt::LeftButton) && idx.isValid()) {
 		UserModel *userModel         = qobject_cast< UserModel * >(model());
 		const ClientUser *clientUser = userModel->getUser(idx);
@@ -504,7 +614,9 @@ void UserView::mouseReleaseEvent(QMouseEvent *evt) {
 
 		if (hasComment) {
 			QRect r                    = visualRect(idx);
-			const int commentIconPxPos = r.topRight().x() + commentIconPxOffset;
+			const int itemKind         = idx.data(UserModel::NavigatorItemKindRole).toInt();
+			const QRect contentRect = r.adjusted(itemKind == UserModel::NavigatorChannelItem ? 12 : 24, 1, -12, -1);
+			const int commentIconPxPos = contentRect.topRight().x() + commentIconPxOffset;
 
 			if ((clickPosition.x() >= commentIconPxPos)
 				&& (clickPosition.x() <= (commentIconPxPos + m_iconTotalDimension))) {
@@ -530,13 +642,11 @@ void UserView::keyPressEvent(QKeyEvent *ev) {
 }
 
 void UserView::nodeActivated(const QModelIndex &idx) {
-	UserModel *um = static_cast< UserModel * >(model());
-	ClientUser *p = um->getUser(idx);
-	if (p) {
-		Global::get().mw->openTextMessageDialog(p);
+	if (!idx.isValid()) {
 		return;
 	}
 
+	UserModel *um = static_cast< UserModel * >(model());
 	Channel *c = um->getChannel(idx);
 	if (c) {
 		// if a channel is activated join it

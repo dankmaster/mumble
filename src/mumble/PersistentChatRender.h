@@ -34,11 +34,13 @@ namespace PersistentChatRender {
 		unsigned int threadID    = 0;
 		QDateTime createdAt;
 		bool selfAuthored        = false;
+		bool systemMessage       = false;
 	};
 
 	struct PersistentChatRenderGroup {
 		std::vector< PersistentChatRenderBubble > bubbles;
 		bool selfAuthored               = false;
+		bool systemMessage              = false;
 		QDate date;
 		ActorKey actor;
 		MumbleProto::ChatScope scope    = MumbleProto::Channel;
@@ -53,6 +55,7 @@ namespace PersistentChatRender {
 	ActorKey actorKeyForMessage(const MumbleProto::ChatMessage &message);
 	bool sameActor(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs);
 	bool sameScope(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs);
+	bool isSystemMessage(const MumbleProto::ChatMessage &message);
 	bool isSelfAuthored(const MumbleProto::ChatMessage &message, const SelfIdentity &selfIdentity);
 	std::vector< PersistentChatRenderGroup > buildGroups(const std::vector< MumbleProto::ChatMessage > &messages,
 														 const SelfIdentity &selfIdentity);

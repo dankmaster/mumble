@@ -19,7 +19,14 @@
 #include <QtGui/QContextMenuEvent>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QMouseEvent>
+#include <QtGui/QWheelEvent>
 #include <QtWidgets/QScrollBar>
+
+namespace {
+	constexpr int ChatbarMinimumHeight         = 48;
+	constexpr int ChatbarVisibleLineCount      = 10;
+	constexpr int ChatbarVerticalChromePadding = 12;
+}
 
 LogTextBrowser::LogTextBrowser(QWidget *p) : QTextBrowser(p) {
 }
@@ -61,6 +68,19 @@ QTextCursor LogTextBrowser::imageCursorAt(const QPoint &position) const {
 	return QTextCursor();
 }
 
+void LogTextBrowser::mouseReleaseEvent(QMouseEvent *event) {
+	if (event && event->button() == Qt::LeftButton && anchorAt(event->pos()).isEmpty()) {
+		const QTextCursor imageCursor = imageCursorAt(event->pos());
+		if (!imageCursor.isNull()) {
+			emit imageActivated(imageCursor);
+			event->accept();
+			return;
+		}
+	}
+
+	QTextBrowser::mouseReleaseEvent(event);
+}
+
 void LogTextBrowser::mouseDoubleClickEvent(QMouseEvent *event) {
 	const QTextCursor imageCursor = imageCursorAt(event->pos());
 	if (!imageCursor.isNull()) {
@@ -78,6 +98,15 @@ void LogTextBrowser::resizeEvent(QResizeEvent *event) {
 	if (event->size().width() != event->oldSize().width()) {
 		emit contentWidthChanged(viewport()->width());
 	}
+}
+
+void LogTextBrowser::wheelEvent(QWheelEvent *event) {
+	if (property("persistentChatEmbeddedBrowser").toBool()) {
+		event->ignore();
+		return;
+	}
+
+	QTextBrowser::wheelEvent(event);
 }
 
 
@@ -175,17 +204,29 @@ bool ChatbarTextEdit::isShowingDefaultText() const {
 }
 
 QSize ChatbarTextEdit::minimumSizeHint() const {
-	return QSize(0, fontMetrics().height());
+	const int lineHeight = QFontMetrics(ChatbarTextEdit::font()).height();
+	return QSize(0, std::max(ChatbarMinimumHeight, lineHeight + ChatbarVerticalChromePadding));
 }
 
 QSize ChatbarTextEdit::sizeHint() const {
-	QSize sh                    = QTextEdit::sizeHint();
-	const int minHeight         = minimumSizeHint().height();
-	const int documentHeight    = static_cast< int >(document()->documentLayout()->documentSize().height());
-	const int chatBarLineHeight = QFontMetrics(ChatbarTextEdit::font()).height();
+	QSize sh                 = QTextEdit::sizeHint();
+	const int minHeight      = minimumSizeHint().height();
+	const int documentHeight = static_cast< int >(document()->documentLayout()->documentSize().height());
+	const int lineHeight     = QFontMetrics(ChatbarTextEdit::font()).height();
+	const QMargins margins   = contentsMargins();
+	int chromeHeight         = margins.top() + margins.bottom() + (frameWidth() * 2) + ChatbarVerticalChromePadding;
+	if (viewport()) {
+		const QMargins viewportMargins = viewport()->contentsMargins();
+		chromeHeight += viewportMargins.top() + viewportMargins.bottom();
+	}
+	if (document()) {
+		chromeHeight += static_cast< int >(document()->documentMargin() * 2.0);
+	}
 
-	sh.setHeight(std::max(minHeight, std::min(chatBarLineHeight * 10, documentHeight)));
-	const_cast< ChatbarTextEdit * >(this)->setMaximumHeight(sh.height());
+	const int expandedMaxHeight = std::max(minHeight, (lineHeight * ChatbarVisibleLineCount) + chromeHeight);
+	const int desiredHeight     = std::max(minHeight, std::min(expandedMaxHeight, documentHeight + chromeHeight));
+	sh.setHeight(desiredHeight);
+	const_cast< ChatbarTextEdit * >(this)->setMaximumHeight(expandedMaxHeight);
 	return sh;
 }
 
@@ -205,7 +246,8 @@ void ChatbarTextEdit::doResize() {
 
 void ChatbarTextEdit::doScrollbar() {
 	const int documentHeight = static_cast< int >(document()->documentLayout()->documentSize().height());
-	setVerticalScrollBarPolicy(documentHeight > height() ? Qt::ScrollBarAlwaysOn : Qt::ScrollBarAlwaysOff);
+	const int availableHeight = viewport() ? viewport()->height() : height();
+	setVerticalScrollBarPolicy(documentHeight > availableHeight ? Qt::ScrollBarAlwaysOn : Qt::ScrollBarAlwaysOff);
 	ensureCursorVisible();
 }
 

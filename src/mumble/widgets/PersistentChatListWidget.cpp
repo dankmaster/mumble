@@ -5,17 +5,13 @@
 
 #include "PersistentChatListWidget.h"
 
+#include "../PersistentChatHistoryModel.h"
+
 #include <QtGui/QResizeEvent>
-#include <QtWidgets/QAbstractItemView>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QListWidgetItem>
 #include <QtWidgets/QScrollBar>
-#include <QtWidgets/QWidget>
 
-#include <algorithm>
-#include <limits>
-
-PersistentChatListWidget::PersistentChatListWidget(QWidget *parent) : QListWidget(parent) {
+PersistentChatListWidget::PersistentChatListWidget(QWidget *parent) : QListView(parent) {
+	setMouseTracking(true);
 }
 
 bool PersistentChatListWidget::isScrolledToBottom() const {
@@ -23,118 +19,100 @@ bool PersistentChatListWidget::isScrolledToBottom() const {
 	return scrollBar && scrollBar->value() == scrollBar->maximum();
 }
 
+PersistentChatViewportAnchor PersistentChatListWidget::captureViewportAnchor() const {
+	PersistentChatViewportAnchor anchor;
+	const auto *historyModel = qobject_cast< const PersistentChatHistoryModel * >(model());
+	if (!historyModel || !viewport()) {
+		return anchor;
+	}
+
+	PersistentChatViewportAnchor fallbackAnchor;
+	for (int row = 0; row < historyModel->rowCount(); ++row) {
+		const QModelIndex modelIndex = historyModel->index(row, 0);
+		const QRect rect             = visualRect(modelIndex);
+		if (!rect.isValid() || rect.bottom() <= 0) {
+			continue;
+		}
+
+		const PersistentChatHistoryRow *rowData = historyModel->rowAt(row);
+		if (!rowData) {
+			continue;
+		}
+
+		if (!fallbackAnchor.isValid()) {
+			fallbackAnchor.rowId          = rowData->rowId;
+			fallbackAnchor.intraRowOffset = -rect.top();
+		}
+
+		if (rowData->kind == PersistentChatHistoryRowKind::LoadOlder) {
+			continue;
+		}
+
+		anchor.rowId          = rowData->rowId;
+		anchor.intraRowOffset = -rect.top();
+		return anchor;
+	}
+
+	return fallbackAnchor;
+}
+
+void PersistentChatListWidget::restoreViewportAnchor(const PersistentChatViewportAnchor &anchor) {
+	if (!anchor.isValid()) {
+		return;
+	}
+
+	const auto *historyModel = qobject_cast< const PersistentChatHistoryModel * >(model());
+	QScrollBar *scrollBar    = verticalScrollBar();
+	if (!historyModel || !scrollBar) {
+		return;
+	}
+
+	const int row = historyModel->rowForId(anchor.rowId);
+	if (row < 0) {
+		return;
+	}
+
+	const QRect rect = visualRect(historyModel->index(row, 0));
+	if (!rect.isValid()) {
+		return;
+	}
+
+	const int desiredValue = scrollBar->value() + rect.top() + anchor.intraRowOffset;
+	scrollBar->setValue(qBound(scrollBar->minimum(), desiredValue, scrollBar->maximum()));
+}
+
+bool PersistentChatListWidget::isRowVisible(const QString &rowId) const {
+	const auto *historyModel = qobject_cast< const PersistentChatHistoryModel * >(model());
+	if (!historyModel || rowId.isEmpty() || !viewport()) {
+		return false;
+	}
+
+	const int row = historyModel->rowForId(rowId);
+	if (row < 0) {
+		return false;
+	}
+
+	return visualRect(historyModel->index(row, 0)).intersects(viewport()->rect());
+}
+
 void PersistentChatListWidget::stabilizeVisibleContent() {
-	if (m_stabilizingVisibleContent || !viewport()) {
+	if (m_stabilizingVisibleContent) {
 		return;
 	}
 
 	m_stabilizingVisibleContent = true;
-
-	const int viewportWidth = std::max(1, viewport()->width());
-	bool sizeHintsChanged  = false;
-
-	for (int i = 0; i < count(); ++i) {
-		QListWidgetItem *listItem = item(i);
-		if (!listItem) {
-			continue;
-		}
-
-		QWidget *widget = itemWidget(listItem);
-		if (!widget) {
-			continue;
-		}
-
-		int measuredHeight = widget->property("persistentChatItemHeight").toInt();
-		if (measuredHeight <= 0) {
-			measuredHeight = widget->height();
-		}
-		if (measuredHeight <= 0) {
-			measuredHeight = widget->sizeHint().height();
-		}
-		if (QLayout *layout = widget->layout()) {
-			layout->activate();
-			measuredHeight = std::max(measuredHeight, layout->sizeHint().height());
-			measuredHeight = std::max(measuredHeight, layout->minimumSize().height());
-		}
-		measuredHeight = std::max(measuredHeight, widget->minimumSizeHint().height());
-		measuredHeight = std::max(1, measuredHeight);
-
-		const QSize desiredHint(viewportWidth, measuredHeight);
-		if (listItem->sizeHint() != desiredHint) {
-			listItem->setSizeHint(desiredHint);
-			sizeHintsChanged = true;
-			widget->updateGeometry();
-		}
+	doItemsLayout();
+	updateGeometries();
+	if (viewport()) {
+		viewport()->update();
 	}
-
-	if (sizeHintsChanged) {
-		updateGeometries();
-		doItemsLayout();
-	}
-
-	const QRect viewportRect = viewport()->rect();
-	bool hasVisibleContent   = false;
-	int nearestAboveTop      = std::numeric_limits< int >::min();
-	int nearestBelowTop      = std::numeric_limits< int >::max();
-
-	for (int i = 0; i < count(); ++i) {
-		QListWidgetItem *listItem = item(i);
-		QWidget *widget = listItem ? itemWidget(listItem) : nullptr;
-		if (!listItem || !widget) {
-			continue;
-		}
-
-		QRect itemRect = widget->geometry();
-		if (!itemRect.isValid() || itemRect.isEmpty()) {
-			itemRect = visualItemRect(listItem);
-		}
-		if (!itemRect.isValid() || itemRect.isEmpty()) {
-			continue;
-		}
-
-		if (itemRect.intersects(viewportRect)) {
-			hasVisibleContent = true;
-			break;
-		}
-
-		if (itemRect.bottom() <= viewportRect.top()) {
-			nearestAboveTop = std::max(nearestAboveTop, itemRect.top());
-		} else if (itemRect.top() >= viewportRect.bottom()) {
-			nearestBelowTop = std::min(nearestBelowTop, itemRect.top());
-		}
-	}
-
-	if (!hasVisibleContent) {
-		if (QScrollBar *scrollBar = verticalScrollBar()) {
-			int correctedValue = scrollBar->value();
-			if (nearestAboveTop != std::numeric_limits< int >::min()) {
-				correctedValue += nearestAboveTop;
-			} else if (nearestBelowTop != std::numeric_limits< int >::max()) {
-				correctedValue += nearestBelowTop;
-			}
-
-			correctedValue = qBound(scrollBar->minimum(), correctedValue, scrollBar->maximum());
-			if (correctedValue != scrollBar->value()) {
-				scrollBar->setValue(correctedValue);
-				updateGeometries();
-				doItemsLayout();
-			}
-		}
-	}
-
-	viewport()->update();
 	m_stabilizingVisibleContent = false;
 }
 
 void PersistentChatListWidget::resizeEvent(QResizeEvent *event) {
-	QListWidget::resizeEvent(event);
+	QListView::resizeEvent(event);
 
 	if (event->size().width() != event->oldSize().width()) {
 		emit contentWidthChanged(viewport()->width());
 	}
-}
-
-void PersistentChatListWidget::scrollContentsBy(int dx, int dy) {
-	QListWidget::scrollContentsBy(dx, dy);
-	stabilizeVisibleContent();
 }

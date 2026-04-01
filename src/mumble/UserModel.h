@@ -113,7 +113,10 @@ public:
 		NavigatorAvatarImageRole,
 		NavigatorAvatarFallbackRole,
 		NavigatorStatusIconsRole,
-		NavigatorTalkStateRole
+		NavigatorTalkStateRole,
+		NavigatorIdleRole,
+		NavigatorMutedRole,
+		NavigatorDeafenedRole
 	};
 
 	enum NavigatorItemKind {

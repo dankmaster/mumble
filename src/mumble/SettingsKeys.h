@@ -204,6 +204,7 @@ const SettingsKey DISPLAY_USER_COUNT_KEY               = { "display_user_count" 
 const SettingsKey DISPLAY_VOLUME_ADJUSTMENTS_KEY       = { "display_volume_adjustments" };
 const SettingsKey DISPLAY_NICKNAMES_ONLY_KEY           = { "display_nicknames_only" };
 const SettingsKey SELECTED_ITEM_AS_CHATBAR_TARGET_KEY  = { "use_selected_item_as_chatbar_target" };
+const SettingsKey PRESENCE_IDLE_TIMEOUT_MINUTES_KEY    = { "presence_idle_timeout_minutes" };
 const SettingsKey FILTER_HIDES_EMPTY_CHANNEL_KEY       = { "filter_hides_empty_channel" };
 const SettingsKey FILTER_ACTIVE_KEY                    = { "filter_active" };
 const SettingsKey CONTEXT_MENU_ENTRIES_IN_MENU_BAR_KEY = { "display_context_menu_entries_in_menu_bar" };

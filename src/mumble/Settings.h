@@ -443,6 +443,7 @@ struct Settings {
 	bool bShowVolumeAdjustments          = true;
 	bool bShowNicknamesOnly              = false;
 	bool bChatBarUseSelection            = false;
+	int iPresenceIdleTimeoutMinutes      = 5;
 	bool bFilterHidesEmptyChannels       = true;
 	bool bFilterActive                   = false;
 	QByteArray qbaConnectDialogHeader    = {};

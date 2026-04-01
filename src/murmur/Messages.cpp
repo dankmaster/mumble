@@ -278,6 +278,56 @@ namespace {
 		return recipients;
 	}
 
+	std::optional< unsigned int > configuredDefaultTextChannelID(DBWrapper &dbWrapper, unsigned int serverID) {
+		unsigned int configuredTextChannelID = 0;
+		dbWrapper.getConfigurationTo(serverID, "defaulttextchannel", configuredTextChannelID);
+		if (configuredTextChannelID == 0) {
+			return std::nullopt;
+		}
+
+		return configuredTextChannelID;
+	}
+
+	void storeDefaultTextChannelID(DBWrapper &dbWrapper, unsigned int serverID,
+								   std::optional< unsigned int > textChannelID) {
+		if (textChannelID && *textChannelID > 0) {
+			dbWrapper.setConfiguration(serverID, "defaulttextchannel", std::to_string(*textChannelID));
+		} else {
+			dbWrapper.clearConfiguration(serverID, "defaulttextchannel");
+		}
+	}
+
+	bool sortTextChannelsForPresentation(const ::msdb::DBTextChannel &lhs, const ::msdb::DBTextChannel &rhs) {
+		if (lhs.position != rhs.position) {
+			return lhs.position < rhs.position;
+		}
+
+		if (lhs.name != rhs.name) {
+			return lhs.name < rhs.name;
+		}
+
+		return lhs.textChannelID < rhs.textChannelID;
+	}
+
+	std::optional< unsigned int > firstTextChannelID(const std::vector< ::msdb::DBTextChannel > &textChannels) {
+		if (textChannels.empty()) {
+			return std::nullopt;
+		}
+
+		const auto firstTextChannel =
+			std::min_element(textChannels.cbegin(), textChannels.cend(), sortTextChannelsForPresentation);
+		return firstTextChannel != textChannels.cend() ? std::optional< unsigned int >(firstTextChannel->textChannelID)
+													   : std::nullopt;
+	}
+
+	bool containsTextChannelID(const std::vector< ::msdb::DBTextChannel > &textChannels, unsigned int textChannelID) {
+		return std::find_if(textChannels.cbegin(), textChannels.cend(),
+							[textChannelID](const ::msdb::DBTextChannel &textChannel) {
+								return textChannel.textChannelID == textChannelID;
+							})
+			   != textChannels.cend();
+	}
+
 	bool clientSupportsPersistentChat(const ServerUser *user) {
 		return user && user->bSupportsPersistentChat;
 	}
@@ -921,8 +971,11 @@ void Server::sendTextChannelSync(ServerUser *uSource) {
 	QMutexLocker qml(&qmCache);
 
 	MumbleProto::TextChannelSync sync;
-	const std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
-	bool defaultChannelSet                                 = false;
+	std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+	std::sort(textChannels.begin(), textChannels.end(), sortTextChannelsForPresentation);
+	const std::optional< unsigned int > configuredDefaultTextChannel =
+		configuredDefaultTextChannelID(m_dbWrapper, iServerNum);
+	std::optional< unsigned int > fallbackDefaultTextChannelID;
 
 	for (const ::msdb::DBTextChannel &currentTextChannel : textChannels) {
 		Channel *permissionChannel = qhChannels.value(currentTextChannel.aclChannelID);
@@ -941,10 +994,16 @@ void Server::sendTextChannelSync(ServerUser *uSource) {
 		protoChannel->set_acl_channel_id(currentTextChannel.aclChannelID);
 		protoChannel->set_position(currentTextChannel.position);
 
-		if (!defaultChannelSet) {
-			sync.set_default_text_channel_id(currentTextChannel.textChannelID);
-			defaultChannelSet = true;
+		if (!fallbackDefaultTextChannelID) {
+			fallbackDefaultTextChannelID = currentTextChannel.textChannelID;
 		}
+		if (configuredDefaultTextChannel && *configuredDefaultTextChannel == currentTextChannel.textChannelID) {
+			sync.set_default_text_channel_id(currentTextChannel.textChannelID);
+		}
+	}
+
+	if (!sync.has_default_text_channel_id() && fallbackDefaultTextChannelID) {
+		sync.set_default_text_channel_id(*fallbackDefaultTextChannelID);
 	}
 
 	sendMessage(uSource, sync);
@@ -1005,7 +1064,15 @@ void Server::persistAndBroadcastChatMessage(
 
 	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID, authorName);
 
-	for (ServerUser *currentUser : recipientsWithTextAccess(qhUsers, permissionChannel, acCache)) {
+	QSet< ServerUser * > persistentRecipients;
+	if (scope == MumbleProto::Channel) {
+		persistentRecipients = legacyFallbackRecipients;
+		persistentRecipients.insert(uSource);
+	} else {
+		persistentRecipients = recipientsWithTextAccess(qhUsers, permissionChannel, acCache);
+	}
+
+	for (ServerUser *currentUser : persistentRecipients) {
 		if (clientSupportsPersistentChat(currentUser)) {
 			sendMessage(currentUser, protoMessage);
 		}
@@ -3789,6 +3856,17 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 			}
 		}
 	};
+	auto refreshStoredDefaultTextChannel = [this]() {
+		std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+		std::sort(textChannels.begin(), textChannels.end(), sortTextChannelsForPresentation);
+		const std::optional< unsigned int > configuredDefaultTextChannel =
+			configuredDefaultTextChannelID(m_dbWrapper, iServerNum);
+		if (configuredDefaultTextChannel && containsTextChannelID(textChannels, *configuredDefaultTextChannel)) {
+			return;
+		}
+
+		storeDefaultTextChannelID(m_dbWrapper, iServerNum, firstTextChannelID(textChannels));
+	};
 
 	if (action == MumbleProto::TextChannelSync_Action_Delete) {
 		if (!msg.has_target_text_channel_id()) {
@@ -3801,6 +3879,22 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 		}
 
 		m_dbWrapper.removeTextChannel(iServerNum, textChannelID);
+		refreshStoredDefaultTextChannel();
+		broadcastTextChannelSync();
+		return;
+	}
+
+	if (action == MumbleProto::TextChannelSync_Action_SetDefault) {
+		if (!msg.has_target_text_channel_id()) {
+			return;
+		}
+
+		const unsigned int textChannelID = msg.target_text_channel_id();
+		if (!m_dbWrapper.getTextChannel(iServerNum, textChannelID)) {
+			return;
+		}
+
+		storeDefaultTextChannelID(m_dbWrapper, iServerNum, textChannelID);
 		broadcastTextChannelSync();
 		return;
 	}
@@ -3830,7 +3924,15 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 	const unsigned int position = channelInfo.has_position() ? channelInfo.position() : 0;
 
 	if (action == MumbleProto::TextChannelSync_Action_Create) {
-		m_dbWrapper.addTextChannel(iServerNum, u8(name), u8(description), aclChannelID, position);
+		const ::msdb::DBTextChannel createdTextChannel =
+			m_dbWrapper.addTextChannel(iServerNum, u8(name), u8(description), aclChannelID, position);
+		const std::optional< unsigned int > configuredDefaultTextChannel =
+			configuredDefaultTextChannelID(m_dbWrapper, iServerNum);
+		const std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+		if (!configuredDefaultTextChannel
+			|| !containsTextChannelID(textChannels, *configuredDefaultTextChannel)) {
+			storeDefaultTextChannelID(m_dbWrapper, iServerNum, createdTextChannel.textChannelID);
+		}
 		broadcastTextChannelSync();
 		return;
 	}

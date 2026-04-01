@@ -171,6 +171,16 @@ unsigned int DBWrapper::addServer() {
 	rootChannel.name      = "Root";
 	createChannel(rootChannel);
 
+	::msdb::DBTextChannel defaultTextChannel(
+		serverID, m_serverDB.getTextChannelTable().getFreeTextChannelID(serverID));
+	defaultTextChannel.name         = "general";
+	defaultTextChannel.description  = "General server conversation";
+	defaultTextChannel.aclChannelID = Mumble::ROOT_CHANNEL_ID;
+	defaultTextChannel.position     = 0;
+	m_serverDB.getTextChannelTable().addTextChannel(defaultTextChannel);
+	m_serverDB.getConfigTable().setConfig(serverID, "defaulttextchannel",
+										  std::to_string(defaultTextChannel.textChannelID));
+
 	// Ensure that a SuperUser entry exists
 	::msdb::DBUser superUser(serverID, Mumble::SUPERUSER_ID);
 	m_serverDB.getUserTable().addUser(superUser, "SuperUser");

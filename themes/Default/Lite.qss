@@ -392,16 +392,27 @@ QTreeView::branch {
   background-color: #FFF;
   border-image: none;
   image: none;
-  padding-left: 3px;
-  padding-top: 1px;
+  min-width: 24px;
+  min-height: 24px;
 }
 
-QTreeView::branch:has-children:closed {
-  image: url(skin:controls/branch_closed.svg);
+QTreeView::branch:has-children:closed:has-siblings,
+QTreeView::branch:has-children:closed:!has-siblings {
+  image: url(skin:controls/branch_closed_lite.svg);
 }
 
-QTreeView::branch:has-children:open {
-  image: url(skin:controls/branch_open.svg);
+QTreeView::branch:has-children:open:has-siblings,
+QTreeView::branch:has-children:open:!has-siblings {
+  image: url(skin:controls/branch_open_lite.svg);
+}
+
+QTreeView::branch:has-siblings:adjoins-item,
+QTreeView::branch:has-siblings:!adjoins-item,
+QTreeView::branch:!has-children:has-siblings,
+QTreeView::branch:!has-children:!has-siblings:adjoins-item,
+QTreeView::branch:!has-children:!has-siblings {
+  image: none;
+  border-image: none;
 }
 
 QHeaderView {

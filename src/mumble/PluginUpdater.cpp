@@ -7,6 +7,7 @@
 #include "Log.h"
 #include "PluginInstaller.h"
 #include "PluginManager.h"
+#include "UiTheme.h"
 #include "Global.h"
 
 #include <QNetworkRequest>
@@ -68,6 +69,38 @@ void PluginUpdater::promptAndUpdate() {
 	populateUI();
 
 	setWindowIcon(QIcon(QLatin1String("skin:mumble.svg")));
+
+	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+		setAttribute(Qt::WA_StyledBackground, true);
+		setStyleSheet(QString::fromLatin1(
+						  "QDialog#PluginUpdater {"
+						  " background-color: %1;"
+						  " color: %2;"
+						  "}"
+						  "QFrame#line,"
+						  "QFrame#line_2 {"
+						  " background-color: %3;"
+						  " color: %3;"
+						  " border: none;"
+						  " max-height: 1px;"
+						  " min-height: 1px;"
+						  "}"
+						  "QScrollArea,"
+						  "QWidget#qwContent {"
+						  " background-color: %1;"
+						  " color: %2;"
+						  " border: none;"
+						  "}"
+						  "QLabel {"
+						  " color: %2;"
+						  "}"
+						  "QCheckBox {"
+						  " color: %2;"
+						  "}"
+						  "QDialogButtonBox { dialogbuttonbox-buttons-have-icons: 0; }")
+						  .arg(uiThemeQssColor(tokens->base), uiThemeQssColor(tokens->text),
+							   uiThemeQssColor(tokens->surface1)));
+	}
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
 	// checkStateChanged was introduced in Qt 6.7

@@ -12,6 +12,7 @@
 #include <QtWidgets/QTextEdit>
 
 class QMouseEvent;
+class QWheelEvent;
 
 class LogTextBrowser : public QTextBrowser {
 private:
@@ -32,8 +33,10 @@ signals:
 	void contentWidthChanged(int width);
 
 protected:
+	void mouseReleaseEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 	void mouseDoubleClickEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 	void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
+	void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
 };
 
 class ChatbarTextEdit : public QTextEdit {

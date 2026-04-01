@@ -3,5 +3,7 @@
 <qresource prefix="themes/Catppuccin">
     <file alias="theme.ini">Catppuccin/theme.ini</file>
     <file alias="Mocha.qss">Catppuccin/Mocha.qss</file>
+    <file alias="controls/branch_closed.svg">Catppuccin/controls/branch_closed.svg</file>
+    <file alias="controls/branch_open.svg">Catppuccin/controls/branch_open.svg</file>
 </qresource>
 </RCC>

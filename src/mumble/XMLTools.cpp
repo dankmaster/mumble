@@ -107,7 +107,6 @@ void XMLTools::recurseParse(QXmlStreamReader &reader, QXmlStreamWriter &writer, 
 					rclose = 1;
 					writer.writeCurrentToken(reader);
 					pstyle.insert(QLatin1String("text-decoration"), QLatin1String("underline"));
-					pstyle.insert(QLatin1String("color"), QLatin1String("#0000ff"));
 				} else if (!ignore) {
 					rclose = 1;
 					writer.writeCurrentToken(reader);

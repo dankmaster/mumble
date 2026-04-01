@@ -14,6 +14,7 @@
 #include "MumbleConstants.h"
 #include "ServerHandler.h"
 #include "ServerResolver.h"
+#include "UiTheme.h"
 #include "Utils.h"
 #include "WebFetch.h"
 #include "Global.h"
@@ -552,7 +553,8 @@ QVariant ServerItem::data(int column, int role) const {
 			return qs;
 		} else if (role == Qt::BackgroundRole) {
 			if (bCA) {
-				QColor qc(Qt::green);
+				const std::optional< UiThemeTokens > tokens = activeUiThemeTokens();
+				QColor qc                                   = tokens ? tokens->green : QColor(Qt::green);
 				qc.setAlpha(32);
 				return qc;
 			}

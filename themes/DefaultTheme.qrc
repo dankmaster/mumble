@@ -77,7 +77,11 @@
     <file alias="controls/arrow_up.svg">Default/controls/arrow_up.svg</file>
     <file alias="controls/arrow_up_disabled.svg">Default/controls/arrow_up_disabled.svg</file>
     <file alias="controls/branch_closed.svg">Default/controls/branch_closed.svg</file>
+    <file alias="controls/branch_closed_dark.svg">Default/controls/branch_closed_dark.svg</file>
+    <file alias="controls/branch_closed_lite.svg">Default/controls/branch_closed_lite.svg</file>
     <file alias="controls/branch_open.svg">Default/controls/branch_open.svg</file>
+    <file alias="controls/branch_open_dark.svg">Default/controls/branch_open_dark.svg</file>
+    <file alias="controls/branch_open_lite.svg">Default/controls/branch_open_lite.svg</file>
     <file alias="controls/checkbox_check_dark.svg">Default/controls/checkbox_check_dark.svg</file>
     <file alias="controls/checkbox_check_disabled.svg">Default/controls/checkbox_check_disabled.svg</file>
     <file alias="controls/checkbox_check_lite.svg">Default/controls/checkbox_check_lite.svg</file>

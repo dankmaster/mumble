@@ -1124,6 +1124,13 @@ void ServerHandler::removeTextChannel(unsigned int textChannelID) {
 	sendMessage(sync);
 }
 
+void ServerHandler::setDefaultTextChannel(unsigned int textChannelID) {
+	MumbleProto::TextChannelSync sync;
+	sync.set_action(MumbleProto::TextChannelSync_Action_SetDefault);
+	sync.set_target_text_channel_id(textChannelID);
+	sendMessage(sync);
+}
+
 void ServerHandler::requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int startOffset,
 									   unsigned int limit, std::optional< unsigned int > beforeMessageID) {
 	MumbleProto::ChatHistoryRequest request;

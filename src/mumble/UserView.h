@@ -41,10 +41,14 @@ private:
 	int m_iconTotalDimension;
 	QModelIndex m_hoveredIndex;
 	qt_unique_ptr< UserDelegate > m_userDelegate;
+	QTimer *m_presencePulseTimer = nullptr;
+	bool m_presencePulseExpanded = false;
 	void adjustIcons();
 
 protected:
+	void drawBranches(QPainter *painter, const QRect &rect, const QModelIndex &index) const Q_DECL_OVERRIDE;
 	void drawRow(QPainter *painter, const QStyleOptionViewItem &options, const QModelIndex &index) const Q_DECL_OVERRIDE;
+	void mouseDoubleClickEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 	void mouseMoveEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 	void leaveEvent(QEvent *event) Q_DECL_OVERRIDE;
 	void mouseReleaseEvent(QMouseEvent *) Q_DECL_OVERRIDE;
@@ -53,6 +57,9 @@ protected:
 
 public:
 	UserView(QWidget *);
+	bool presencePulseExpanded() const {
+		return m_presencePulseExpanded;
+	}
 	void keyboardSearch(const QString &search) Q_DECL_OVERRIDE;
 	void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight,
 					 const QVector< int > &roles = QVector< int >()) Q_DECL_OVERRIDE;

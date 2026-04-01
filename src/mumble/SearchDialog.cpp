@@ -10,6 +10,7 @@
 #include "MainWindow.h"
 #include "SearchDialogItemDelegate.h"
 #include "ServerHandler.h"
+#include "UiTheme.h"
 #include "UserModel.h"
 #include "Global.h"
 
@@ -348,7 +349,10 @@ void SearchDialog::search(const QString &searchTerm) {
 		// Check that the provided RegEx is actually valid and usable
 		if (!regex.isValid()) {
 			// Indicate that there is an error by changing the search field's background color
-			m_searchFieldStyleWrapper.setBackgroundColor("#fc5555");
+			const std::optional< UiThemeTokens > tokens = activeUiThemeTokens();
+			const QColor warningBackground =
+				uiThemeColorWithAlpha(tokens ? tokens->red : QColor(Qt::red), 0.18);
+			m_searchFieldStyleWrapper.setBackgroundColor(uiThemeQssColor(warningBackground));
 
 			clearSearchResults();
 

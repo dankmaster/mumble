@@ -10,6 +10,7 @@
 #include "AudioOutput.h"
 #include "MainWindow.h"
 #include "SearchDialog.h"
+#include "UserModel.h"
 #include "Global.h"
 
 #include <QColorDialog>
@@ -71,6 +72,13 @@ LookConfig::LookConfig(Settings &st) : ConfigWidget(st) {
 	qcbUserDrag->insertItem(Settings::Ask, tr("Ask"), Settings::Ask);
 	qcbUserDrag->insertItem(Settings::DoNothing, tr("Do Nothing"), Settings::DoNothing);
 	qcbUserDrag->insertItem(Settings::Move, tr("Move"), Settings::Move);
+
+	qcbPresenceIdleTimeout->addItem(tr("3 min"), 3);
+	qcbPresenceIdleTimeout->addItem(tr("5 min"), 5);
+	qcbPresenceIdleTimeout->addItem(tr("10 min"), 10);
+	qcbPresenceIdleTimeout->addItem(tr("15 min"), 15);
+	qcbPresenceIdleTimeout->addItem(tr("30 min"), 30);
+	qcbPresenceIdleTimeout->addItem(tr("Never"), 0);
 
 	connect(qrbLCustom, SIGNAL(toggled(bool)), qcbLockLayout, SLOT(setEnabled(bool)));
 	connect(qbClearBackgroundColor, &QPushButton::clicked, this, &LookConfig::talkinguiBackgroundCleared);
@@ -244,6 +252,17 @@ void LookConfig::load(const Settings &r) {
 	loadCheckBox(qcbHighContrast, r.bHighContrast);
 	loadCheckBox(qcbChatBarUseSelection, r.bChatBarUseSelection);
 	loadCheckBox(qcbFilterHidesEmptyChannels, r.bFilterHidesEmptyChannels);
+	bool loadedPresenceIdleTimeout = false;
+	for (int i = 0; i < qcbPresenceIdleTimeout->count(); ++i) {
+		if (qcbPresenceIdleTimeout->itemData(i).toInt() == r.iPresenceIdleTimeoutMinutes) {
+			loadComboBox(qcbPresenceIdleTimeout, i);
+			loadedPresenceIdleTimeout = true;
+			break;
+		}
+	}
+	if (!loadedPresenceIdleTimeout) {
+		loadComboBox(qcbPresenceIdleTimeout, 1);
+	}
 
 	reloadThemes();
 	const std::optional< ThemeInfo::StyleInfo > configuredStyle     = Themes::getThemeStyle(r, false);
@@ -318,6 +337,7 @@ void LookConfig::save() const {
 	s.bShowTransmitModeComboBox = qcbShowTransmitModeComboBox->isChecked();
 	s.bHighContrast             = qcbHighContrast->isChecked();
 	s.bChatBarUseSelection      = qcbChatBarUseSelection->isChecked();
+	s.iPresenceIdleTimeoutMinutes = qcbPresenceIdleTimeout->currentData().toInt();
 	s.bFilterHidesEmptyChannels = qcbFilterHidesEmptyChannels->isChecked();
 
 	StyleType styleType = getStyleType();
@@ -364,6 +384,10 @@ void LookConfig::save() const {
 void LookConfig::accept() const {
 	Global::get().mw->setShowDockTitleBars((Global::get().s.wlWindowLayout == Settings::LayoutCustom)
 										   && !Global::get().s.bLockLayout);
+	Global::get().mw->refreshUserPresenceStats();
+	if (Global::get().mw->pmModel) {
+		Global::get().mw->pmModel->forceVisualUpdate();
+	}
 }
 
 StyleType LookConfig::getStyleType() const {

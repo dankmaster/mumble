@@ -7,7 +7,22 @@
 
 #include "QtUtils.h"
 
+#include <QtGui/QTextDocumentFragment>
+
 namespace {
+	QString normalizedMessageText(QString text) {
+		return text.replace(QLatin1String("\r\n"), QLatin1String("\n")).replace(QLatin1Char('\r'),
+																			 QLatin1Char('\n'));
+	}
+
+	QString messageSourceText(const MumbleProto::ChatMessage &message) {
+		if (message.has_body_text()) {
+			return normalizedMessageText(u8(message.body_text()));
+		}
+
+		return QTextDocumentFragment::fromHtml(u8(message.message())).toPlainText();
+	}
+
 	bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
 								   const QDateTime &previousCreatedAt, const MumbleProto::ChatMessage &message,
 								   const QDateTime &createdAt) {
@@ -25,6 +40,11 @@ namespace {
 		}
 
 		if (previousCreatedAt.isValid() && createdAt.isValid() && previousCreatedAt.secsTo(createdAt) > (5 * 60)) {
+			return true;
+		}
+
+		if (PersistentChatRender::isSystemMessage(previousMessage.value())
+			|| PersistentChatRender::isSystemMessage(message)) {
 			return true;
 		}
 
@@ -73,6 +93,13 @@ namespace PersistentChatRender {
 		return lhsScope == rhsScope && lhsScopeID == rhsScopeID;
 	}
 
+	bool isSystemMessage(const MumbleProto::ChatMessage &message) {
+		const QString plainText = messageSourceText(message).trimmed();
+		return plainText.startsWith(QLatin1String("[scope]"), Qt::CaseInsensitive)
+			   || plainText.startsWith(QLatin1String("[stack]"), Qt::CaseInsensitive)
+			   || plainText.startsWith(QLatin1String("[system]"), Qt::CaseInsensitive);
+	}
+
 	bool isSelfAuthored(const MumbleProto::ChatMessage &message, const SelfIdentity &selfIdentity) {
 		if (selfIdentity.session != 0 && message.has_actor() && message.actor() == selfIdentity.session) {
 			return true;
@@ -98,12 +125,14 @@ namespace PersistentChatRender {
 			const MumbleProto::ChatMessage &message = messages[i];
 			const QDateTime createdAt = QDateTime::fromSecsSinceEpoch(
 				static_cast< qint64 >(message.has_created_at() ? message.created_at() : 0));
-			const bool selfAuthored = isSelfAuthored(message, selfIdentity);
+			const bool systemMessage = isSystemMessage(message);
+			const bool selfAuthored = !systemMessage && isSelfAuthored(message, selfIdentity);
 			const bool startsGroup  = startsPersistentChatGroup(previousMessage, previousCreatedAt, message, createdAt);
 
 			if (startsGroup || groups.empty()) {
 				PersistentChatRenderGroup group;
 				group.selfAuthored  = selfAuthored;
+				group.systemMessage = systemMessage;
 				group.date          = createdAt.isValid() ? createdAt.date() : QDate();
 				group.actor         = actorKeyForMessage(message);
 				group.scope         = message.has_scope() ? message.scope() : MumbleProto::Channel;
@@ -122,6 +151,7 @@ namespace PersistentChatRender {
 			bubble.threadID      = message.thread_id();
 			bubble.createdAt     = createdAt;
 			bubble.selfAuthored  = selfAuthored;
+			bubble.systemMessage = systemMessage;
 
 			PersistentChatRenderGroup &group = groups.back();
 			group.bubbles.push_back(std::move(bubble));

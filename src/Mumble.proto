@@ -964,6 +964,7 @@ message TextChannelSync {
 		Create = 1;
 		Update = 2;
 		Delete = 3;
+		SetDefault = 4;
 	}
 
 	repeated TextChannelInfo channels = 1;

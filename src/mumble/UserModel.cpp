@@ -19,6 +19,7 @@
 #include "ChannelListenerManager.h"
 #include "ServerHandler.h"
 #include "Usage.h"
+#include "UiTheme.h"
 #include "User.h"
 #include "VolumeAdjustment.h"
 #include "Global.h"
@@ -494,22 +495,8 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 			icons << qiPrioritySpeaker;
 		if (p->bRecording)
 			icons << qiRecording;
-		if (p == pSelf && Global::get().bPushToMute && !item->isListener)
-			icons << qiMutedPushToMute;
-		if (p->bMute || item->isListener)
-			icons << qiMutedServer;
-		if (p->bSuppress && !item->isListener)
-			icons << qiMutedSuppressed;
-		if (p->bSelfMute && !item->isListener)
-			icons << qiMutedSelf;
-		if (p->bLocalMute && !item->isListener)
-			icons << qiMutedLocal;
 		if (p->bLocalIgnore && !item->isListener)
 			icons << qiIgnoredLocal;
-		if (p->bDeaf)
-			icons << qiDeafenedServer;
-		if (p->bSelfDeaf)
-			icons << qiDeafenedSelf;
 		if (p->iId >= 0 && !item->isListener)
 			icons << qiAuthenticated;
 		if (!p->qsFriendName.isEmpty() && !item->isListener)
@@ -594,6 +581,30 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 		}
 
 		return static_cast< int >(p->tsState);
+	}
+	if (role == UserModel::NavigatorIdleRole) {
+		if (!p || item->isListener || !Global::get().mw) {
+			return false;
+		}
+
+		return Global::get().mw->isUserIdle(p->uiSession);
+	}
+	if (role == UserModel::NavigatorMutedRole) {
+		if (!p || item->isListener) {
+			return false;
+		}
+
+		const bool deafened = p->bDeaf || p->bSelfDeaf;
+		return !deafened
+			   && (p->bMute || p->bSuppress || p->bSelfMute || p->bLocalMute
+				   || (p == pSelf && Global::get().bPushToMute));
+	}
+	if (role == UserModel::NavigatorDeafenedRole) {
+		if (!p || item->isListener) {
+			return false;
+		}
+
+		return p->bDeaf || p->bSelfDeaf;
 	}
 
 	if (p) {
@@ -699,7 +710,8 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 				break;
 			case Qt::BackgroundRole:
 				if ((c->iId == 0) && Global::get().sh && Global::get().sh->isStrong()) {
-					QColor qc(Qt::green);
+					const std::optional< UiThemeTokens > tokens = activeUiThemeTokens();
+					QColor qc                                   = tokens ? tokens->green : QColor(Qt::green);
 					qc.setAlpha(32);
 					return qc;
 				}
@@ -1236,8 +1248,8 @@ void UserModel::moveUser(ClientUser *p, Channel *np) {
 	ModelItem *opi  = ModelItem::c_qhChannels.value(oc);
 	ModelItem *pi   = ModelItem::c_qhChannels.value(np);
 	ModelItem *item = ModelItem::c_qhUsers.value(p);
-
-	emit userMoved(p->uiSession, p->cChannel ? std::optional< unsigned int >(p->cChannel->iId) : std::nullopt, np->iId);
+	const std::optional< unsigned int > previousChannelID =
+		p->cChannel ? std::optional< unsigned int >(p->cChannel->iId) : std::nullopt;
 
 	item = moveItem(opi, pi, item);
 
@@ -1259,6 +1271,8 @@ void UserModel::moveUser(ClientUser *p, Channel *np) {
 		expandAll(np);
 		collapseEmpty(oc);
 	}
+
+	emit userMoved(p->uiSession, previousChannelID, np->iId);
 
 	updateOverlay();
 }
@@ -1846,12 +1860,14 @@ void UserModel::on_channelListenerLocalVolumeAdjustmentChanged(unsigned int chan
 }
 
 void UserModel::forceVisualUpdate(Channel *c) {
-	QModelIndex idx;
 	if (c) {
-		idx = index(c);
+		const QModelIndex idx = index(c);
+		if (idx.isValid()) {
+			emit dataChanged(idx, idx);
+		}
+	} else if (Global::get().mw && Global::get().mw->qtvUsers) {
+		Global::get().mw->qtvUsers->viewport()->update();
 	}
-
-	emit dataChanged(idx, idx);
 
 	updateOverlay();
 }

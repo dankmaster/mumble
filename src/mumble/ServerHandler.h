@@ -195,6 +195,7 @@ public:
 	void upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
 						   unsigned int aclChannelID, unsigned int position, bool create);
 	void removeTextChannel(unsigned int textChannelID);
+	void setDefaultTextChannel(unsigned int textChannelID);
 	void requestChatHistory(MumbleProto::ChatScope scope, unsigned int scopeID = 0, unsigned int startOffset = 0,
 							unsigned int limit = 50,
 							std::optional< unsigned int > beforeMessageID = std::nullopt);

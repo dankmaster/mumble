@@ -8,6 +8,7 @@
 #include "MumbleApplication.h"
 #include "Settings.h"
 #include "Global.h"
+#include "UiTheme.h"
 
 #ifdef Q_OS_MAC
 #	include <QProcess>
@@ -236,7 +237,19 @@ bool Themes::readStylesheet(const QString &stylesheetFn, QString &stylesheetCont
 }
 
 QString Themes::getDefaultStylesheet() {
-	return QLatin1String(".log-channel{text-decoration:none;}.log-user{text-decoration:none;}p{margin:0;}#qwMacWarning,"
-						 "#qwInlineNotice{background-color:#FFFEDC;border-radius:5px;border:1px solid #B5B59E;}"
-						 "#qwMacWarning > QLabel,#qwInlineNotice > QLabel{color:#333;}");
+	const std::optional< UiThemeTokens > tokens = activeUiThemeTokens();
+	const QPalette palette                       = qApp ? qApp->palette() : QPalette();
+	const QColor noticeBackground =
+		tokens ? tokens->surface0 : palette.color(QPalette::ToolTipBase);
+	const QColor noticeBorder =
+		tokens ? tokens->surface1 : palette.color(QPalette::Mid);
+	const QColor noticeText =
+		tokens ? tokens->text : palette.color(QPalette::ToolTipText);
+
+	return QString::fromLatin1(".log-channel{text-decoration:none;}.log-user{text-decoration:none;}p{margin:0;}"
+							   "#qwMacWarning,#qwInlineNotice{background-color:%1;border-radius:5px;"
+							   "border:1px solid %2;}#qwMacWarning > QLabel,#qwInlineNotice > QLabel{color:%3;}")
+		.arg(uiThemeQssColor(noticeBackground))
+		.arg(uiThemeQssColor(noticeBorder))
+		.arg(uiThemeQssColor(noticeText));
 }

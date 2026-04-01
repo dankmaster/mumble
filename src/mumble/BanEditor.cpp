@@ -9,6 +9,7 @@
 #include "Channel.h"
 #include "QtUtils.h"
 #include "ServerHandler.h"
+#include "UiTheme.h"
 #include "Global.h"
 
 #include <cassert>
@@ -336,7 +337,10 @@ void BanEditor::validate() {
 
 	if (!validIP && hasIP) {
 		// Set red-ish background to indicate an invalid IP address
-		qleIP->setStyleSheet("background-color: #F08080;");
+		const std::optional< UiThemeTokens > tokens = activeUiThemeTokens();
+		const QColor warningBackground =
+			uiThemeColorWithAlpha(tokens ? tokens->red : QColor(Qt::red), 0.18);
+		qleIP->setStyleSheet(QString::fromLatin1("background-color: %1;").arg(uiThemeQssColor(warningBackground)));
 	} else {
 		qleIP->setStyleSheet("");
 	}

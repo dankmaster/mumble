@@ -12,6 +12,7 @@
 #include "AudioOutputToken.h"
 #include "NetworkConfig.h"
 #include "SpeechCleanup.h"
+#include "UiTheme.h"
 #include "Utils.h"
 #include "Global.h"
 
@@ -90,6 +91,14 @@ namespace {
 				return;
 			}
 		}
+	}
+
+	QColor themeWarningColor() {
+		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+			return tokens->red;
+		}
+
+		return QColor(Qt::red);
 	}
 } // namespace
 
@@ -378,7 +387,7 @@ void AudioInputDialog::on_qsSpeexNoiseSupStrength_valueChanged(int v) {
 
 	if (v < 15) {
 		qlSpeexNoiseSupStrength->setText(tr("Off"));
-		pal.setColor(qlSpeexNoiseSupStrength->foregroundRole(), Qt::red);
+		pal.setColor(qlSpeexNoiseSupStrength->foregroundRole(), themeWarningColor());
 		Mumble::Accessibility::setSliderSemanticValue(qsSpeexNoiseSupStrength, tr("Off"));
 	} else {
 		qlSpeexNoiseSupStrength->setText(tr("-%1 dB").arg(v));
@@ -436,7 +445,7 @@ void AudioInputDialog::updateBitrate() {
 	QPalette pal;
 
 	if (Global::get().uiSession && (total > Global::get().iMaxBandwidth)) {
-		pal.setColor(qlBitrate->foregroundRole(), Qt::red);
+		pal.setColor(qlBitrate->foregroundRole(), themeWarningColor());
 	}
 
 	qlBitrate->setPalette(pal);
@@ -936,7 +945,7 @@ void AudioOutputDialog::on_qsVolume_valueChanged(int v) {
 	QPalette pal;
 
 	if (v > 100) {
-		pal.setColor(qlVolume->foregroundRole(), Qt::red);
+		pal.setColor(qlVolume->foregroundRole(), themeWarningColor());
 	}
 	qlVolume->setPalette(pal);
 

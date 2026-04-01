@@ -490,7 +490,6 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 
 			if (pSelf) {
 				if (pDst == pSelf) {
-					Global::get().mw->updateChatBar();
 					qsDesiredChannel = channel->getPath();
 				}
 
@@ -1328,17 +1327,47 @@ void MainWindow::msgCodecVersion(const MumbleProto::CodecVersion &msg) {
 ///
 /// @param msg The message object containing the stats
 void MainWindow::msgUserStats(const MumbleProto::UserStats &msg) {
+	if (msg.has_session()) {
+		const std::optional< unsigned int > idleSeconds =
+			msg.has_idlesecs() ? std::optional< unsigned int >(msg.idlesecs()) : std::nullopt;
+		const auto previousIdleSeconds = userIdleSeconds(msg.session());
+		if (idleSeconds) {
+			m_userIdleSeconds.insert(msg.session(), *idleSeconds);
+		} else {
+			m_userIdleSeconds.remove(msg.session());
+		}
+
+		if (idleSeconds != previousIdleSeconds && pmModel) {
+			if (ClientUser *user = ClientUser::get(msg.session()); user) {
+				const QModelIndex idx = pmModel->index(user);
+				if (idx.isValid()) {
+					emit pmModel->dataChanged(idx, idx);
+				}
+			}
+		}
+	}
+
 	UserInformation *ui = qmUserInformations.value(msg.session());
 	if (ui) {
+		m_pendingUserInformationSessions.remove(msg.session());
 		ui->update(msg);
-	} else {
-		ui = new UserInformation(msg, this);
-		ui->setAttribute(Qt::WA_DeleteOnClose, true);
-		connect(ui, SIGNAL(destroyed()), this, SLOT(destroyUserInformation()));
-
-		qmUserInformations.insert(msg.session(), ui);
-		ui->show();
+		return;
 	}
+
+	if (msg.stats_only()) {
+		return;
+	}
+
+	if (!m_pendingUserInformationSessions.remove(msg.session())) {
+		return;
+	}
+
+	ui = new UserInformation(msg, this);
+	ui->setAttribute(Qt::WA_DeleteOnClose, true);
+	connect(ui, SIGNAL(destroyed()), this, SLOT(destroyUserInformation()));
+
+	qmUserInformations.insert(msg.session(), ui);
+	ui->show();
 }
 
 /// This message is only ever sent by the client in order to request binary data that otherwise

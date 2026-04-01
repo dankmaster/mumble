@@ -5,6 +5,8 @@
 
 #include "DTLNSpeechCleanup.h"
 
+#ifdef USE_DTLN
+
 #include "Audio.h"
 #include "Global.h"
 #include "smallft.h"
@@ -517,3 +519,27 @@ void DTLNSpeechCleanup::processNormalizedMonoInPlace(float *samples, unsigned in
 		m_impl->processNormalizedMonoInPlace(samples, sampleCount, mixFactor);
 	}
 }
+
+#else
+
+class DTLNSpeechCleanup::Implementation {
+};
+
+DTLNSpeechCleanup::DTLNSpeechCleanup() = default;
+
+DTLNSpeechCleanup::~DTLNSpeechCleanup() = default;
+
+bool DTLNSpeechCleanup::isReady() const {
+	return false;
+}
+
+void DTLNSpeechCleanup::reset() {
+}
+
+void DTLNSpeechCleanup::processNormalizedMonoInPlace(float *samples, unsigned int sampleCount, float mixFactor) {
+	static_cast< void >(samples);
+	static_cast< void >(sampleCount);
+	static_cast< void >(mixFactor);
+}
+
+#endif

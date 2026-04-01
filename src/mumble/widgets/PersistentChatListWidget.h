@@ -6,9 +6,18 @@
 #ifndef MUMBLE_MUMBLE_WIDGETS_PERSISTENTCHATLISTWIDGET_H_
 #define MUMBLE_MUMBLE_WIDGETS_PERSISTENTCHATLISTWIDGET_H_
 
-#include <QtWidgets/QListWidget>
+#include <QtWidgets/QListView>
 
-class PersistentChatListWidget : public QListWidget {
+struct PersistentChatViewportAnchor {
+	QString rowId;
+	int intraRowOffset = 0;
+
+	bool isValid() const {
+		return !rowId.isEmpty();
+	}
+};
+
+class PersistentChatListWidget : public QListView {
 private:
 	Q_OBJECT
 	Q_DISABLE_COPY(PersistentChatListWidget)
@@ -17,6 +26,9 @@ public:
 	explicit PersistentChatListWidget(QWidget *parent = nullptr);
 
 	bool isScrolledToBottom() const;
+	PersistentChatViewportAnchor captureViewportAnchor() const;
+	void restoreViewportAnchor(const PersistentChatViewportAnchor &anchor);
+	bool isRowVisible(const QString &rowId) const;
 	void stabilizeVisibleContent();
 
 signals:
@@ -24,7 +36,6 @@ signals:
 
 protected:
 	void resizeEvent(QResizeEvent *event) override;
-	void scrollContentsBy(int dx, int dy) override;
 
 private:
 	bool m_stabilizingVisibleContent = false;

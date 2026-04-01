@@ -15,6 +15,7 @@
 
 #include "Accessibility.h"
 #include "SelfSignedCertificate.h"
+#include "UiTheme.h"
 #include "Utils.h"
 #include "Global.h"
 
@@ -30,6 +31,16 @@
 #include <openssl/x509.h>
 
 #define SSL_STRING(x) QString::fromLatin1(x).toUtf8().data()
+
+namespace {
+	QColor certificateWarningColor() {
+		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+			return tokens->red;
+		}
+
+		return QColor(Qt::red);
+	}
+}
 
 CertView::CertView(QWidget *p) : AccessibleQGroupBox(p) {
 	QGridLayout *grid = new QGridLayout(this);
@@ -103,11 +114,12 @@ void CertView::setCert(const QList< QSslCertificate > &cert) {
 
 		const auto expiryDateStr = QLocale::system().toString(qscCert.expiryDate(), QLocale::ShortFormat);
 
-		if (qscCert.expiryDate() <= QDateTime::currentDateTime())
-			qlExpiry->setText(
-				QString::fromLatin1("<font color=\"red\"><b>%1</b></font>").arg(expiryDateStr.toHtmlEscaped()));
-		else
+		if (qscCert.expiryDate() <= QDateTime::currentDateTime()) {
+			qlExpiry->setText(QString::fromLatin1("<span style=\"color:%1;font-weight:600;\">%2</span>")
+								  .arg(uiThemeQssColor(certificateWarningColor()), expiryDateStr.toHtmlEscaped()));
+		} else {
 			qlExpiry->setText(expiryDateStr);
+		}
 
 		if (qlCert.count() > 1)
 			qscCert = qlCert.last();
@@ -134,6 +146,8 @@ CertWizard::CertWizard(QWidget *p) : QWizard(p) {
 	qwpExport->setCommitPage(true);
 	qwpExport->setComplete(false);
 	qlPasswordNotice->setVisible(false);
+	qlPasswordNotice->setStyleSheet(
+		QString::fromLatin1("color: %1;").arg(uiThemeQssColor(certificateWarningColor())));
 
 	m_overrideFilter = new OverrideTabOrderFilter(this, this);
 	installEventFilter(m_overrideFilter);
