@@ -706,46 +706,19 @@ namespace {
 				return;
 			}
 
-			const auto scheduleBrowserResize = [this, browser]() { scheduleEmbeddedBrowserResize(browser); };
-
 			connect(browser, &LogTextBrowser::anchorClicked, this, &PersistentChatBubbleWidget::anchorClicked);
 			connect(browser, QOverload< const QUrl & >::of(&QTextBrowser::highlighted), this,
 					&PersistentChatBubbleWidget::highlighted);
 			connect(browser, &LogTextBrowser::customContextMenuRequested, this,
 					[this, browser](const QPoint &position) {
-						activate();
-						emit logContextMenuRequested(browser, position);
-					});
+					activate();
+					emit logContextMenuRequested(browser, position);
+				});
 			connect(browser, &LogTextBrowser::imageActivated, this,
 					[this, browser](const QTextCursor &cursor) { emit logImageActivated(browser, cursor); });
-			connect(browser, &LogTextBrowser::contentWidthChanged, this, [scheduleBrowserResize](int) {
-				scheduleBrowserResize();
-			});
-			if (QScrollBar *horizontalScrollBar = browser->horizontalScrollBar()) {
-				connect(horizontalScrollBar, &QScrollBar::rangeChanged, this,
-						[this, scheduleBrowserResize](int minimum, int maximum) {
-							Q_UNUSED(minimum);
-							if (maximum > 0) {
-								scheduleBrowserResize();
-							}
-						});
-			}
-			if (QScrollBar *verticalScrollBar = browser->verticalScrollBar()) {
-				connect(verticalScrollBar, &QScrollBar::rangeChanged, this,
-						[this, scheduleBrowserResize](int minimum, int maximum) {
-							Q_UNUSED(minimum);
-							if (maximum > 0) {
-								scheduleBrowserResize();
-							}
-						});
-			}
-			if (QTextDocument *document = browser->document()) {
-				connect(document, &QTextDocument::contentsChanged, this, scheduleBrowserResize);
-				if (QAbstractTextDocumentLayout *layout = document->documentLayout()) {
-					connect(layout, &QAbstractTextDocumentLayout::documentSizeChanged, this,
-							[this, scheduleBrowserResize](const QSizeF &) { scheduleBrowserResize(); });
-				}
-			}
+			// Embedded chat browsers render static message content/resources. Re-listening to
+			// document and scrollbar resize signals caused relayout churn during normal delegate
+			// painting, which made large histories sluggish. Size once at creation instead.
 			registerTrackedObject(browser);
 			registerTrackedObject(browser->viewport());
 			refreshEmbeddedBrowserSize(browser, false);
