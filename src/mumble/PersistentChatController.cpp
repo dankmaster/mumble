@@ -159,7 +159,7 @@ bool PersistentChatController::markActiveScopeRead() {
 	state.snapshot.unreadCount       = 0;
 	m_gateway->markRead(m_activeScope.scope, m_activeScope.scopeID, lastVisibleMessageID);
 	emit unreadStateChanged();
-	emit activeSnapshotChanged();
+	emit activeReadStateChanged(state.snapshot.lastReadMessageId, state.snapshot.unreadCount);
 	return true;
 }
 
@@ -183,10 +183,6 @@ bool PersistentChatController::applyEmbedState(const MumbleProto::ChatEmbedState
 		message.clear_embeds();
 		for (const MumbleProto::ChatEmbedRef &embed : state.embeds()) {
 			*message.add_embeds() = embed;
-		}
-
-		if (m_activeScope.cacheKey() == key.cacheKey()) {
-			emit activeSnapshotChanged();
 		}
 		return true;
 	}
@@ -268,7 +264,7 @@ void PersistentChatController::handleReadState(const MumbleProto::ChatReadStateU
 	setUnreadFromMessages(state);
 
 	if (m_activeScope.cacheKey() == key.cacheKey()) {
-		emit activeSnapshotChanged();
+		emit activeReadStateChanged(state.snapshot.lastReadMessageId, state.snapshot.unreadCount);
 	}
 	emit unreadStateChanged();
 }

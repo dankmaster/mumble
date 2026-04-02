@@ -6,6 +6,22 @@
 #include "PersistentChatHistoryModel.h"
 
 namespace {
+	QString messageGroupSignature(const PersistentChatHistoryRow &row) {
+		if (!row.messageGroup) {
+			return row.signature;
+		}
+
+		const PersistentChatMessageGroupRowSpec &group = *row.messageGroup;
+		QStringList groupSignatureParts { row.rowId, group.header.actorLabel, group.header.timeLabel, group.header.scopeLabel };
+		for (const PersistentChatBubbleSpec &bubble : group.bubbles) {
+			groupSignatureParts << QString::number(bubble.messageID) << bubble.bodyHtml << bubble.replyActor
+								<< bubble.replySnippet << bubble.actionText
+								<< QString::number(static_cast< int >(bubble.previewSpec.kind));
+		}
+
+		return QString::number(qHash(groupSignatureParts.join(QLatin1Char('|'))));
+	}
+
 	void emitChangedSignatureRanges(PersistentChatHistoryModel *model, const QVector< PersistentChatHistoryRow > &oldRows,
 									const QVector< PersistentChatHistoryRow > &newRows, int oldOffset, int newOffset,
 									int length) {
@@ -162,6 +178,52 @@ void PersistentChatHistoryModel::setRows(const QVector< PersistentChatHistoryRow
 	beginResetModel();
 	m_rows = rows;
 	endResetModel();
+}
+
+bool PersistentChatHistoryModel::removeUnreadDivider() {
+	for (int rowIndex = 0; rowIndex < m_rows.size(); ++rowIndex) {
+		if (m_rows.at(rowIndex).kind != PersistentChatHistoryRowKind::UnreadDivider) {
+			continue;
+		}
+
+		beginRemoveRows(QModelIndex(), rowIndex, rowIndex);
+		m_rows.removeAt(rowIndex);
+		endRemoveRows();
+		return true;
+	}
+
+	return false;
+}
+
+bool PersistentChatHistoryModel::updateBubblePreview(unsigned int messageID, unsigned int threadID,
+													 const PersistentChatPreviewSpec &previewSpec) {
+	for (int rowIndex = 0; rowIndex < m_rows.size(); ++rowIndex) {
+		PersistentChatHistoryRow &row = m_rows[rowIndex];
+		if (row.kind != PersistentChatHistoryRowKind::MessageGroup || !row.messageGroup) {
+			continue;
+		}
+
+		bool updated = false;
+		for (PersistentChatBubbleSpec &bubble : row.messageGroup->bubbles) {
+			if (bubble.messageID != messageID || bubble.threadID != threadID) {
+				continue;
+			}
+
+			bubble.previewSpec = previewSpec;
+			updated = true;
+			break;
+		}
+
+		if (!updated) {
+			continue;
+		}
+
+		row.signature = messageGroupSignature(row);
+		emit dataChanged(index(rowIndex, 0), index(rowIndex, 0));
+		return true;
+	}
+
+	return false;
 }
 
 bool PersistentChatHistoryModel::sameRowIds(const QVector< PersistentChatHistoryRow > &lhs,

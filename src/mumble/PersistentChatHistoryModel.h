@@ -78,6 +78,8 @@ public:
 	int rowForId(const QString &rowId) const;
 	QString lastMessageGroupRowId() const;
 	void setRows(const QVector< PersistentChatHistoryRow > &rows);
+	bool removeUnreadDivider();
+	bool updateBubblePreview(unsigned int messageID, unsigned int threadID, const PersistentChatPreviewSpec &previewSpec);
 
 private:
 	static bool sameRowIds(const QVector< PersistentChatHistoryRow > &lhs,

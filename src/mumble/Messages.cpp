@@ -14,6 +14,7 @@
 #include "AudioWizard.h"
 #include "BanEditor.h"
 #include "Channel.h"
+#include "ChatPerfTrace.h"
 #include "ConnectDialog.h"
 #include "Connection.h"
 #include "Database.h"
@@ -1461,6 +1462,7 @@ void MainWindow::msgChatAssetRequest(const MumbleProto::ChatAssetRequest &) {
 }
 
 void MainWindow::msgChatAssetChunk(const MumbleProto::ChatAssetChunk &msg) {
+	mumble::chatperf::ScopedDuration trace("chat.asset_chunk");
 	if (!msg.has_asset_id() || msg.asset_id() == 0) {
 		return;
 	}
@@ -1497,8 +1499,13 @@ void MainWindow::msgChatAssetChunk(const MumbleProto::ChatAssetChunk &msg) {
 		return;
 	}
 
+	mumble::chatperf::recordValue("chat.asset_chunk.bytes", it->bytes.size());
+	mumble::chatperf::recordValue("chat.asset_chunk.preview_keys", it->previewKeys.size());
 	QImage image;
-	image.loadFromData(it->bytes);
+	{
+		mumble::chatperf::ScopedDuration decodeTrace("chat.asset_chunk.decode");
+		image.loadFromData(it->bytes);
+	}
 	for (const QString &previewKey : it->previewKeys) {
 		auto previewIt = m_persistentChatPreviews.find(previewKey);
 		if (previewIt == m_persistentChatPreviews.end()) {

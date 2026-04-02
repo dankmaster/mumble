@@ -39,6 +39,7 @@ public:
 
 signals:
 	void activeSnapshotChanged();
+	void activeReadStateChanged(unsigned int lastReadMessageID, int unreadCount);
 	void unreadStateChanged();
 
 private slots:

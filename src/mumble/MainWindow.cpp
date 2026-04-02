@@ -29,6 +29,7 @@
 #endif
 #include "../SignalCurry.h"
 #include "ChannelListenerManager.h"
+#include "ChatPerfTrace.h"
 #include "FailedConnectionDialog.h"
 #include "ListenerVolumeSlider.h"
 #include "Markdown.h"
@@ -77,6 +78,7 @@
 
 #include <QAccessible>
 #include <QtCore/QBuffer>
+#include <QtCore/QCryptographicHash>
 #include <QtCore/QDateTime>
 #include <QtCore/QFileInfo>
 #include <QtCore/QPointer>
@@ -141,6 +143,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <optional>
 
 #include "widgets/EventFilters.h"
@@ -153,7 +156,6 @@ namespace {
 	constexpr int PersistentChatUnreadRole  = Qt::UserRole + 5;
 	constexpr int LocalServerLogScope       = -1;
 	constexpr int PersistentChatBottomInsetHeight = 18;
-
 	bool chatMessageLessThan(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
 		const quint64 lhsCreatedAt = lhs.has_created_at() ? lhs.created_at() : 0;
 		const quint64 rhsCreatedAt = rhs.has_created_at() ? rhs.created_at() : 0;
@@ -995,20 +997,325 @@ namespace {
 		}
 
 		style += QString::fromLatin1(
-					 "max-width:%1px; max-height:%2px; width:auto; height:auto; border:none; outline:none; display:block; "
+					 "max-width:100%%; max-height:%1px; width:auto; height:auto; border:none; outline:none; display:block; "
 					 "margin:0; overflow:visible;")
-					 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH)
 					 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT);
 		return style;
 	}
 
-	QString normalizePersistentChatInlineImages(QString html) {
+	struct PersistentChatInlineDataImageInfo {
+		bool valid          = false;
+		bool base64         = false;
+		QString mimeType;
+		QString formatLabel;
+		qint64 estimatedBytes = -1;
+	};
+
+	using PersistentChatInlineDataImageReplacementBuilder =
+		std::function< QString(const QString &, const QString &, const PersistentChatInlineDataImageInfo &) >;
+
+	QString persistentChatInlineDataImageFormatLabel(const QString &mimeType) {
+		const QString subtype = mimeType.section(QLatin1Char('/'), 1, 1).trimmed().toUpper();
+		return subtype.isEmpty() ? QObject::tr("image") : subtype;
+	}
+
+	QString persistentChatInlineDataImageSizeLabel(qint64 bytes) {
+		if (bytes < 0) {
+			return QString();
+		}
+		if (bytes >= 1024 * 1024) {
+			return QString::fromLatin1("%1 MB").arg(static_cast< double >(bytes) / (1024.0 * 1024.0), 0, 'f', 1);
+		}
+		if (bytes >= 1024) {
+			return QString::fromLatin1("%1 KB").arg(static_cast< double >(bytes) / 1024.0, 0, 'f', 1);
+		}
+
+		return QString::fromLatin1("%1 B").arg(bytes);
+	}
+
+	QString persistentChatInlineDataImageToken(const QString &source) {
+		return QString::fromLatin1(
+			QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex().left(24));
+	}
+
+	bool persistentChatInlineDataLooksLikeImageBytes(const QByteArray &bytes) {
+		if (bytes.size() >= 3 && static_cast< unsigned char >(bytes[0]) == 0xFF
+			&& static_cast< unsigned char >(bytes[1]) == 0xD8
+			&& static_cast< unsigned char >(bytes[2]) == 0xFF) {
+			return true;
+		}
+		if (bytes.startsWith("\x89PNG\r\n\x1A\n")) {
+			return true;
+		}
+		if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a")) {
+			return true;
+		}
+		if (bytes.startsWith("BM")) {
+			return true;
+		}
+		return bytes.size() >= 12 && bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WEBP";
+	}
+
+	QByteArray persistentChatInlineDataNormalizedBase64(QByteArray payload) {
+		QByteArray normalized;
+		normalized.reserve(payload.size());
+		for (char ch : payload) {
+			switch (ch) {
+				case ' ':
+				case '\t':
+				case '\r':
+				case '\n':
+					break;
+				default:
+					normalized.push_back(ch);
+					break;
+			}
+		}
+		return normalized;
+	}
+
+	PersistentChatInlineDataImageInfo persistentChatInlineDataImageInfo(const QString &source) {
+		PersistentChatInlineDataImageInfo info;
+		if (!source.startsWith(QLatin1String("data:image/"), Qt::CaseInsensitive)) {
+			return info;
+		}
+
+		const int commaIndex = source.indexOf(QLatin1Char(','));
+		if (commaIndex <= 5) {
+			return info;
+		}
+
+		const QString metadata = source.mid(5, commaIndex - 5);
+		const QStringList parts = metadata.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+		if (parts.isEmpty()) {
+			return info;
+		}
+
+		info.valid       = true;
+		info.mimeType    = parts.front().trimmed().toLower();
+		info.formatLabel = persistentChatInlineDataImageFormatLabel(info.mimeType);
+		for (int i = 1; i < parts.size(); ++i) {
+			if (parts[i].trimmed().compare(QLatin1String("base64"), Qt::CaseInsensitive) == 0) {
+				info.base64 = true;
+				break;
+			}
+		}
+
+		if (info.base64) {
+			const QString payload = source.mid(commaIndex + 1).trimmed();
+			int padding           = 0;
+			if (payload.endsWith(QLatin1String("=="))) {
+				padding = 2;
+			} else if (payload.endsWith(QLatin1Char('='))) {
+				padding = 1;
+			}
+			info.estimatedBytes = std::max< qint64 >(0, (static_cast< qint64 >(payload.size()) * 3) / 4 - padding);
+		}
+
+		return info;
+	}
+
+	QByteArray persistentChatInlineDataImageBytes(const QString &source, const PersistentChatInlineDataImageInfo &info) {
+		const int commaIndex = source.indexOf(QLatin1Char(','));
+		if (!info.valid || commaIndex < 0) {
+			return QByteArray();
+		}
+
+		const QByteArray payload = source.mid(commaIndex + 1).trimmed().toLatin1();
+		if (payload.isEmpty()) {
+			return QByteArray();
+		}
+
+		if (!info.base64) {
+			const QByteArray bytes = QByteArray::fromPercentEncoding(payload);
+			if (mumble::chatperf::enabled()) {
+				mumble::chatperf::recordNote("chat.inline_data_image.decode",
+											 QString::fromLatin1("mode=percent bytes=%1").arg(bytes.size()));
+			}
+			return bytes;
+		}
+
+		QByteArray normalizedPayload = payload;
+		if (normalizedPayload.contains('%')) {
+			normalizedPayload = QByteArray::fromPercentEncoding(normalizedPayload);
+		}
+		if (persistentChatInlineDataLooksLikeImageBytes(normalizedPayload)) {
+			if (mumble::chatperf::enabled()) {
+				mumble::chatperf::recordNote("chat.inline_data_image.decode",
+											 QString::fromLatin1("mode=percent_raw bytes=%1").arg(normalizedPayload.size()));
+			}
+			return normalizedPayload;
+		}
+
+		QByteArray decodedBytes = QByteArray::fromBase64(persistentChatInlineDataNormalizedBase64(normalizedPayload));
+		if (!decodedBytes.isEmpty()) {
+			if (mumble::chatperf::enabled()) {
+				mumble::chatperf::recordNote(
+					"chat.inline_data_image.decode",
+					QString::fromLatin1("mode=base64_normalized bytes=%1 percent=%2")
+						.arg(decodedBytes.size())
+						.arg(payload.contains('%') ? 1 : 0));
+			}
+			return decodedBytes;
+		}
+
+		decodedBytes = QByteArray::fromBase64(persistentChatInlineDataNormalizedBase64(payload));
+		if (!decodedBytes.isEmpty()) {
+			if (mumble::chatperf::enabled()) {
+				mumble::chatperf::recordNote("chat.inline_data_image.decode",
+											 QString::fromLatin1("mode=base64_raw bytes=%1").arg(decodedBytes.size()));
+			}
+			return decodedBytes;
+		}
+
+		if (mumble::chatperf::enabled()) {
+			mumble::chatperf::recordNote(
+				"chat.inline_data_image.decode",
+				QString::fromLatin1("mode=failed prefix=\"%1\"").arg(QString::fromLatin1(payload.left(32))));
+		}
+		return QByteArray();
+	}
+
+QImage persistentChatInlineDataImagePreviewImage(const QString &source, const PersistentChatInlineDataImageInfo &info) {
+	const QByteArray bytes = persistentChatInlineDataImageBytes(source, info);
+	if (bytes.isEmpty()) {
+		return QImage();
+	}
+
+		QBuffer buffer;
+		buffer.setData(bytes);
+		if (!buffer.open(QIODevice::ReadOnly)) {
+			return QImage();
+		}
+
+		QImageReader reader(&buffer);
+		reader.setAutoTransform(true);
+		QImage image = reader.read();
+		if (image.isNull()) {
+			return QImage();
+		}
+
+		const QSize boundedSize = persistentChatInlineImageDisplaySize(image.size());
+		if (boundedSize.isValid() && image.size() != boundedSize) {
+			image = image.scaled(boundedSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+		}
+
+	return image;
+}
+
+QString persistentChatInlineDataImageThumbnailSource(const QImage &image) {
+	if (image.isNull()) {
+		return QString();
+	}
+
+	QByteArray encodedBytes;
+	QBuffer buffer(&encodedBytes);
+	if (!buffer.open(QIODevice::WriteOnly)) {
+		return QString();
+	}
+
+	const bool hasAlpha = image.hasAlphaChannel();
+	const char *format  = hasAlpha ? "PNG" : "JPEG";
+	const int quality   = hasAlpha ? -1 : 82;
+	if (!image.save(&buffer, format, quality) || encodedBytes.isEmpty()) {
+		return QString();
+	}
+
+	const QString mimeType = hasAlpha ? QStringLiteral("image/png") : QStringLiteral("image/jpeg");
+	if (mumble::chatperf::enabled()) {
+		mumble::chatperf::recordNote("chat.inline_data_image.thumbnail",
+									 QString::fromLatin1("mime=%1 bytes=%2 width=%3 height=%4")
+										 .arg(mimeType)
+										 .arg(encodedBytes.size())
+										 .arg(image.width())
+										 .arg(image.height()));
+	}
+	return QString::fromLatin1("data:%1;base64,%2").arg(mimeType, QString::fromLatin1(encodedBytes.toBase64()));
+}
+
+QString persistentChatInlineDataImageThumbnailHtml(const QString &imageSrc, const QString &openHref,
+													  const QString &altText, const QSize &imageSize,
+													  qint64 estimatedBytes) {
+	const QString title = !altText.trimmed().isEmpty()
+							  ? altText.trimmed().toHtmlEscaped()
+							  : QObject::tr("Embedded image").toHtmlEscaped();
+	QString caption = title;
+	if (const QString sizeLabel = persistentChatInlineDataImageSizeLabel(estimatedBytes); !sizeLabel.isEmpty()) {
+			caption += QString::fromLatin1(" (%1)").arg(sizeLabel.toHtmlEscaped());
+		}
+	caption += QString::fromLatin1(" - ") + QObject::tr("Click to open or save.").toHtmlEscaped();
+
+	const int boundedWidth  = std::max(1, imageSize.width());
+	const int boundedHeight = std::max(1, std::min(imageSize.height(), PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT));
+	QString imageHtml       = QString::fromLatin1(
+								  "<img src=\"%1\" alt=\"%2\" "
+								  "style=\"display:block; width:100%%; max-width:%3px; height:auto; max-height:%4px; "
+								  "border:none; outline:none; margin:0; background:transparent;\" />")
+								  .arg(imageSrc.toHtmlEscaped())
+								  .arg(altText.toHtmlEscaped())
+								  .arg(boundedWidth)
+								  .arg(boundedHeight);
+	if (!openHref.isEmpty()) {
+		imageHtml = QString::fromLatin1(
+						"<a href=\"%1\" style=\"display:block; text-decoration:none; color:inherit; line-height:0;\">%2</a>")
+						.arg(openHref.toHtmlEscaped(), imageHtml);
+		}
+	imageHtml = QString::fromLatin1(
+					"<table cellspacing='0' cellpadding='0' width='100%%' "
+					"style='border-collapse:collapse; border:none; background:transparent;'>"
+					"<tr><td align='left' style='padding:0; line-height:0;'>%1</td></tr></table>")
+					.arg(imageHtml);
+
+		return QString::fromLatin1(
+				   "<div style='margin:6px 0 2px 0;'>%1</div>"
+				   "<div style='margin-top:4px; opacity:0.78; font-size:0.92em;'>%2</div>")
+			.arg(imageHtml, caption);
+	}
+
+	QString persistentChatInlineDataImagePlaceholderHtml(const PersistentChatInlineDataImageInfo &info,
+														 const QString &altText, const QString &openHref) {
+		const QString title = !altText.trimmed().isEmpty()
+								  ? altText.trimmed().toHtmlEscaped()
+								  : QObject::tr("Embedded %1 image").arg(info.formatLabel).toHtmlEscaped();
+
+		QString detail = QObject::tr("Inline render skipped for performance");
+		if (const QString sizeLabel = persistentChatInlineDataImageSizeLabel(info.estimatedBytes); !sizeLabel.isEmpty()) {
+			detail += QString::fromLatin1(" (%1)").arg(sizeLabel);
+		}
+		detail += QString::fromLatin1(". ") + QObject::tr("Open image to view or save.");
+
+		QString actionRow;
+		if (!openHref.isEmpty()) {
+			actionRow = QString::fromLatin1(
+							"<div style='margin-top:6px;'><a href=\"%1\" "
+							"style='font-weight:600; text-decoration:none;'>%2</a></div>")
+							.arg(openHref.toHtmlEscaped(), QObject::tr("Open image").toHtmlEscaped());
+		}
+
+		return QString::fromLatin1(
+				   "<div style='margin:6px 0; padding:8px 10px; border-left:3px solid #8b93a6; "
+				   "background:rgba(139,147,166,0.10); border-radius:4px;'>"
+				   "<div style='font-weight:600;'>%1</div>"
+				   "<div style='margin-top:3px; opacity:0.78;'>%2</div>"
+				   "%3"
+				   "</div>")
+			.arg(title, detail.toHtmlEscaped(), actionRow);
+	}
+
+	QString normalizePersistentChatInlineImages(
+		QString html, const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
 		if (!html.contains(QLatin1String("<img"), Qt::CaseInsensitive)) {
 			return html;
 		}
 
 		static const QRegularExpression s_imgTagPattern(QLatin1String("<img\\b[^>]*>"),
 														 QRegularExpression::CaseInsensitiveOption);
+		static const QRegularExpression s_srcPattern(
+			QLatin1String("\\bsrc\\s*=\\s*(['\"])(.*?)\\1"),
+			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+		static const QRegularExpression s_altPattern(
+			QLatin1String("\\balt\\s*=\\s*(['\"])(.*?)\\1"),
+			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
 		static const QRegularExpression s_widthPattern(QLatin1String("\\bwidth\\s*=\\s*(['\"]?)(\\d+)\\1"),
 													  QRegularExpression::CaseInsensitiveOption);
 		static const QRegularExpression s_heightPattern(QLatin1String("\\bheight\\s*=\\s*(['\"]?)(\\d+)\\1"),
@@ -1016,6 +1323,7 @@ namespace {
 		static const QRegularExpression s_stylePattern(
 			QLatin1String("\\bstyle\\s*=\\s*(['\"])(.*?)\\1"),
 			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+		constexpr qint64 PersistentChatInlineDataImageInlineMaxBytes = 64 * 1024;
 
 		QString normalizedHtml;
 		normalizedHtml.reserve(html.size() + 128);
@@ -1027,6 +1335,30 @@ namespace {
 			normalizedHtml += html.mid(lastOffset, match.capturedStart() - lastOffset);
 
 			QString tag = match.captured(0);
+			const QRegularExpressionMatch srcMatch = s_srcPattern.match(tag);
+			if (srcMatch.hasMatch()) {
+				const PersistentChatInlineDataImageInfo dataImageInfo =
+					persistentChatInlineDataImageInfo(srcMatch.captured(2));
+				if (dataImageInfo.valid
+					&& (dataImageInfo.estimatedBytes < 0
+						|| dataImageInfo.estimatedBytes > PersistentChatInlineDataImageInlineMaxBytes)) {
+					const QRegularExpressionMatch altMatch = s_altPattern.match(tag);
+					const QString altText = altMatch.hasMatch() ? altMatch.captured(2) : QString();
+					const QString replacementHtml =
+						buildInlineDataImageReplacement
+							? buildInlineDataImageReplacement(srcMatch.captured(2), altText, dataImageInfo)
+							: QString();
+					if (!replacementHtml.isEmpty()) {
+						normalizedHtml += replacementHtml;
+					} else {
+						normalizedHtml += persistentChatInlineDataImagePlaceholderHtml(dataImageInfo, altText, QString());
+					}
+					mumble::chatperf::recordValue("chat.inline_data_image.replaced", 1);
+					lastOffset = match.capturedEnd();
+					continue;
+				}
+			}
+
 			const QRegularExpressionMatch widthMatch  = s_widthPattern.match(tag);
 			const QRegularExpressionMatch heightMatch = s_heightPattern.match(tag);
 			if (widthMatch.hasMatch() && heightMatch.hasMatch()) {
@@ -1056,7 +1388,9 @@ namespace {
 		return normalizedHtml;
 	}
 
-	QString persistentChatContentHtml(const QString &content) {
+	QString persistentChatContentHtml(
+		const QString &content,
+		const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
 		const QString normalizedContent = normalizedPersistentChatText(content);
 		if (!Qt::mightBeRichText(normalizedContent)) {
 			return normalizedContent.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
@@ -1068,26 +1402,51 @@ namespace {
 														| QRegularExpression::CaseInsensitiveOption);
 		const QRegularExpressionMatch bodyMatch = bodyPattern.match(sanitizedHtml);
 		if (bodyMatch.hasMatch()) {
-			return normalizePersistentChatInlineImages(bodyMatch.captured(1));
+			return normalizePersistentChatInlineImages(bodyMatch.captured(1), buildInlineDataImageReplacement);
 		}
 
-		return normalizePersistentChatInlineImages(sanitizedHtml);
+		return normalizePersistentChatInlineImages(sanitizedHtml, buildInlineDataImageReplacement);
 	}
 
-	QString persistentChatPlainTextSummary(const QString &content, int maxLength = 160) {
-		const QString plainText =
-			QTextDocumentFragment::fromHtml(persistentChatContentHtml(content)).toPlainText().simplified();
-		if (plainText.size() <= maxLength) {
-			return plainText;
+QString persistentChatPlainTextSummary(const QString &content, int maxLength = 160) {
+	const QString plainText =
+		QTextDocumentFragment::fromHtml(persistentChatContentHtml(content)).toPlainText().simplified();
+	if (plainText.size() <= maxLength) {
+		return plainText;
 		}
 
-		return plainText.left(std::max(0, maxLength - 3)).trimmed() + QLatin1String("...");
+	return plainText.left(std::max(0, maxLength - 3)).trimmed() + QLatin1String("...");
+}
+
+bool persistentChatBodyHtmlContainsInlineImageThumbnail(const QString &bodyHtml) {
+	return bodyHtml.contains(QLatin1String("mumble-chat://inline-data-image"), Qt::CaseInsensitive);
+}
+
+QString persistentChatCondensedBodyHtml(const QString &bodyHtml, const QString &sourceText) {
+	constexpr int kMaxRenderedBodyHtmlChars = 16384;
+	constexpr int kPreviewPlainTextChars    = 1200;
+	if (bodyHtml.size() <= kMaxRenderedBodyHtmlChars || persistentChatBodyHtmlContainsInlineImageThumbnail(bodyHtml)) {
+		return bodyHtml;
 	}
 
-	QString persistentChatMessageSourceText(const MumbleProto::ChatMessage &message) {
-		if (message.has_body_text()) {
-			return normalizedPersistentChatText(u8(message.body_text()));
-		}
+		const QString previewSource = sourceText.isEmpty() ? bodyHtml : sourceText;
+		const QString previewText   = persistentChatPlainTextSummary(previewSource, kPreviewPlainTextChars);
+	return QString::fromLatin1(
+			   "<div>%1</div>"
+			   "<div style='margin-top:6px; opacity:0.78;'><em>%2</em></div>")
+		.arg(previewText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>")),
+			 QObject::tr("[Long message preview. Use Copy message for the full text.]").toHtmlEscaped());
+}
+
+bool persistentChatBodyTextContainsLegacyInlineImageHtml(const QString &bodyText) {
+	return bodyText.contains(QLatin1String("<img"), Qt::CaseInsensitive)
+		   && bodyText.contains(QLatin1String("data:image"), Qt::CaseInsensitive);
+}
+
+QString persistentChatMessageSourceText(const MumbleProto::ChatMessage &message) {
+	if (message.has_body_text()) {
+		return normalizedPersistentChatText(u8(message.body_text()));
+	}
 
 		return QTextDocumentFragment::fromHtml(u8(message.message())).toPlainText();
 	}
@@ -1115,17 +1474,22 @@ namespace {
 		return u8(message.message());
 	}
 
-	QString persistentChatMessageBodyHtml(const MumbleProto::ChatMessage &message) {
-		if (message.has_body_text()) {
-			const QString bodyText = normalizedPersistentChatText(u8(message.body_text()));
-			if (message.has_body_format() && message.body_format() == MumbleProto::ChatBodyFormatMarkdownLite) {
-				return persistentChatContentHtml(Markdown::markdownToHTML(bodyText));
-			}
-
-			return bodyText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+QString persistentChatMessageBodyHtml(
+	const MumbleProto::ChatMessage &message,
+	const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
+	if (message.has_body_text()) {
+		const QString bodyText = normalizedPersistentChatText(u8(message.body_text()));
+		if (persistentChatBodyTextContainsLegacyInlineImageHtml(bodyText)) {
+			return persistentChatContentHtml(bodyText, buildInlineDataImageReplacement);
+		}
+		if (message.has_body_format() && message.body_format() == MumbleProto::ChatBodyFormatMarkdownLite) {
+			return persistentChatContentHtml(Markdown::markdownToHTML(bodyText), buildInlineDataImageReplacement);
 		}
 
-		return persistentChatContentHtml(u8(message.message()));
+		return bodyText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+		}
+
+		return persistentChatContentHtml(u8(message.message()), buildInlineDataImageReplacement);
 	}
 
 	QString mirroredServerLogHtml(const QString &html) {
@@ -1721,6 +2085,17 @@ namespace {
 	const MumbleProto::ChatMessage *findPersistentChatMessage(const std::vector< MumbleProto::ChatMessage > &messages,
 															  unsigned int threadID, unsigned int messageID) {
 		for (const MumbleProto::ChatMessage &message : messages) {
+			if (message.thread_id() == threadID && message.message_id() == messageID) {
+				return &message;
+			}
+		}
+
+		return nullptr;
+	}
+
+	MumbleProto::ChatMessage *findPersistentChatMessage(std::vector< MumbleProto::ChatMessage > &messages,
+														unsigned int threadID, unsigned int messageID) {
+		for (MumbleProto::ChatMessage &message : messages) {
 			if (message.thread_id() == threadID && message.message_id() == messageID) {
 				return &message;
 			}
@@ -2872,6 +3247,8 @@ void MainWindow::setupPersistentChatDock() {
 			[this]() { setPersistentChatReplyTarget(std::nullopt); });
 	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::loadOlderRequested, this,
 			&MainWindow::requestOlderPersistentChatHistory);
+	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::previewRequested, this,
+			[this](const QString &previewKey) { ensurePersistentChatPreview(previewKey); });
 	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::replyRequested, this,
 			[this](unsigned int messageID) {
 				if (const MumbleProto::ChatMessage *message = findPersistentChatMessageByID(m_persistentChatMessages, messageID)) {
@@ -2921,6 +3298,17 @@ void MainWindow::setupPersistentChatDock() {
 	});
 	connect(m_persistentChatController, &PersistentChatController::unreadStateChanged, this,
 			[this]() { updatePersistentChatScopeSelectorLabels(); });
+	connect(m_persistentChatController, &PersistentChatController::activeReadStateChanged, this,
+			[this](unsigned int lastReadMessageID, int unreadCount) {
+				m_visiblePersistentChatLastReadMessageID = lastReadMessageID;
+				if (!m_persistentChatHistoryModel || !m_persistentChatHistory || unreadCount > 0) {
+					return;
+				}
+
+				if (m_persistentChatHistoryModel->removeUnreadDivider()) {
+					m_persistentChatHistory->stabilizeVisibleContent();
+				}
+			});
 	connect(qteChat, &QTextEdit::textChanged, this, &MainWindow::updatePersistentChatSendButton);
 	connect(m_persistentChatSendButton, &QToolButton::clicked, this, [this]() {
 		if (!qteChat || !qteChat->isEnabled() || qteChat->isShowingDefaultText()) {
@@ -5134,10 +5522,12 @@ void MainWindow::updatePersistentChatChannelListHeight() {
 }
 
 void MainWindow::updatePersistentChatScopeSelectorLabels() {
+	mumble::chatperf::ScopedDuration trace("chat.scope_selector.update");
 	if (!m_persistentChatChannelList) {
 		return;
 	}
 
+	mumble::chatperf::recordValue("chat.scope_selector.items", m_persistentChatChannelList->count());
 	for (int i = 0; i < m_persistentChatChannelList->count(); ++i) {
 		QListWidgetItem *item = m_persistentChatChannelList->item(i);
 		if (!item) {
@@ -5795,6 +6185,7 @@ void MainWindow::clearPersistentChatView(const QString &message, const QString &
 	}
 
 	m_persistentChatMessages.clear();
+	m_persistentChatInlineDataImageSources.clear();
 	m_pendingPersistentChatRender.reset();
 	m_visiblePersistentChatScope.reset();
 	m_visiblePersistentChatScopeID         = 0;
@@ -5835,6 +6226,7 @@ void MainWindow::clearPersistentChatView(const QString &message, const QString &
 }
 
 std::optional< QString > MainWindow::persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const {
+	mumble::chatperf::ScopedDuration trace("chat.preview.key");
 	if (!Global::get().s.bEnableLinkPreviews) {
 		return std::nullopt;
 	}
@@ -5882,6 +6274,7 @@ std::optional< MumbleProto::ChatEmbedRef > MainWindow::persistentChatPrimaryEmbe
 }
 
 void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
+	mumble::chatperf::ScopedDuration trace("chat.preview.ensure");
 	if (previewKey.isEmpty()) {
 		return;
 	}
@@ -6454,16 +6847,47 @@ PersistentChatPreviewSpec MainWindow::persistentChatPreviewSpec(const QString &p
 }
 
 void MainWindow::updatePersistentChatPreviewViewIfVisible(const QString &previewKey) {
+	mumble::chatperf::ScopedDuration trace("chat.preview.update_visible");
 	if (!m_persistentChatHistory) {
 		return;
 	}
 
-	bool hasMatchingBubble = false;
+	if (m_persistentChatScrollIdleTimer && m_persistentChatScrollIdleTimer->isActive()) {
+		for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
+			if (const std::optional< QString > messagePreviewKey = persistentChatPreviewKey(message);
+				messagePreviewKey && *messagePreviewKey == previewKey) {
+				m_persistentChatPreviewRefreshPending = true;
+				return;
+			}
+		}
+		return;
+	}
+
+	bool hasMatchingBubble    = false;
+	bool updatedModelBubble   = false;
+	bool updatedVisibleBubble = false;
+	const bool wasAtBottom    = m_persistentChatHistory->isScrolledToBottom();
+	const PersistentChatViewportAnchor viewportAnchor =
+		wasAtBottom ? PersistentChatViewportAnchor() : m_persistentChatHistory->captureViewportAnchor();
+	const PersistentChatPreviewSpec previewSpec = persistentChatPreviewSpec(previewKey);
+
+	mumble::chatperf::recordValue("chat.preview.update_visible.messages", m_persistentChatMessages.size());
 	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
 		if (const std::optional< QString > messagePreviewKey = persistentChatPreviewKey(message);
 			messagePreviewKey && *messagePreviewKey == previewKey) {
 			hasMatchingBubble = true;
-			break;
+			if (m_persistentChatHistoryModel) {
+				updatedModelBubble =
+					m_persistentChatHistoryModel->updateBubblePreview(message.message_id(), message.thread_id(), previewSpec)
+					|| updatedModelBubble;
+			}
+			if (m_persistentChatHistoryDelegate && m_persistentChatHistoryModel) {
+				updatedVisibleBubble =
+					m_persistentChatHistoryDelegate->updateBubblePreview(m_persistentChatHistoryModel,
+																			message.message_id(), message.thread_id(),
+																			previewSpec)
+					|| updatedVisibleBubble;
+			}
 		}
 	}
 
@@ -6471,12 +6895,25 @@ void MainWindow::updatePersistentChatPreviewViewIfVisible(const QString &preview
 		return;
 	}
 
-	if (m_persistentChatScrollIdleTimer && m_persistentChatScrollIdleTimer->isActive()) {
-		m_persistentChatPreviewRefreshPending = true;
+	if (updatedVisibleBubble) {
+		m_persistentChatHistory->stabilizeVisibleContent();
+		if (!wasAtBottom && viewportAnchor.isValid()) {
+			m_persistentChatHistory->restoreViewportAnchor(viewportAnchor);
+		} else if (wasAtBottom) {
+			if (QScrollBar *scrollBar = m_persistentChatHistory->verticalScrollBar()) {
+				scrollBar->setValue(scrollBar->maximum());
+			}
+		}
+		if (QWidget *viewport = m_persistentChatHistory->viewport()) {
+			viewport->update();
+		}
 		return;
 	}
 
-	const bool wasAtBottom = m_persistentChatHistory->isScrolledToBottom();
+	if (updatedModelBubble) {
+		return;
+	}
+
 	renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
 }
 
@@ -6515,6 +6952,7 @@ void MainWindow::flushPersistentChatRender() {
 
 void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessage, bool scrollToBottom,
 													 bool preserveScrollPosition) {
+	mumble::chatperf::ScopedDuration trace("chat.render.immediate");
 	if (!m_persistentChatHistory || !m_persistentChatHistoryModel) {
 		return;
 	}
@@ -6530,20 +6968,18 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 	const PersistentChatTarget target = currentPersistentChatTarget();
 	const bool showInlinePreviews =
 		Global::get().s.bEnableLinkPreviews && target.scope != MumbleProto::Aggregate;
-	QSet< QString > previewKeysToEnsure;
-	for (const MumbleProto::ChatMessage &message : m_persistentChatMessages) {
-		if ((message.has_deleted_at() && message.deleted_at() > 0) || !showInlinePreviews) {
-			continue;
-		}
-
-		if (const std::optional< QString > previewKey = persistentChatPreviewKey(message);
-			previewKey && !m_persistentChatPreviews.contains(*previewKey)) {
-			previewKeysToEnsure.insert(*previewKey);
-		}
-	}
-
-	for (auto it = previewKeysToEnsure.cbegin(); it != previewKeysToEnsure.cend(); ++it) {
-		ensurePersistentChatPreview(*it);
+	m_persistentChatInlineDataImageSources.clear();
+	if (mumble::chatperf::enabled()) {
+		mumble::chatperf::recordNote(
+			"chat.render.target",
+			QString::fromLatin1("scope=%1 scope_id=%2 label=\"%3\" messages=%4 unread=%5 has_more=%6 loading_older=%7")
+				.arg(static_cast< int >(target.scope))
+				.arg(target.scopeID)
+				.arg(target.label)
+				.arg(m_persistentChatMessages.size())
+				.arg(persistentChatUnreadCount())
+				.arg(m_visiblePersistentChatHasMore ? 1 : 0)
+				.arg(m_persistentChatLoadingOlder ? 1 : 0));
 	}
 
 	PersistentChatViewportAnchor viewportAnchor;
@@ -6555,6 +6991,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 		viewportAnchor = m_persistentChatHistory->captureViewportAnchor();
 	}
 
+	mumble::chatperf::recordValue("chat.render.messages", m_persistentChatMessages.size());
 	QVector< PersistentChatHistoryRow > rows;
 	auto makeHash = [](const QStringList &parts) {
 		return QString::number(qHash(parts.join(QLatin1String("||"))));
@@ -6648,6 +7085,14 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 		addStateCard(eyebrow, title, body, hints);
 	} else {
+		qsizetype largestSourceChars         = -1;
+		qsizetype largestRenderedChars       = -1;
+		unsigned int largestMessageID        = 0;
+		unsigned int largestMessageThreadID  = 0;
+		QString largestMessageSourceSample;
+		bool largestMessageHasImgTag         = false;
+		bool largestMessageHasDataImage      = false;
+		bool largestMessageHasBase64Marker   = false;
 		if (m_persistentChatLoadingOlder) {
 			addLoadOlder(tr("Loading older messages..."), true, false);
 		} else if (m_visiblePersistentChatHasMore) {
@@ -6686,6 +7131,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 		QDate previousDate;
 		bool hasRenderedDateSeparator = false;
+		mumble::chatperf::recordValue("chat.render.groups", renderGroups.size());
 		for (std::size_t groupIndex = 0; groupIndex < renderGroups.size(); ++groupIndex) {
 			const PersistentChatRender::PersistentChatRenderGroup &group = renderGroups[groupIndex];
 			if (unreadGroupBoundary && *unreadGroupBoundary == groupIndex) {
@@ -6735,6 +7181,8 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			for (const PersistentChatRender::PersistentChatRenderBubble &bubble : group.bubbles) {
 				const MumbleProto::ChatMessage &message = m_persistentChatMessages[bubble.messageIndex];
 				QString bodyHtml;
+				QString messageMarkupSource;
+				QVector< QPair< QUrl, QImage > > bubbleImageResources;
 				std::optional< PersistentChatReplyReference > replyReference;
 				if (bubble.systemMessage) {
 					const QString systemText =
@@ -6749,6 +7197,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 					bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 				} else {
 					QString rawBodyHtml = persistentChatMessageRawBody(message);
+					messageMarkupSource  = rawBodyHtml;
 					if (message.has_reply_to_message_id()) {
 						if (const MumbleProto::ChatMessage *replyTarget =
 								findPersistentChatMessageByID(m_persistentChatMessages, message.reply_to_message_id())) {
@@ -6762,18 +7211,81 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 					if (!replyReference && !message.has_body_text()) {
 						replyReference = extractPersistentChatReplyReference(rawBodyHtml, &rawBodyHtml);
 					}
-					bodyHtml = message.has_body_text() ? persistentChatMessageBodyHtml(message)
-													   : persistentChatContentHtml(rawBodyHtml);
+					const auto buildInlineDataImageReplacement =
+						[this](const QString &source, const QString &altText,
+							   const PersistentChatInlineDataImageInfo &info) {
+							mumble::chatperf::recordNote(
+								"chat.inline_data_image.builder",
+								QString::fromLatin1("estimated=%1 alt=\"%2\" prefix=\"%3\"")
+									.arg(info.estimatedBytes)
+									.arg(altText.left(48))
+									.arg(source.left(64)));
+							const QImage previewImage = persistentChatInlineDataImagePreviewImage(source, info);
+							if (previewImage.isNull()) {
+								mumble::chatperf::recordValue("chat.inline_data_image.preview_failed", 1);
+								return persistentChatInlineDataImagePlaceholderHtml(
+									info, altText,
+									persistentChatInlineDataImageOpenUrl(registerPersistentChatInlineDataImageSource(source))
+										.toString(QUrl::FullyEncoded));
+							}
+
+							const QString token = registerPersistentChatInlineDataImageSource(source);
+							const QUrl openUrl = persistentChatInlineDataImageOpenUrl(token);
+							const QString thumbnailSrc = persistentChatInlineDataImageThumbnailSource(previewImage);
+							if (thumbnailSrc.isEmpty()) {
+								mumble::chatperf::recordValue("chat.inline_data_image.thumbnail_failed", 1);
+								return persistentChatInlineDataImagePlaceholderHtml(
+									info, altText, openUrl.toString(QUrl::FullyEncoded));
+							}
+							mumble::chatperf::recordValue("chat.inline_data_image.preview_ready", 1);
+							return persistentChatInlineDataImageThumbnailHtml(
+								thumbnailSrc, openUrl.toString(QUrl::FullyEncoded), altText,
+								previewImage.size(), info.estimatedBytes);
+						};
+					bodyHtml = message.has_body_text()
+								   ? persistentChatMessageBodyHtml(message, buildInlineDataImageReplacement)
+								   : persistentChatContentHtml(rawBodyHtml, buildInlineDataImageReplacement);
 				}
 
 				if (message.has_edited_at() && message.edited_at() > 0) {
 					bodyHtml += QString::fromLatin1(" <em>%1</em>").arg(tr("(edited)").toHtmlEscaped());
+				}
+				const QString messageSourceText = bubble.systemMessage
+													 ? persistentChatSystemMessageText(message).value_or(QString())
+													 : persistentChatMessageSourceText(message);
+				if (messageSourceText.size() > 100000 || bodyHtml.size() > 10000) {
+					mumble::chatperf::recordNote(
+						"chat.inline_data_image.body_html",
+						QString::fromLatin1(
+							"message_id=%1 source_chars=%2 body_chars=%3 has_data_image=%4 has_mumble_chat=%5 has_thumb_data=%6")
+							.arg(message.message_id())
+							.arg(messageSourceText.size())
+							.arg(bodyHtml.size())
+							.arg(bodyHtml.contains(QLatin1String("data:image"), Qt::CaseInsensitive) ? 1 : 0)
+							.arg(bodyHtml.contains(QLatin1String("mumble-chat://inline-data-image"), Qt::CaseInsensitive) ? 1 : 0)
+							.arg(bodyHtml.contains(QLatin1String("Click to open or save"), Qt::CaseInsensitive) ? 1 : 0));
+				}
+				bodyHtml = persistentChatCondensedBodyHtml(bodyHtml, messageSourceText);
+				if (messageSourceText.size() > largestSourceChars) {
+					largestSourceChars       = messageSourceText.size();
+					largestRenderedChars     = bodyHtml.size();
+					largestMessageID         = message.message_id();
+					largestMessageThreadID   = message.thread_id();
+					largestMessageSourceSample = messageSourceText.left(120);
+					largestMessageHasImgTag    =
+						messageMarkupSource.contains(QLatin1String("<img"), Qt::CaseInsensitive);
+					largestMessageHasDataImage =
+						messageMarkupSource.contains(QLatin1String("data:image"), Qt::CaseInsensitive);
+					largestMessageHasBase64Marker =
+						messageMarkupSource.contains(QLatin1String("base64,"), Qt::CaseInsensitive)
+						|| messageSourceText.contains(QLatin1String("base64,"), Qt::CaseInsensitive);
 				}
 
 				PersistentChatBubbleSpec bubbleSpec;
 				bubbleSpec.messageID    = message.message_id();
 				bubbleSpec.threadID     = message.thread_id();
 				bubbleSpec.bodyHtml     = bodyHtml;
+				bubbleSpec.imageResources = bubbleImageResources;
 				bubbleSpec.selfAuthored = bubble.selfAuthored;
 				bubbleSpec.copyText     = bubble.systemMessage
 											 ? persistentChatSystemMessageText(message).value_or(QString())
@@ -6799,6 +7311,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 				if (!bubble.systemMessage && (!message.has_deleted_at() || message.deleted_at() == 0) && showInlinePreviews) {
 					if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
+						bubbleSpec.previewKey = *previewKey;
 						bubbleSpec.previewSpec = persistentChatPreviewSpec(*previewKey);
 					}
 				}
@@ -6813,8 +7326,31 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			row.messageGroup = groupRowSpec;
 			rows.push_back(row);
 		}
+
+		if (mumble::chatperf::enabled() && largestSourceChars >= 0) {
+			mumble::chatperf::recordNote(
+				"chat.render.max_message",
+				QString::fromLatin1(
+					"scope=%1 scope_id=%2 label=\"%3\" message_id=%4 thread_id=%5 source_chars=%6 rendered_chars=%7")
+					.arg(static_cast< int >(target.scope))
+					.arg(target.scopeID)
+					.arg(target.label)
+					.arg(largestMessageID)
+					.arg(largestMessageThreadID)
+					.arg(largestSourceChars)
+					.arg(largestRenderedChars));
+			mumble::chatperf::recordNote(
+				"chat.render.max_message.flags",
+				QString::fromLatin1("message_id=%1 img_tag=%2 data_image=%3 base64=%4 sample=\"%5\"")
+					.arg(largestMessageID)
+					.arg(largestMessageHasImgTag ? 1 : 0)
+					.arg(largestMessageHasDataImage ? 1 : 0)
+					.arg(largestMessageHasBase64Marker ? 1 : 0)
+					.arg(largestMessageSourceSample));
+		}
 	}
 
+	mumble::chatperf::recordValue("chat.render.rows", rows.size());
 	m_persistentChatHistoryModel->setRows(rows);
 	m_persistentChatHistory->stabilizeVisibleContent();
 
@@ -6997,6 +7533,7 @@ void MainWindow::handlePersistentChatMessage(const MumbleProto::ChatMessage &msg
 }
 
 void MainWindow::handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg) {
+	mumble::chatperf::ScopedDuration trace("chat.handle.history");
 	if (!m_persistentChatGateway) {
 		return;
 	}
@@ -7006,6 +7543,7 @@ void MainWindow::handlePersistentChatHistory(const MumbleProto::ChatHistoryRespo
 }
 
 void MainWindow::handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg) {
+	mumble::chatperf::ScopedDuration trace("chat.handle.read_state");
 	if (!m_persistentChatGateway) {
 		return;
 	}
@@ -7015,6 +7553,7 @@ void MainWindow::handlePersistentChatReadState(const MumbleProto::ChatReadStateU
 }
 
 void MainWindow::handlePersistentChatEmbedState(const MumbleProto::ChatEmbedState &msg) {
+	mumble::chatperf::ScopedDuration trace("chat.handle.embed_state");
 	if (!msg.has_thread_id() || !msg.has_message_id() || !m_persistentChatController) {
 		return;
 	}
@@ -7038,11 +7577,17 @@ void MainWindow::handlePersistentChatEmbedState(const MumbleProto::ChatEmbedStat
 		return;
 	}
 
+	MumbleProto::ChatMessage *updatedLocalMessage = nullptr;
 	QString newPreviewKey;
 	if (activeScopeMatches) {
-		if (const MumbleProto::ChatMessage *updatedMessage =
-				findPersistentChatMessage(m_persistentChatMessages, msg.thread_id(), msg.message_id())) {
-			if (const std::optional< QString > key = persistentChatPreviewKey(*updatedMessage); key) {
+		updatedLocalMessage = findPersistentChatMessage(m_persistentChatMessages, msg.thread_id(), msg.message_id());
+		if (updatedLocalMessage) {
+			updatedLocalMessage->clear_embeds();
+			for (const MumbleProto::ChatEmbedRef &embed : msg.embeds()) {
+				*updatedLocalMessage->add_embeds() = embed;
+			}
+
+			if (const std::optional< QString > key = persistentChatPreviewKey(*updatedLocalMessage); key) {
 				newPreviewKey = *key;
 			}
 		}
@@ -7054,6 +7599,43 @@ void MainWindow::handlePersistentChatEmbedState(const MumbleProto::ChatEmbedStat
 	if (!newPreviewKey.isEmpty()) {
 		m_persistentChatPreviews.remove(newPreviewKey);
 		ensurePersistentChatPreview(newPreviewKey);
+	}
+
+	if (!activeScopeMatches || !m_persistentChatHistory) {
+		return;
+	}
+
+	const bool wasAtBottom = m_persistentChatHistory->isScrolledToBottom();
+	const PersistentChatViewportAnchor viewportAnchor =
+		wasAtBottom ? PersistentChatViewportAnchor() : m_persistentChatHistory->captureViewportAnchor();
+	const PersistentChatPreviewSpec previewSpec =
+		newPreviewKey.isEmpty() ? PersistentChatPreviewSpec() : persistentChatPreviewSpec(newPreviewKey);
+	const bool updatedModelBubble =
+		m_persistentChatHistoryModel
+		&& m_persistentChatHistoryModel->updateBubblePreview(msg.message_id(), msg.thread_id(), previewSpec);
+	const bool updatedVisibleBubble =
+		updatedLocalMessage && m_persistentChatHistoryDelegate && m_persistentChatHistoryModel
+		&& m_persistentChatHistoryDelegate->updateBubblePreview(m_persistentChatHistoryModel, msg.message_id(),
+																 msg.thread_id(), previewSpec);
+
+	if (!updatedModelBubble && !updatedVisibleBubble) {
+		renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
+		return;
+	}
+
+	if (updatedVisibleBubble) {
+		m_persistentChatHistory->stabilizeVisibleContent();
+		if (!wasAtBottom && viewportAnchor.isValid()) {
+			m_persistentChatHistory->restoreViewportAnchor(viewportAnchor);
+		} else if (wasAtBottom) {
+			if (QScrollBar *scrollBar = m_persistentChatHistory->verticalScrollBar()) {
+				scrollBar->setValue(scrollBar->maximum());
+			}
+		}
+
+		if (QWidget *viewport = m_persistentChatHistory->viewport()) {
+			viewport->update();
+		}
 	}
 }
 
@@ -7817,6 +8399,16 @@ void MainWindow::showLogContextMenu(LogTextBrowser *browser, const QPoint &mpos)
 	QString link = browser->anchorAt(mpos);
 	if (!link.isEmpty()) {
 		QUrl l(link);
+		if (l.scheme() == QLatin1String("mumble-chat") && l.host() == QLatin1String("inline-data-image")) {
+			m_selectedLogImage = persistentChatInlineDataImageFromUrl(l);
+			if (!m_selectedLogImage.isNull()) {
+				QMenu menu(browser);
+				menu.addAction(tr("Open Image"), this, &MainWindow::showImageDialog);
+				menu.addAction(tr("Save Image As..."), this, SLOT(saveImageAs(void)));
+				menu.exec(browser->mapToGlobal(mpos));
+				return;
+			}
+		}
 
 		if (handleSpecialContextMenu(l, browser->mapToGlobal(mpos)))
 			return;
@@ -7866,6 +8458,65 @@ QImage MainWindow::imageFromLogBrowser(const LogTextBrowser *browser, const QTex
 	const QString resourceName = cursor.charFormat().toImageFormat().name();
 	const QVariant resource    = browser->document()->resource(QTextDocument::ImageResource, resourceName);
 	return resource.value< QImage >();
+}
+
+QString MainWindow::registerPersistentChatInlineDataImageSource(const QString &source) {
+	const QString token = persistentChatInlineDataImageToken(source);
+	m_persistentChatInlineDataImageSources.insert(token, source);
+
+	return token;
+}
+
+QUrl MainWindow::persistentChatInlineDataImageOpenUrl(const QString &token) const {
+	QUrl url;
+	url.setScheme(QLatin1String("mumble-chat"));
+	url.setHost(QLatin1String("inline-data-image"));
+	url.setPath(QString::fromLatin1("/%1").arg(token));
+	return url;
+}
+
+QUrl MainWindow::persistentChatInlineDataImageResourceUrl(const QString &token) const {
+	QUrl url;
+	url.setScheme(QLatin1String("mumble-chat-image"));
+	url.setHost(QLatin1String("inline-data-image"));
+	url.setPath(QString::fromLatin1("/%1").arg(token));
+	return url;
+}
+
+QImage MainWindow::persistentChatInlineDataImageFromSource(const QString &source) const {
+	const PersistentChatInlineDataImageInfo info = persistentChatInlineDataImageInfo(source);
+	if (!info.valid) {
+		return QImage();
+	}
+
+	const QByteArray bytes = persistentChatInlineDataImageBytes(source, info);
+	if (bytes.isEmpty()) {
+		return QImage();
+	}
+
+	QBuffer buffer;
+	buffer.setData(bytes);
+	if (!buffer.open(QIODevice::ReadOnly)) {
+		return QImage();
+	}
+
+	QImageReader reader(&buffer);
+	reader.setAutoTransform(true);
+	return reader.read();
+}
+
+QImage MainWindow::persistentChatInlineDataImageFromUrl(const QUrl &url) const {
+	if (url.scheme() != QLatin1String("mumble-chat") || url.host() != QLatin1String("inline-data-image")) {
+		return QImage();
+	}
+
+	const QString token = QUrl::fromPercentEncoding(url.path().mid(1).toUtf8());
+	const auto it = m_persistentChatInlineDataImageSources.constFind(token);
+	if (it == m_persistentChatInlineDataImageSources.cend()) {
+		return QImage();
+	}
+
+	return persistentChatInlineDataImageFromSource(*it);
 }
 
 void MainWindow::openImageDialog(const QImage &image) {
@@ -10992,6 +11643,14 @@ void MainWindow::on_qteLog_anchorClicked(const QUrl &url) {
 	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("load-older")) {
 		requestOlderPersistentChatHistory();
 		return;
+	}
+
+	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("inline-data-image")) {
+		m_selectedLogImage = persistentChatInlineDataImageFromUrl(url);
+		if (!m_selectedLogImage.isNull()) {
+			openImageDialog(m_selectedLogImage);
+			return;
+		}
 	}
 
 	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("preview-image")) {

@@ -59,6 +59,8 @@ struct PersistentChatBubbleSpec {
 	unsigned int messageID = 0;
 	unsigned int threadID  = 0;
 	QString bodyHtml;
+	QString previewKey;
+	QVector< QPair< QUrl, QImage > > imageResources;
 	bool selfAuthored      = false;
 	PersistentChatPreviewSpec previewSpec;
 	QString copyText;

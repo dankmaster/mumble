@@ -282,6 +282,11 @@ public:
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
 	void openImageDialog(const QImage &image);
 	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
+	QString registerPersistentChatInlineDataImageSource(const QString &source);
+	QUrl persistentChatInlineDataImageOpenUrl(const QString &token) const;
+	QUrl persistentChatInlineDataImageResourceUrl(const QString &token) const;
+	QImage persistentChatInlineDataImageFromSource(const QString &source) const;
+	QImage persistentChatInlineDataImageFromUrl(const QUrl &url) const;
 	void setPersistentChatContentMode(bool showServerLog, bool preserveScrollPosition = false,
 									 bool showComposer = false);
 	void renderLegacyActivityView(bool preserveScrollPosition = false);
@@ -411,6 +416,7 @@ protected:
 	std::vector< MumbleProto::ChatMessage > m_persistentChatMessages;
 	QHash< QString, PersistentChatPreview > m_persistentChatPreviews;
 	QHash< unsigned int, PersistentChatAssetDownload > m_persistentChatAssetDownloads;
+	QHash< QString, QString > m_persistentChatInlineDataImageSources;
 	QHash< QString, unsigned int > m_persistentChatLastReadByScope;
 	QHash< QString, int > m_persistentChatUnreadByScope;
 	std::optional< PersistentChatRenderRequest > m_pendingPersistentChatRender;

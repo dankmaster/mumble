@@ -8,6 +8,8 @@
 
 #include "PersistentChatHistoryModel.h"
 
+#include <QtCore/QPointer>
+#include <QtGui/QPixmap>
 #include <QtWidgets/QStyledItemDelegate>
 
 class PersistentChatHistoryDelegate : public QStyledItemDelegate {
@@ -20,6 +22,8 @@ public:
 	~PersistentChatHistoryDelegate() override;
 
 	void clearCache();
+	bool updateBubblePreview(const PersistentChatHistoryModel *model, unsigned int messageID, unsigned int threadID,
+							 const PersistentChatPreviewSpec &previewSpec);
 
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 	QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
@@ -28,6 +32,7 @@ public:
 
 signals:
 	void loadOlderRequested();
+	void previewRequested(const QString &previewKey);
 	void replyRequested(unsigned int messageID);
 	void scopeJumpRequested(MumbleProto::ChatScope scope, unsigned int scopeID);
 	void logContextMenuRequested(LogTextBrowser *browser, const QPoint &position);
@@ -39,15 +44,27 @@ private:
 	struct WidgetCacheEntry {
 		QString rowId;
 		QString signature;
-		int width      = -1;
-		QWidget *widget = nullptr;
+		int width       = -1;
+		QSize measuredSize;
+		QPixmap renderedPixmap;
+		bool pixmapDirty = true;
+		quint64 lastAccessSerial = 0;
+		QPointer< QWidget > widget;
 	};
 
-	QWidget *widgetForIndex(const QModelIndex &index, int width) const;
-	QWidget *createWidgetForRow(const PersistentChatHistoryRow &row, int width) const;
+	QWidget *widgetForIndex(const QModelIndex &index, int width, QWidget *host = nullptr) const;
+	QWidget *createWidgetForRow(const PersistentChatHistoryRow &row, int width, QWidget *parent) const;
+	void syncWidgetLayout(WidgetCacheEntry &cacheEntry, int width) const;
+	void updateCachedWidgetHeight(const QString &rowId, int height);
+	void invalidateCachedRendering(const QString &rowId);
+	void invalidateAllCachedRendering() const;
+	void touchCacheEntry(WidgetCacheEntry &cacheEntry) const;
+	void pruneCachedWidgets(const QString &preserveRowId = QString()) const;
 	bool forwardEditorEvent(QWidget *rootWidget, QEvent *event, const QStyleOptionViewItem &option) const;
 
 	mutable QHash< QString, WidgetCacheEntry > m_widgetCache;
+	mutable quint64 m_cacheAccessSerial = 0;
+	mutable QPointer< QWidget > m_cacheHost;
 };
 
 #endif // MUMBLE_MUMBLE_PERSISTENTCHATHISTORYDELEGATE_H_

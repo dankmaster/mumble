@@ -5,6 +5,7 @@
 
 #include "PersistentChatMessageGroupWidget.h"
 
+#include "ChatPerfTrace.h"
 #include "Log.h"
 #include "UiTheme.h"
 
@@ -50,6 +51,7 @@ namespace {
 	constexpr int PersistentChatLinkPreviewSpacing      = 12;
 	constexpr int PersistentChatLinkPreviewThumbMinWidth = 92;
 	constexpr int PersistentChatLinkPreviewThumbMaxWidth = 120;
+	constexpr int PersistentChatLargeDocumentThreshold  = 8192;
 
 	bool persistentChatHtmlContainsInlineImage(const QString &html) {
 		return html.contains(QLatin1String("<img"), Qt::CaseInsensitive);
@@ -80,7 +82,8 @@ namespace {
 		return s_longTokenPattern.match(plainText).hasMatch();
 	}
 
-	QString persistentChatDocumentStylesheet(const QString &baseStylesheet) {
+	QString persistentChatDocumentStylesheet(const QString &baseStylesheet, int maxInlineImageWidth) {
+		const int effectiveInlineImageWidth = std::max(1, std::min(maxInlineImageWidth, PersistentChatInlineImageMaxWidth));
 		return baseStylesheet
 			   + QString::fromLatin1(
 				   "html, body { margin: 0; padding: 0; border: 0; background: transparent; }"
@@ -90,17 +93,17 @@ namespace {
 				   "table, tr, td { margin: 0; padding: 0; border: none; background: transparent; }"
 				   "img { border: none; outline: none; display: block; margin: 0; max-width: %1px; max-height: %2px;"
 				   " width: auto; height: auto; background: transparent; }")
-					 .arg(PersistentChatInlineImageMaxWidth)
+					 .arg(effectiveInlineImageWidth)
 					 .arg(PersistentChatInlineImageMaxHeight);
 	}
 
-	void configurePersistentChatDocument(QTextDocument *document, const QString &baseStylesheet) {
+	void configurePersistentChatDocument(QTextDocument *document, const QString &baseStylesheet, int maxInlineImageWidth) {
 		if (!document) {
 			return;
 		}
 
 		document->setDocumentMargin(PersistentChatEmbeddedBrowserDocumentMargin);
-		document->setDefaultStyleSheet(persistentChatDocumentStylesheet(baseStylesheet));
+		document->setDefaultStyleSheet(persistentChatDocumentStylesheet(baseStylesheet, maxInlineImageWidth));
 		if (QTextFrame *rootFrame = document->rootFrame()) {
 			QTextFrameFormat rootFrameFormat = rootFrame->frameFormat();
 			rootFrameFormat.setBorder(0);
@@ -118,6 +121,11 @@ namespace {
 
 		document->setTextWidth(clampedMaxWidth);
 		document->adjustSize();
+		if (document->characterCount() > PersistentChatLargeDocumentThreshold) {
+			const int measuredHeight = std::max(
+				16, static_cast< int >(std::ceil(document->size().height())) + PersistentChatEmbeddedBrowserVerticalSlack);
+			return QSize(clampedMaxWidth, measuredHeight);
+		}
 
 		int measuredWidth =
 			preferMaxWidth
@@ -134,9 +142,20 @@ namespace {
 
 	LogTextBrowser *createEmbeddedBrowser(const QString &html, int width, const QString &baseStylesheet,
 										 const QVector< QPair< QUrl, QImage > > &imageResources = {}) {
+		mumble::chatperf::ScopedDuration trace("chat.group.create_browser");
 		const bool containsInlineImage = persistentChatHtmlContainsInlineImage(html);
 		const bool preferMaxWidth =
 			(containsInlineImage && persistentChatHtmlHasNonImageText(html)) || persistentChatHtmlContainsUrlLikeText(html);
+		mumble::chatperf::recordValue("chat.group.browser.html_chars", html.size());
+		if (containsInlineImage) {
+			mumble::chatperf::recordValue("chat.group.browser.inline_image", 1);
+		}
+		if (preferMaxWidth) {
+			mumble::chatperf::recordValue("chat.group.browser.prefer_max_width", 1);
+		}
+		if (!imageResources.isEmpty()) {
+			mumble::chatperf::recordValue("chat.group.browser.image_resources", imageResources.size());
+		}
 		auto *browser   = new LogTextBrowser();
 		auto *document  = new LogDocument(browser);
 		browser->setDocument(document);
@@ -163,15 +182,27 @@ namespace {
 			viewport->setStyleSheet(
 				QString::fromLatin1("background: transparent; border: none; margin: 0px; padding: 0px;"));
 		}
-		configurePersistentChatDocument(document, baseStylesheet);
+		configurePersistentChatDocument(document, baseStylesheet, width);
 		document->setTextWidth(width);
 		for (const auto &resource : imageResources) {
 			if (resource.first.isValid() && !resource.second.isNull()) {
 				document->addResource(QTextDocument::ImageResource, resource.first, resource.second);
 			}
 		}
-		browser->setHtml(html);
-		const QSize measuredSize = persistentChatDocumentSize(document, width, preferMaxWidth);
+		{
+			mumble::chatperf::ScopedDuration setHtmlTrace("chat.group.browser.set_html");
+			browser->setHtml(html);
+		}
+		const bool largeDocument = browser->document() && browser->document()->characterCount() > PersistentChatLargeDocumentThreshold;
+		browser->setProperty("persistentChatLargeDocument", largeDocument);
+		if (largeDocument) {
+			mumble::chatperf::recordValue("chat.group.browser.large_document", 1);
+		}
+		QSize measuredSize;
+		{
+			mumble::chatperf::ScopedDuration measureTrace("chat.group.browser.measure");
+			measuredSize = persistentChatDocumentSize(document, width, preferMaxWidth);
+		}
 		browser->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 		browser->setFixedSize(measuredSize);
 		return browser;
@@ -384,6 +415,12 @@ namespace {
 			  m_baseStylesheet(baseStylesheet), m_contentWidth(contentWidth), m_copyText(bubbleSpec.copyText),
 			  m_systemMessage(bubbleSpec.systemMessage), m_actionText(bubbleSpec.actionText),
 			  m_selfAuthored(bubbleSpec.selfAuthored) {
+			mumble::chatperf::ScopedDuration trace("chat.group.bubble_ctor");
+			mumble::chatperf::recordValue("chat.group.bubble.content_width", contentWidth);
+			mumble::chatperf::recordValue("chat.group.bubble.body_chars", bubbleSpec.bodyHtml.size());
+			if (bubbleSpec.previewSpec.kind != PersistentChatPreviewKind::None) {
+				mumble::chatperf::recordValue("chat.group.bubble.preview_kind", static_cast< qint64 >(bubbleSpec.previewSpec.kind));
+			}
 			const Qt::Alignment bubbleContentAlignment =
 				m_systemMessage ? Qt::AlignHCenter : (m_selfAuthored ? Qt::AlignRight : Qt::AlignLeft);
 			setObjectName(QLatin1String("qfPersistentChatBubbleContainer"));
@@ -433,7 +470,11 @@ namespace {
 				registerTrackedObject(replySnippet);
 			}
 
-			m_bodyBrowser = createEmbeddedBrowser(bubbleSpec.bodyHtml, m_contentWidth, m_baseStylesheet);
+			{
+				mumble::chatperf::ScopedDuration bodyBrowserTrace("chat.group.bubble.create_body_browser");
+				m_bodyBrowser =
+					createEmbeddedBrowser(bubbleSpec.bodyHtml, m_contentWidth, m_baseStylesheet, bubbleSpec.imageResources);
+			}
 			m_bodyBrowser->setObjectName(QLatin1String("qtePersistentChatBodyBrowser"));
 			connectBrowser(m_bodyBrowser);
 			m_surfaceLayout->addWidget(m_bodyBrowser, 0, bubbleContentAlignment);
@@ -480,7 +521,10 @@ namespace {
 				registerTrackedObject(m_actions);
 			}
 
-			setPreviewContent(bubbleSpec.previewSpec);
+			{
+				mumble::chatperf::ScopedDuration previewTrace("chat.group.bubble.set_preview");
+				setPreviewContent(bubbleSpec.previewSpec);
+			}
 			registerTrackedObject(this);
 			registerTrackedObject(m_surface);
 		}
@@ -617,6 +661,7 @@ namespace {
 		}
 
 		void refreshEmbeddedBrowserSize(LogTextBrowser *browser, bool notify = true) {
+			mumble::chatperf::ScopedDuration trace("chat.group.browser.refresh_size");
 			if (!browser || !browser->document()) {
 				return;
 			}
@@ -631,6 +676,7 @@ namespace {
 			const int maxWidth = std::max(1, browser->property("persistentChatMaxWidth").toInt());
 			const bool preferMaxWidth = browser->property("persistentChatPreferMaxWidth").toBool();
 			const bool containsInlineImage = browser->property("persistentChatContainsInlineImage").toBool();
+			const bool largeDocument = browser->property("persistentChatLargeDocument").toBool();
 			const auto measureBrowserSize = [&](int widthLimit) {
 				QSize measuredSize =
 					persistentChatDocumentSize(browser->document(), std::max(1, widthLimit), preferMaxWidth);
@@ -643,7 +689,7 @@ namespace {
 			QSize adjustedSize = measureBrowserSize(maxWidth);
 			const QSize previousSize = browser->size();
 
-			for (int pass = 0; pass < 4; ++pass) {
+			for (int pass = 0; !largeDocument && pass < 4; ++pass) {
 				browser->setFixedSize(adjustedSize);
 
 				const int horizontalOverflow =
@@ -721,7 +767,9 @@ namespace {
 			// painting, which made large histories sluggish. Size once at creation instead.
 			registerTrackedObject(browser);
 			registerTrackedObject(browser->viewport());
-			refreshEmbeddedBrowserSize(browser, false);
+			if (!browser->property("persistentChatLargeDocument").toBool()) {
+				refreshEmbeddedBrowserSize(browser, false);
+			}
 		}
 
 		void registerTrackedObject(QObject *object) {
@@ -1015,6 +1063,7 @@ void PersistentChatMessageGroupWidget::setHeader(const PersistentChatGroupHeader
 }
 
 void PersistentChatMessageGroupWidget::addBubble(const PersistentChatBubbleSpec &bubbleSpec) {
+	mumble::chatperf::ScopedDuration trace("chat.group.add_bubble");
 	const bool showAvatar = !m_systemMessage && !m_selfAuthored;
 	const int contentChrome =
 		(PersistentChatGroupHorizontalPadding * 2) + (showAvatar ? (PersistentChatAvatarSize + PersistentChatAvatarGap) : 0);
