@@ -16,7 +16,7 @@ include(qt-utils)
 
 option(ice "Build support for Ice RPC." ON)
 
-find_pkg(Qt6 COMPONENTS Sql REQUIRED)
+find_pkg(Qt6 COMPONENTS Sql Gui REQUIRED)
 
 add_library(mumble_server_object_lib OBJECT
 	"AudioReceiverBuffer.cpp"
@@ -90,7 +90,7 @@ target_include_directories(mumble_server_object_lib
 		${SHARED_SOURCE_DIR}
 )
 
-target_link_libraries(mumble_server_object_lib PUBLIC shared Qt6::Sql)
+target_link_libraries(mumble_server_object_lib PUBLIC shared Qt6::Sql Qt6::Gui)
 
 if(static)
 	# MariaDB and MySQL
