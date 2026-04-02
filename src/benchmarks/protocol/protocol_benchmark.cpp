@@ -31,7 +31,7 @@ Mumble::Protocol::UDPAudioEncoder< Mumble::Protocol::Role::Server > encoder;
 class Fixture : public ::benchmark::Fixture {
 public:
 	void SetUp(const ::benchmark::State &state) {
-		audioPayload.resize(state.range(PAYLOAD_SIZE_RANGE));
+		audioPayload.resize(static_cast< std::size_t >(state.range(PAYLOAD_SIZE_RANGE)));
 
 		for (std::size_t i = 0; i < audioPayload.size(); ++i) {
 			audioPayload[i] = random_byte(rng);
@@ -58,16 +58,17 @@ BENCHMARK_DEFINE_F(Fixture, BM_encodeLegacyDirect)(::benchmark::State &state) {
 	buffer.resize(Mumble::Protocol::MAX_UDP_PACKET_SIZE);
 
 	for (auto _ : state) {
-		PacketDataStream stream(buffer.data() + 1, buffer.size() - 1);
+		PacketDataStream stream(buffer.data() + 1, static_cast< unsigned int >(buffer.size() - 1));
 
 		buffer[0] = (static_cast< Mumble::Protocol::byte >(audioData.usedCodec) << 5)
 					| static_cast< Mumble::Protocol::byte >(audioData.targetOrContext);
 
 		stream << audioData.senderSession;
 		stream << static_cast< quint64 >(audioData.frameNumber);
-		stream.append(reinterpret_cast< const char * >(audioData.payload.data()), audioData.payload.size());
+		stream.append(reinterpret_cast< const char * >(audioData.payload.data()),
+					  static_cast< quint32 >(audioData.payload.size()));
 		stream.append(reinterpret_cast< const char * >(&audioData.position[0]),
-					  sizeof(float) * audioData.position.size());
+					  static_cast< quint32 >(sizeof(float) * audioData.position.size()));
 	}
 }
 

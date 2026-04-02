@@ -173,6 +173,40 @@ function Ensure-LocalBuildTooling {
 	}
 }
 
+function Initialize-LocalOnnxRuntimeRoot {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$RepoRoot
+	)
+
+	if (-not [string]::IsNullOrWhiteSpace($env:ONNXRUNTIME_ROOT)) {
+		return
+	}
+
+	$tmpRoot = Join-Path $RepoRoot ".tmp"
+	if (-not (Test-Path -LiteralPath $tmpRoot)) {
+		return
+	}
+
+	$candidate = Get-ChildItem -LiteralPath $tmpRoot -Directory -Filter "onnxruntime-win-x64-*" -ErrorAction SilentlyContinue |
+		Where-Object {
+			(Test-Path -LiteralPath (Join-Path $_.FullName "include")) -and
+			(Test-Path -LiteralPath (Join-Path $_.FullName "lib"))
+		} |
+		Sort-Object -Property Name -Descending |
+		Select-Object -First 1
+
+	if ($candidate) {
+		$env:ONNXRUNTIME_ROOT = $candidate.FullName
+		Write-Host "Using local ONNXRUNTIME_ROOT=$($env:ONNXRUNTIME_ROOT)"
+	}
+}
+
+function Initialize-RustCargoPath {
+	$cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+	Add-ToPathFront $cargoBin
+}
+
 function Get-PortableFfmpegInstallRoot {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -374,6 +408,8 @@ try {
 	}
 
 	Ensure-LocalBuildTooling
+	Initialize-LocalOnnxRuntimeRoot -RepoRoot $repoRoot
+	Initialize-RustCargoPath
 
 	Assert-CommandAvailable git
 	Assert-CommandAvailable cmake

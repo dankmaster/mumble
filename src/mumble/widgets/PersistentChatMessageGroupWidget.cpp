@@ -33,17 +33,17 @@
 namespace {
 	constexpr int PersistentChatGroupHorizontalPadding = 16;
 	constexpr int PersistentChatGroupVerticalPadding   = 6;
-	constexpr int PersistentChatAvatarGap              = 8;
+	constexpr int PersistentChatAvatarGap              = 10;
 	constexpr int PersistentChatAvatarSize             = 32;
-	constexpr int PersistentChatGroupedBubbleSpacing   = 2;
-	constexpr int PersistentChatPreviewBottomSpacing   = 2;
+	constexpr int PersistentChatGroupedBubbleSpacing   = 1;
+	constexpr int PersistentChatPreviewBottomSpacing   = 0;
 	constexpr int PersistentChatInlineImageMaxWidth    = 480;
 	constexpr int PersistentChatInlineImageMaxHeight   = 320;
-	constexpr int PersistentChatEmbeddedBrowserDocumentMargin = 1;
-	constexpr int PersistentChatEmbeddedBrowserHorizontalSlack = 6;
-	constexpr int PersistentChatEmbeddedBrowserVerticalSlack   = 4;
+	constexpr int PersistentChatEmbeddedBrowserDocumentMargin = 0;
+	constexpr int PersistentChatEmbeddedBrowserHorizontalSlack = 4;
+	constexpr int PersistentChatEmbeddedBrowserVerticalSlack   = 2;
 	constexpr int PersistentChatBubbleHorizontalPadding = 12;
-	constexpr int PersistentChatBubbleVerticalPadding   = 8;
+	constexpr int PersistentChatBubbleVerticalPadding   = 6;
 	constexpr int PersistentChatLinkPreviewMinWidth     = 240;
 	constexpr int PersistentChatLinkPreviewMaxWidth     = 520;
 	constexpr int PersistentChatLinkPreviewPadding      = 10;
@@ -66,13 +66,27 @@ namespace {
 		return !QTextDocumentFragment::fromHtml(html).toPlainText().trimmed().isEmpty();
 	}
 
+	bool persistentChatHtmlContainsUrlLikeText(const QString &html) {
+		if (html.isEmpty()) {
+			return false;
+		}
+
+		const QString plainText = QTextDocumentFragment::fromHtml(html).toPlainText();
+		if (plainText.contains(QLatin1String("://")) || plainText.contains(QLatin1String("www."), Qt::CaseInsensitive)) {
+			return true;
+		}
+
+		static const QRegularExpression s_longTokenPattern(QLatin1String("\\S{32,}"));
+		return s_longTokenPattern.match(plainText).hasMatch();
+	}
+
 	QString persistentChatDocumentStylesheet(const QString &baseStylesheet) {
 		return baseStylesheet
 			   + QString::fromLatin1(
 				   "html, body { margin: 0; padding: 0; border: 0; background: transparent; }"
-				   "body, table, tr, td, div, span, p { font-size: 0.875em; line-height: 1.35; }"
+				   "body, table, tr, td, div, span, p, a { font-size: 0.875em; line-height: 1.35; }"
 				   "p { margin: 0; }"
-				   "p + p { margin-top: 6px; }"
+				   "p + p { margin-top: 4px; }"
 				   "table, tr, td { margin: 0; padding: 0; border: none; background: transparent; }"
 				   "img { border: none; outline: none; display: block; margin: 0; max-width: %1px; max-height: %2px;"
 				   " width: auto; height: auto; background: transparent; }")
@@ -114,14 +128,15 @@ namespace {
 		document->setTextWidth(measuredWidth);
 		document->adjustSize();
 		const int measuredHeight =
-			std::max(20, static_cast< int >(std::ceil(document->size().height())) + PersistentChatEmbeddedBrowserVerticalSlack);
+			std::max(16, static_cast< int >(std::ceil(document->size().height())) + PersistentChatEmbeddedBrowserVerticalSlack);
 		return QSize(measuredWidth, measuredHeight);
 	}
 
 	LogTextBrowser *createEmbeddedBrowser(const QString &html, int width, const QString &baseStylesheet,
 										 const QVector< QPair< QUrl, QImage > > &imageResources = {}) {
 		const bool containsInlineImage = persistentChatHtmlContainsInlineImage(html);
-		const bool preferMaxWidth = containsInlineImage && persistentChatHtmlHasNonImageText(html);
+		const bool preferMaxWidth =
+			(containsInlineImage && persistentChatHtmlHasNonImageText(html)) || persistentChatHtmlContainsUrlLikeText(html);
 		auto *browser   = new LogTextBrowser();
 		auto *document  = new LogDocument(browser);
 		browser->setDocument(document);
@@ -373,6 +388,7 @@ namespace {
 				m_systemMessage ? Qt::AlignHCenter : (m_selfAuthored ? Qt::AlignRight : Qt::AlignLeft);
 			setObjectName(QLatin1String("qfPersistentChatBubbleContainer"));
 			setAttribute(Qt::WA_StyledBackground, true);
+			setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
 			QVBoxLayout *outerLayout = new QVBoxLayout(this);
 			outerLayout->setContentsMargins(0, 0, 0, 0);
@@ -392,7 +408,7 @@ namespace {
 											 bubbleSpec.systemMessage ? 0 : PersistentChatBubbleVerticalPadding,
 											 bubbleSpec.systemMessage ? 0 : PersistentChatBubbleHorizontalPadding,
 											 bubbleSpec.systemMessage ? 0 : PersistentChatBubbleVerticalPadding);
-			m_surfaceLayout->setSpacing(bubbleSpec.systemMessage ? 0 : 6);
+			m_surfaceLayout->setSpacing(bubbleSpec.systemMessage ? 0 : 4);
 			m_surfaceLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
 			if (bubbleSpec.hasReply) {
@@ -400,7 +416,7 @@ namespace {
 				m_replyFrame->setObjectName(QLatin1String("qfPersistentChatBubbleQuote"));
 				m_replyFrame->setAttribute(Qt::WA_StyledBackground, true);
 				QVBoxLayout *replyLayout = new QVBoxLayout(m_replyFrame);
-				replyLayout->setContentsMargins(10, 6, 10, 6);
+				replyLayout->setContentsMargins(8, 4, 8, 4);
 				replyLayout->setSpacing(2);
 				QLabel *replyActor = new QLabel(bubbleSpec.replyActor.toHtmlEscaped(), m_replyFrame);
 				replyActor->setObjectName(QLatin1String("qlPersistentChatBubbleQuoteActor"));
@@ -732,7 +748,7 @@ namespace {
 			}
 			registerTrackedObject(browser);
 			registerTrackedObject(browser->viewport());
-			scheduleBrowserResize();
+			refreshEmbeddedBrowserSize(browser, false);
 		}
 
 		void registerTrackedObject(QObject *object) {
@@ -772,8 +788,9 @@ namespace {
 
 			m_actions->adjustSize();
 			const QSize actionSize = m_actions->sizeHint();
-			const QPoint topRight = m_surface->geometry().topRight();
-			m_actions->move(std::max(0, topRight.x() - actionSize.width() - 8), std::max(0, topRight.y() - 12));
+			const int horizontalInset = 12;
+			const int x = m_selfAuthored ? horizontalInset : std::max(0, width() - actionSize.width() - horizontalInset);
+			m_actions->move(x, 0);
 			m_actions->raise();
 		}
 
@@ -900,7 +917,7 @@ PersistentChatMessageGroupWidget::PersistentChatMessageGroupWidget(int available
 	m_contentColumn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
 	QVBoxLayout *columnLayout = new QVBoxLayout(m_contentColumn);
 	columnLayout->setContentsMargins(0, 0, 0, 0);
-	columnLayout->setSpacing(3);
+	columnLayout->setSpacing(2);
 	columnLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
 
 	m_headerWidget = new QWidget(m_contentColumn);
@@ -1045,9 +1062,7 @@ void PersistentChatMessageGroupWidget::addBubble(const PersistentChatBubbleSpec 
 		syncMeasuredHeight();
 		updateGeometry();
 	});
-	const Qt::Alignment bubbleAlignment =
-		m_systemMessage ? Qt::AlignHCenter : (m_selfAuthored ? Qt::AlignRight : Qt::AlignLeft);
-	m_bubblesLayout->addWidget(bubble, 0, bubbleAlignment);
+	m_bubblesLayout->addWidget(bubble);
 	m_bubbleEntries.push_back(BubbleEntry { bubbleSpec.messageID, bubbleSpec.threadID, bubble });
 	reevaluateRowActive();
 	syncMeasuredHeight();

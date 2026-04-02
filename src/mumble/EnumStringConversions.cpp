@@ -54,7 +54,8 @@
 
 #define SPEECH_CLEANUP_BACKEND_VALUES                                     \
 	PROCESS(Settings::SpeechCleanupBackend, RNNoiseBackend, "RNNoise")    \
-	PROCESS(Settings::SpeechCleanupBackend, DTLNBackend, "DTLN")
+	PROCESS(Settings::SpeechCleanupBackend, DTLNBackend, "DTLN")          \
+	PROCESS(Settings::SpeechCleanupBackend, DeepFilterNetBackend, "DeepFilterNet")
 
 #define REMOTE_SPEECH_CLEANUP_PRESET_VALUES                             \
 	PROCESS(Settings::RemoteSpeechCleanupPreset, Light, "Light")        \
@@ -65,7 +66,8 @@
 	PROCESS(EchoCancelOptionID, DISABLED, "Disabled")                     \
 	PROCESS(EchoCancelOptionID, SPEEX_MIXED, "Speex_MixedChannel")        \
 	PROCESS(EchoCancelOptionID, SPEEX_MULTICHANNEL, "Speex_Multichannel") \
-	PROCESS(EchoCancelOptionID, APPLE_AEC, "Apple_AEC")
+	PROCESS(EchoCancelOptionID, APPLE_AEC, "Apple_AEC")                   \
+	PROCESS(EchoCancelOptionID, WEBRTC_AEC, "WebRTC_AEC")
 
 #define PROXY_TYPE_VALUES                           \
 	PROCESS(Settings::ProxyType, NoProxy, "None")   \

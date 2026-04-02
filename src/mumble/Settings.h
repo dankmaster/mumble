@@ -198,7 +198,7 @@ struct Settings {
 	enum TalkState { Passive, Talking, Whispering, Shouting, MutedTalking };
 	enum IdleAction { Nothing, Deafen, Mute };
 	enum NoiseCancel { NoiseCancelOff, NoiseCancelSpeex, NoiseCancelRNN, NoiseCancelBoth };
-	enum SpeechCleanupBackend { RNNoiseBackend, DTLNBackend };
+	enum SpeechCleanupBackend { RNNoiseBackend, DTLNBackend, DeepFilterNetBackend };
 	enum RemoteSpeechCleanupPreset { Light, Normal, Aggressive };
 	enum MessageLog {
 		LogNone         = 0x00,
@@ -264,6 +264,7 @@ struct Settings {
 	/// backend.
 	QString qsTTSLanguage = {};
 	int iQuality          = 40000;
+	bool experimentalHighBitrateEnabled = false;
 	int iMinLoudness      = 1000;
 	/// Actual mic hold time is (iVoiceHold / 100) seconds, where iVoiceHold is specified in 'frames',
 	/// each of which is has a size of iFrameSize (see AudioInput.h)
@@ -272,9 +273,13 @@ struct Settings {
 	bool bAllowLowDelay             = true;
 	NoiseCancel noiseCancelMode     = NoiseCancelSpeex;
 	SpeechCleanupBackend noiseCancelBackend = RNNoiseBackend;
+	QString noiseCancelModelId      = QStringLiteral("rnnoise:embedded");
+	QString noiseCancelCustomModelPath = {};
 	int iSpeexNoiseCancelStrength   = -30;
 	bool remoteSpeechCleanupEnabled = false;
 	SpeechCleanupBackend remoteSpeechCleanupBackend = RNNoiseBackend;
+	QString remoteSpeechCleanupModelId = QStringLiteral("rnnoise:embedded");
+	QString remoteSpeechCleanupCustomModelPath = {};
 	RemoteSpeechCleanupPreset remoteSpeechCleanupPreset = Normal;
 	quint64 uiAudioInputChannelMask = 0xffffffffffffffffULL;
 

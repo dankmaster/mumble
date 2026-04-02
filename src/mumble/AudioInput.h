@@ -26,13 +26,14 @@
 #include "AudioPreprocessor.h"
 #include "EchoCancelOption.h"
 #include "MumbleProtocol.h"
+#include "SpeechCleanup.h"
 #include "Settings.h"
 #include "Timer.h"
 
 class AudioInput;
-class DTLNSpeechCleanup;
+class SpeechCleanupProcessor;
+class WebRTCAudioEchoCanceller;
 struct OpusEncoder;
-struct DenoiseState;
 
 using AudioInputPtr = std::shared_ptr< AudioInput >;
 
@@ -189,16 +190,13 @@ private:
 	void resetAudioProcessor();
 
 	OpusEncoder *opusState;
-#ifdef USE_RNNOISE
-	DenoiseState *denoiseState;
-#endif
-#ifdef USE_DTLN
-	std::unique_ptr< DTLNSpeechCleanup > m_dtlnSpeechCleanup;
-#endif
+	std::unique_ptr< SpeechCleanupProcessor > m_speechCleanupProcessor;
+	Mumble::SpeechCleanup::Selection m_speechCleanupSelection = {};
+	std::unique_ptr< WebRTCAudioEchoCanceller > m_webrtcEchoCanceller;
 	bool selectCodec();
 	void selectNoiseCancel();
 
-	using EncodingOutputBuffer = std::array< unsigned char, 960 >;
+	using EncodingOutputBuffer = std::array< unsigned char, 1275 >;
 
 	int encodeOpusFrame(short *source, int size, EncodingOutputBuffer &buffer);
 
@@ -299,6 +297,11 @@ public:
 	float dPeakSpeaker, dPeakSignal, dMaxMic, dPeakMic, dPeakCleanMic;
 	float fSpeechProb;
 
+	static int clampFramesPerPacket(int frames);
+	static int packetDurationMsForFrames(int frames);
+	static int opusMaxAudioBitrateForFrames(int frames);
+	static int maxAudioBitrateForConfiguration(int serverBandwidth, int frames, bool experimentalHighBitrateEnabled,
+											   bool transmitPosition, bool tcpMode);
 	static int getNetworkBandwidth(int bitrate, int frames);
 	static void setMaxBandwidth(int bitspersec);
 

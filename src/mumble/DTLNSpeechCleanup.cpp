@@ -44,8 +44,15 @@ namespace {
 	constexpr unsigned int DTLN_OUTPUT_QUEUE_CAP     = 8192;
 	constexpr float DTLN_TIME_DOMAIN_CLAMP           = 1.0f;
 
-	QString dtlnModelDirectory() {
-		return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("dtln"));
+	QString defaultDtlnModelDirectory() {
+		const QString baseDirectory = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("dtln"));
+		const QString packagedBaselineDirectory = QDir(baseDirectory).filePath(QStringLiteral("baseline"));
+		if (QFileInfo::exists(QDir(packagedBaselineDirectory).filePath(QStringLiteral("model_1.onnx")))
+			&& QFileInfo::exists(QDir(packagedBaselineDirectory).filePath(QStringLiteral("model_2.onnx")))) {
+			return packagedBaselineDirectory;
+		}
+
+		return baseDirectory;
 	}
 
 	std::size_t tensorElementCount(const std::vector< int64_t > &shape) {
@@ -82,9 +89,11 @@ namespace {
 
 	class DTLNModelRuntime {
 	public:
-		static DTLNModelRuntime &instance() {
-			static DTLNModelRuntime runtime;
-			return runtime;
+		explicit DTLNModelRuntime(const QString &modelDirectory)
+			: m_modelDirectory(modelDirectory),
+			  m_env(ORT_LOGGING_LEVEL_WARNING, "mumble-dtln"),
+			  m_memoryInfo(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
+			initialize();
 		}
 
 		bool isReady() const {
@@ -170,19 +179,12 @@ namespace {
 		}
 
 	private:
-		DTLNModelRuntime()
-			: m_env(ORT_LOGGING_LEVEL_WARNING, "mumble-dtln"),
-			  m_memoryInfo(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)) {
-			initialize();
-		}
-
 		void initialize() {
-			const QString modelDir    = dtlnModelDirectory();
-			const QString model1Path  = QDir(modelDir).filePath(QStringLiteral("model_1.onnx"));
-			const QString model2Path  = QDir(modelDir).filePath(QStringLiteral("model_2.onnx"));
+			const QString model1Path  = QDir(m_modelDirectory).filePath(QStringLiteral("model_1.onnx"));
+			const QString model2Path  = QDir(m_modelDirectory).filePath(QStringLiteral("model_2.onnx"));
 
 			if (!QFileInfo::exists(model1Path) || !QFileInfo::exists(model2Path)) {
-				qWarning("DTLN models are missing under %s", qUtf8Printable(modelDir));
+				qWarning("DTLN models are missing under %s", qUtf8Printable(m_modelDirectory));
 				return;
 			}
 
@@ -242,6 +244,7 @@ namespace {
 			}
 		}
 
+		QString m_modelDirectory;
 		Ort::Env m_env;
 		Ort::MemoryInfo m_memoryInfo;
 		std::unique_ptr< Ort::Session > m_model1Session;
@@ -270,9 +273,9 @@ namespace {
 
 class DTLNSpeechCleanup::Implementation {
 public:
-	Implementation() {
-		const DTLNModelRuntime &runtime = DTLNModelRuntime::instance();
-		if (!runtime.isReady()) {
+	explicit Implementation(const QString &modelDirectory)
+		: m_modelDirectory(modelDirectory), m_runtime(std::make_unique< DTLNModelRuntime >(modelDirectory)) {
+		if (!m_runtime || !m_runtime->isReady()) {
 			return;
 		}
 
@@ -289,12 +292,13 @@ public:
 			return;
 		}
 
-		m_model1State.resize(runtime.model1StateElementCount(), 0.0f);
-		m_model2State.resize(runtime.model2StateElementCount(), 0.0f);
+		m_model1State.resize(m_runtime->model1StateElementCount(), 0.0f);
+		m_model2State.resize(m_runtime->model2StateElementCount(), 0.0f);
 
 		mumble_drft_init(&m_fft, DTLN_BLOCK_LENGTH);
 		reset();
 		m_ready = true;
+		qInfo("DTLNSpeechCleanup: Using models from %s", qUtf8Printable(m_modelDirectory));
 	}
 
 	~Implementation() {
@@ -400,8 +404,7 @@ private:
 		m_magnitude[DTLN_FFT_BIN_COUNT - 1] = std::fabs(nyquist);
 		m_phase[DTLN_FFT_BIN_COUNT - 1]     = nyquist < 0.0f ? static_cast< float >(M_PI) : 0.0f;
 
-		DTLNModelRuntime &runtime = DTLNModelRuntime::instance();
-		if (!runtime.runModel1(m_magnitude, m_model1State, m_mask)) {
+		if (!m_runtime || !m_runtime->runModel1(m_magnitude, m_model1State, m_mask)) {
 			return false;
 		}
 
@@ -420,7 +423,7 @@ private:
 			sample /= static_cast< float >(DTLN_BLOCK_LENGTH);
 		}
 
-		if (!runtime.runModel2(m_fftTimeBuffer, m_model2State, m_model2Output)) {
+		if (!m_runtime || !m_runtime->runModel2(m_fftTimeBuffer, m_model2State, m_model2Output)) {
 			return false;
 		}
 
@@ -473,6 +476,8 @@ private:
 	}
 
 	bool m_ready = false;
+	QString m_modelDirectory;
+	std::unique_ptr< DTLNModelRuntime > m_runtime;
 	SpeexResamplerState *m_downsampler = nullptr;
 	SpeexResamplerState *m_upsampler   = nullptr;
 	drft_lookup m_fft                  = {};
@@ -499,7 +504,8 @@ private:
 	unsigned int m_outputQueueSize = 0;
 };
 
-DTLNSpeechCleanup::DTLNSpeechCleanup() : m_impl(std::make_unique< Implementation >()) {
+DTLNSpeechCleanup::DTLNSpeechCleanup(const QString &modelDirectory)
+	: m_impl(std::make_unique< Implementation >(modelDirectory.isEmpty() ? defaultDtlnModelDirectory() : modelDirectory)) {
 }
 
 DTLNSpeechCleanup::~DTLNSpeechCleanup() = default;
@@ -525,7 +531,9 @@ void DTLNSpeechCleanup::processNormalizedMonoInPlace(float *samples, unsigned in
 class DTLNSpeechCleanup::Implementation {
 };
 
-DTLNSpeechCleanup::DTLNSpeechCleanup() = default;
+DTLNSpeechCleanup::DTLNSpeechCleanup(const QString &modelDirectory) {
+	static_cast< void >(modelDirectory);
+}
 
 DTLNSpeechCleanup::~DTLNSpeechCleanup() = default;
 

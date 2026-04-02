@@ -37,3 +37,6 @@
 [submodule "3rdparty/CLI11"]
 	path = 3rdparty/CLI11
 	url = https://github.com/CLIUtils/CLI11.git
+[submodule "3rdparty/webrtc-audio-processing-src"]
+	path = 3rdparty/webrtc-audio-processing-src
+	url = https://github.com/cross-platform/webrtc-audio-processing.git

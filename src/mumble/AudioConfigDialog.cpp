@@ -16,8 +16,10 @@
 #include "Utils.h"
 #include "Global.h"
 
+#include <QFileDialog>
 #include <QSignalBlocker>
 #include <QStandardItemModel>
+#include <QStringList>
 
 #include <array>
 #include <cstdint>
@@ -52,14 +54,62 @@ namespace {
 	void populateSpeechCleanupBackendComboBox(QComboBox *comboBox) {
 		comboBox->clear();
 
-		const std::array backends = { Settings::RNNoiseBackend, Settings::DTLNBackend };
-		for (Settings::SpeechCleanupBackend backend : backends) {
+		for (Settings::SpeechCleanupBackend backend : Mumble::SpeechCleanup::supportedBackends) {
 			const int index = comboBox->count();
 			comboBox->addItem(QString::fromLatin1(Mumble::SpeechCleanup::backendDisplayName(backend)),
 							  static_cast< int >(backend));
 
 			const bool available = Mumble::SpeechCleanup::isBackendAvailable(backend);
 			setComboBoxItemEnabled(comboBox, index, available, Mumble::SpeechCleanup::unavailableReason(backend));
+		}
+	}
+
+	Settings::SpeechCleanupBackend currentSpeechCleanupBackend(const QComboBox *comboBox) {
+		if (!comboBox) {
+			return Settings::RNNoiseBackend;
+		}
+
+		return static_cast< Settings::SpeechCleanupBackend >(comboBox->currentData().toInt());
+	}
+
+	void selectSpeechCleanupBackend(QComboBox *comboBox, Settings::SpeechCleanupBackend backend);
+
+	void populateSpeechCleanupModelComboBox(QComboBox *comboBox, Settings::SpeechCleanupBackend backend) {
+		QSignalBlocker blocker(comboBox);
+		comboBox->clear();
+
+		const QStringList modelIds = Mumble::SpeechCleanup::supportedModelIds(backend);
+		for (const QString &modelId : modelIds) {
+			comboBox->addItem(Mumble::SpeechCleanup::modelDisplayName(backend, modelId), modelId);
+		}
+	}
+
+	void selectSpeechCleanupModel(QComboBox *comboBox, Settings::SpeechCleanupBackend backend, const QString &modelId) {
+		const QString normalizedModelId = Mumble::SpeechCleanup::normalizedModelId(backend, modelId);
+		const int requestedIndex        = comboBox->findData(normalizedModelId);
+		comboBox->setCurrentIndex(requestedIndex >= 0 ? requestedIndex : 0);
+	}
+
+	Mumble::SpeechCleanup::Selection currentSpeechCleanupSelection(const QComboBox *backendComboBox,
+																  const QComboBox *modelComboBox,
+																  const QLineEdit *customModelPathEdit) {
+		return Mumble::SpeechCleanup::normalizeSelection({
+			currentSpeechCleanupBackend(backendComboBox),
+			modelComboBox ? modelComboBox->currentData().toString() : QString(),
+			customModelPathEdit ? customModelPathEdit->text().trimmed() : QString(),
+		});
+	}
+
+	void loadSpeechCleanupSelection(QComboBox *backendComboBox, QComboBox *modelComboBox, QLineEdit *customModelPathEdit,
+									const Mumble::SpeechCleanup::Selection &selection) {
+		selectSpeechCleanupBackend(backendComboBox, selection.backend);
+
+		const Settings::SpeechCleanupBackend backend = currentSpeechCleanupBackend(backendComboBox);
+		populateSpeechCleanupModelComboBox(modelComboBox, backend);
+		selectSpeechCleanupModel(modelComboBox, backend, selection.modelId);
+
+		if (customModelPathEdit) {
+			customModelPathEdit->setText(selection.customModelPath);
 		}
 	}
 
@@ -120,6 +170,7 @@ AudioInputDialog::AudioInputDialog(Settings &st) : ConfigWidget(st) {
 
 	setupUi(this);
 	populateSpeechCleanupBackendComboBox(qcbNoiseSupBackend);
+	populateSpeechCleanupModelComboBox(qcbNoiseSupModel, currentSpeechCleanupBackend(qcbNoiseSupBackend));
 
 	qlInputHelp->setVisible(false);
 
@@ -148,6 +199,7 @@ AudioInputDialog::AudioInputDialog(Settings &st) : ConfigWidget(st) {
 	// Hide the slider by default
 	showSpeexNoiseSuppressionSlider(false);
 	updateNoiseSuppressionBackendControls();
+	updateBitrate();
 }
 
 QString AudioInputDialog::title() const {
@@ -188,7 +240,7 @@ void AudioInputDialog::load(const Settings &r) {
 	loadSlider(qsTransmitHold, r.iVoiceHold);
 	loadSlider(qsTransmitMin, static_cast< int >(r.fVADmin * 32767.0f + 0.5f));
 	loadSlider(qsTransmitMax, static_cast< int >(r.fVADmax * 32767.0f + 0.5f));
-	loadSlider(qsFrames, (r.iFramesPerPacket == 1) ? 1 : (r.iFramesPerPacket / 2 + 1));
+	loadSlider(qsFrames, ::AudioInput::clampFramesPerPacket(r.iFramesPerPacket));
 	loadSlider(qsDoublePush, static_cast< int >(static_cast< float >(r.uiDoublePush) / 1000.f + 0.5f));
 	loadSlider(qsPTTHold, static_cast< int >(r.pttHold));
 
@@ -202,6 +254,8 @@ void AudioInputDialog::load(const Settings &r) {
 	loadCheckBox(qcbEnableCueVAD, r.audioCueEnabledVAD);
 	updateAudioCueEnabled();
 	loadCheckBox(qcbMuteCue, r.bTxMuteCue);
+	loadCheckBox(qcbExperimentalHighBitrate, r.experimentalHighBitrateEnabled);
+	updateBitrate();
 	loadSlider(qsQuality, r.iQuality);
 	loadCheckBox(qcbAllowLowDelay, r.bAllowLowDelay);
 	if (r.iSpeexNoiseCancelStrength != 0) {
@@ -221,6 +275,8 @@ void AudioInputDialog::load(const Settings &r) {
 	}
 
 	selectSpeechCleanupBackend(qcbNoiseSupBackend, r.noiseCancelBackend);
+	loadSpeechCleanupSelection(qcbNoiseSupBackend, qcbNoiseSupModel, qleNoiseSupModelPath,
+							   { r.noiseCancelBackend, r.noiseCancelModelId, r.noiseCancelCustomModelPath });
 
 	switch (r.noiseCancelMode) {
 		case Settings::NoiseCancelOff:
@@ -255,6 +311,7 @@ void AudioInputDialog::load(const Settings &r) {
 	loadCheckBox(qcbUndoIdleAction, r.bUndoIdleActionUponActivity);
 
 	updateEchoEnableState();
+	updateBitrate();
 }
 
 void AudioInputDialog::verifyMicrophonePermission() {
@@ -299,14 +356,18 @@ void AudioInputDialog::save() const {
 	}
 	s.noiseCancelBackend =
 		static_cast< Settings::SpeechCleanupBackend >(qcbNoiseSupBackend->currentData().toInt());
+	const Mumble::SpeechCleanup::Selection cleanupSelection =
+		currentSpeechCleanupSelection(qcbNoiseSupBackend, qcbNoiseSupModel, qleNoiseSupModelPath);
+	s.noiseCancelBackend         = cleanupSelection.backend;
+	s.noiseCancelModelId         = cleanupSelection.modelId;
+	s.noiseCancelCustomModelPath = cleanupSelection.customModelPath;
 
 	s.iMinLoudness     = 18000 - qsAmp->value() + 2000;
 	s.iVoiceHold       = qsTransmitHold->value();
 	s.fVADmin          = static_cast< float >(qsTransmitMin->value()) / 32767.0f;
 	s.fVADmax          = static_cast< float >(qsTransmitMax->value()) / 32767.0f;
 	s.vsVAD            = qrbSNR->isChecked() ? Settings::SignalToNoise : Settings::Amplitude;
-	s.iFramesPerPacket = qsFrames->value();
-	s.iFramesPerPacket = (s.iFramesPerPacket == 1) ? 1 : ((s.iFramesPerPacket - 1) * 2);
+	s.iFramesPerPacket = ::AudioInput::clampFramesPerPacket(qsFrames->value());
 	s.uiDoublePush     = static_cast< unsigned int >(qsDoublePush->value() * 1000);
 	s.pttHold          = static_cast< quint64 >(qsPTTHold->value());
 	s.atTransmit       = static_cast< Settings::AudioTransmit >(qcbTransmit->currentIndex());
@@ -322,8 +383,9 @@ void AudioInputDialog::save() const {
 	s.qsTxAudioCueOn       = qlePushClickPathOn->text();
 	s.qsTxAudioCueOff      = qlePushClickPathOff->text();
 
-	s.bTxMuteCue  = qcbMuteCue->isChecked();
-	s.qsTxMuteCue = qleMuteCuePath->text();
+	s.bTxMuteCue                    = qcbMuteCue->isChecked();
+	s.qsTxMuteCue                   = qleMuteCuePath->text();
+	s.experimentalHighBitrateEnabled = qcbExperimentalHighBitrate->isChecked();
 
 	s.qsAudioInput    = qcbSystem->currentText();
 	s.echoOption      = static_cast< EchoCancelOptionID >(qcbEcho->currentData().toInt());
@@ -339,7 +401,7 @@ void AudioInputDialog::save() const {
 }
 
 void AudioInputDialog::on_qsFrames_valueChanged(int v) {
-	int val = (v == 1) ? 10 : (v - 1) * 20;
+	int val = ::AudioInput::packetDurationMsForFrames(v);
 	qlFrames->setText(tr("%1 ms").arg(val));
 	updateBitrate();
 
@@ -414,10 +476,24 @@ void AudioInputDialog::on_qsTransmitMax_valueChanged() {
 }
 
 void AudioInputDialog::updateBitrate() {
-	if (!qsQuality || !qsFrames || !qlBitrate)
+	if (!qsQuality || !qsFrames || !qlBitrate || !qcbExperimentalHighBitrate || !qlExperimentalHighBitrateWarning)
 		return;
+
+	const int frames        = ::AudioInput::clampFramesPerPacket(qsFrames->value());
+	const bool experimental = qcbExperimentalHighBitrate->isChecked();
+	const int serverCap     = Global::get().uiSession ? Global::get().iMaxBandwidth : -1;
+	const int dynamicMax    = ::AudioInput::maxAudioBitrateForConfiguration(serverCap, frames, experimental,
+																	  Global::get().s.bTransmitPosition,
+																	  NetworkConfig::TcpModeEnabled());
+
+	qsQuality->setMinimum(8000);
+	qsQuality->setMaximum(dynamicMax);
+	if (qsQuality->value() > dynamicMax) {
+		qsQuality->setValue(dynamicMax);
+	}
+
 	int q = qsQuality->value();
-	int p = qsFrames->value();
+	int p = frames;
 
 	int audiorate, overhead, posrate;
 
@@ -458,10 +534,42 @@ void AudioInputDialog::updateBitrate() {
 
 	qlBitrate->setText(v);
 
-	qsQuality->setMinimum(8000);
+	QStringList warnings;
+	if (experimental && q > 192000) {
+		warnings << tr("Experimental bitrate above 192 kb/s may increase CPU and bandwidth usage.");
+	}
+
+	const int opusPacketCap = ::AudioInput::opusMaxAudioBitrateForFrames(frames);
+	const int configuredCap = experimental ? 510000 : 192000;
+	const int localCap      = std::min(configuredCap, opusPacketCap);
+	if (localCap < configuredCap) {
+		warnings << tr("Current packet duration limits audio bitrate to %1 kb/s at %2 ms packets.")
+						.arg(localCap / 1000.0, 0, 'f', 1)
+			.arg(::AudioInput::packetDurationMsForFrames(frames));
+	}
+
+	if (serverCap != -1) {
+		if (dynamicMax < localCap) {
+			warnings << tr("Current server bandwidth limits audio bitrate to %1 kb/s.")
+							.arg(dynamicMax / 1000.0, 0, 'f', 1);
+		}
+	}
+
+	QPalette warningPalette;
+	if (!warnings.isEmpty()) {
+		warningPalette.setColor(qlExperimentalHighBitrateWarning->foregroundRole(), themeWarningColor());
+	}
+	qlExperimentalHighBitrateWarning->setPalette(warningPalette);
+	qlExperimentalHighBitrateWarning->setVisible(!warnings.isEmpty());
+	qlExperimentalHighBitrateWarning->setText(warnings.join(QLatin1Char(' ')));
 
 	qsQuality->setAccessibleDescription(v);
 	qsFrames->setAccessibleDescription(v);
+}
+
+void AudioInputDialog::on_qcbExperimentalHighBitrate_clicked(bool checked) {
+	Q_UNUSED(checked);
+	updateBitrate();
 }
 
 void AudioInputDialog::on_qcbEnableCuePTT_clicked() {
@@ -647,11 +755,25 @@ void AudioInputDialog::showSpeexNoiseSuppressionSlider(bool show) {
 void AudioInputDialog::updateNoiseSuppressionBackendControls() {
 	const bool hasNeuralBackend = hasAvailableSpeechCleanupBackend(qcbNoiseSupBackend);
 	const bool useNeuralBackend = hasNeuralBackend && (qrbNoiseSupRNNoise->isChecked() || qrbNoiseSupBoth->isChecked());
+	const Settings::SpeechCleanupBackend backend = currentSpeechCleanupBackend(qcbNoiseSupBackend);
+	const bool showCustomModelPath =
+		useNeuralBackend && Mumble::SpeechCleanup::usesCustomModelPath(backend, qcbNoiseSupModel->currentData().toString());
 
 	qlNoiseSupBackend->setVisible(hasNeuralBackend);
 	qcbNoiseSupBackend->setVisible(hasNeuralBackend);
+	qlNoiseSupModel->setVisible(hasNeuralBackend);
+	qcbNoiseSupModel->setVisible(hasNeuralBackend);
+	qlNoiseSupModelPath->setVisible(showCustomModelPath);
+	qleNoiseSupModelPath->setVisible(showCustomModelPath);
+	qpbNoiseSupModelPathBrowse->setVisible(showCustomModelPath);
+
 	qlNoiseSupBackend->setEnabled(useNeuralBackend);
 	qcbNoiseSupBackend->setEnabled(useNeuralBackend);
+	qlNoiseSupModel->setEnabled(useNeuralBackend);
+	qcbNoiseSupModel->setEnabled(useNeuralBackend);
+	qlNoiseSupModelPath->setEnabled(showCustomModelPath);
+	qleNoiseSupModelPath->setEnabled(showCustomModelPath);
+	qpbNoiseSupModelPathBrowse->setEnabled(showCustomModelPath);
 }
 
 void AudioInputDialog::on_Tick_timeout() {
@@ -711,6 +833,26 @@ void AudioInputDialog::on_qrbNoiseSupBoth_toggled(bool checked) {
 	}
 }
 
+void AudioInputDialog::on_qcbNoiseSupBackend_currentIndexChanged(int) {
+	const Settings::SpeechCleanupBackend backend = currentSpeechCleanupBackend(qcbNoiseSupBackend);
+	populateSpeechCleanupModelComboBox(qcbNoiseSupModel, backend);
+	selectSpeechCleanupModel(qcbNoiseSupModel, backend, QString());
+	updateNoiseSuppressionBackendControls();
+}
+
+void AudioInputDialog::on_qcbNoiseSupModel_currentIndexChanged(int) {
+	updateNoiseSuppressionBackendControls();
+}
+
+void AudioInputDialog::on_qpbNoiseSupModelPathBrowse_clicked() {
+	const QString selectedPath =
+		QFileDialog::getOpenFileName(this, tr("Select RNNoise weights blob"), qleNoiseSupModelPath->text(),
+									 tr("RNNoise model files (*.bin *.blob);;All files (*)"));
+	if (!selectedPath.isEmpty()) {
+		qleNoiseSupModelPath->setText(selectedPath);
+	}
+}
+
 void AudioOutputDialog::enablePulseAudioAttenuationOptionsFor(const QString &outputName) {
 	if (outputName == QLatin1String("PulseAudio")) {
 		qcbOnlyAttenuateSameOutput->show();
@@ -725,6 +867,8 @@ AudioOutputDialog::AudioOutputDialog(Settings &st) : ConfigWidget(st) {
 	setupUi(this);
 
 	populateSpeechCleanupBackendComboBox(qcbRemoteSpeechCleanupBackend);
+	populateSpeechCleanupModelComboBox(qcbRemoteSpeechCleanupModel,
+									   currentSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend));
 	qcbRemoteSpeechCleanupPreset->addItem(tr("Light"), Settings::Light);
 	qcbRemoteSpeechCleanupPreset->addItem(tr("Normal"), Settings::Normal);
 	qcbRemoteSpeechCleanupPreset->addItem(tr("Aggressive"), Settings::Aggressive);
@@ -851,7 +995,10 @@ void AudioOutputDialog::load(const Settings &r) {
 	qcbAttenuateLoopbacks->setEnabled(r.bOnlyAttenuateSameOutput);
 
 	const bool hasCleanupBackend = hasAvailableSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend);
-	selectSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend, r.remoteSpeechCleanupBackend);
+	loadSpeechCleanupSelection(qcbRemoteSpeechCleanupBackend, qcbRemoteSpeechCleanupModel,
+							   qleRemoteSpeechCleanupModelPath,
+							   { r.remoteSpeechCleanupBackend, r.remoteSpeechCleanupModelId,
+								 r.remoteSpeechCleanupCustomModelPath });
 	loadCheckBox(qcbRemoteSpeechCleanupAllUsers, hasCleanupBackend && r.remoteSpeechCleanupEnabled);
 	loadComboBox(qcbRemoteSpeechCleanupPreset, static_cast< int >(r.remoteSpeechCleanupPreset ));
 	updateRemoteSpeechCleanupControls();
@@ -882,8 +1029,11 @@ void AudioOutputDialog::save() const {
 	s.bExclusiveOutput               = qcbExclusive->isChecked();
 	s.remoteSpeechCleanupEnabled =
 		qcbRemoteSpeechCleanupAllUsers->isEnabled() && qcbRemoteSpeechCleanupAllUsers->isChecked();
-	s.remoteSpeechCleanupBackend =
-		static_cast< Settings::SpeechCleanupBackend >(qcbRemoteSpeechCleanupBackend->currentData().toInt());
+	const Mumble::SpeechCleanup::Selection remoteCleanupSelection = currentSpeechCleanupSelection(
+		qcbRemoteSpeechCleanupBackend, qcbRemoteSpeechCleanupModel, qleRemoteSpeechCleanupModelPath);
+	s.remoteSpeechCleanupBackend         = remoteCleanupSelection.backend;
+	s.remoteSpeechCleanupModelId         = remoteCleanupSelection.modelId;
+	s.remoteSpeechCleanupCustomModelPath = remoteCleanupSelection.customModelPath;
 	s.remoteSpeechCleanupPreset =
 		static_cast< Settings::RemoteSpeechCleanupPreset >(qcbRemoteSpeechCleanupPreset->currentData().toInt());
 
@@ -1075,16 +1225,50 @@ void AudioOutputDialog::on_qcbRemoteSpeechCleanupAllUsers_clicked(bool checked) 
 
 void AudioOutputDialog::updateRemoteSpeechCleanupControls() {
 	const bool hasCleanupBackend = hasAvailableSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend);
+	const Settings::SpeechCleanupBackend backend = currentSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend);
+	const bool showCustomModelPath = hasCleanupBackend
+									 && Mumble::SpeechCleanup::usesCustomModelPath(
+										 backend, qcbRemoteSpeechCleanupModel->currentData().toString());
 
 	qcbRemoteSpeechCleanupAllUsers->setVisible(hasCleanupBackend);
 	qlRemoteSpeechCleanupBackend->setVisible(hasCleanupBackend);
 	qcbRemoteSpeechCleanupBackend->setVisible(hasCleanupBackend);
+	qlRemoteSpeechCleanupModel->setVisible(hasCleanupBackend);
+	qcbRemoteSpeechCleanupModel->setVisible(hasCleanupBackend);
+	qlRemoteSpeechCleanupModelPath->setVisible(showCustomModelPath);
+	qleRemoteSpeechCleanupModelPath->setVisible(showCustomModelPath);
+	qpbRemoteSpeechCleanupModelPathBrowse->setVisible(showCustomModelPath);
 	qlRemoteSpeechCleanupPreset->setVisible(hasCleanupBackend);
 	qcbRemoteSpeechCleanupPreset->setVisible(hasCleanupBackend);
 
 	qcbRemoteSpeechCleanupAllUsers->setEnabled(hasCleanupBackend);
 	qlRemoteSpeechCleanupBackend->setEnabled(hasCleanupBackend);
 	qcbRemoteSpeechCleanupBackend->setEnabled(hasCleanupBackend);
+	qlRemoteSpeechCleanupModel->setEnabled(hasCleanupBackend);
+	qcbRemoteSpeechCleanupModel->setEnabled(hasCleanupBackend);
+	qlRemoteSpeechCleanupModelPath->setEnabled(showCustomModelPath);
+	qleRemoteSpeechCleanupModelPath->setEnabled(showCustomModelPath);
+	qpbRemoteSpeechCleanupModelPathBrowse->setEnabled(showCustomModelPath);
 	qlRemoteSpeechCleanupPreset->setEnabled(hasCleanupBackend);
 	qcbRemoteSpeechCleanupPreset->setEnabled(hasCleanupBackend);
+}
+
+void AudioOutputDialog::on_qcbRemoteSpeechCleanupBackend_currentIndexChanged(int) {
+	const Settings::SpeechCleanupBackend backend = currentSpeechCleanupBackend(qcbRemoteSpeechCleanupBackend);
+	populateSpeechCleanupModelComboBox(qcbRemoteSpeechCleanupModel, backend);
+	selectSpeechCleanupModel(qcbRemoteSpeechCleanupModel, backend, QString());
+	updateRemoteSpeechCleanupControls();
+}
+
+void AudioOutputDialog::on_qcbRemoteSpeechCleanupModel_currentIndexChanged(int) {
+	updateRemoteSpeechCleanupControls();
+}
+
+void AudioOutputDialog::on_qpbRemoteSpeechCleanupModelPathBrowse_clicked() {
+	const QString selectedPath =
+		QFileDialog::getOpenFileName(this, tr("Select RNNoise weights blob"), qleRemoteSpeechCleanupModelPath->text(),
+									 tr("RNNoise model files (*.bin *.blob);;All files (*)"));
+	if (!selectedPath.isEmpty()) {
+		qleRemoteSpeechCleanupModelPath->setText(selectedPath);
+	}
 }

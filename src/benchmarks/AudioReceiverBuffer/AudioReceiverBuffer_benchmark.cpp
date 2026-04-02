@@ -56,20 +56,21 @@ public:
 	void SetUp(const ::benchmark::State &state) {
 		selectedData.clear();
 
-		std::size_t totalReceivers     = state.range(RECEIVER_COUNT_RANGE);
+		std::size_t totalReceivers     = static_cast< std::size_t >(state.range(RECEIVER_COUNT_RANGE));
 		std::size_t duplicateReceivers = totalReceivers * (state.range(DUPLICATE_RANGE) / 100.0f);
 
 		for (std::size_t i = 0; i < totalReceivers - duplicateReceivers; ++i) {
 			selectedData.push_back({ &users[i], contexts[i], false, volumeAdjustments[i] });
 		}
 
-		std::uniform_int_distribution< unsigned int > random_index(0, selectedData.size() - 1);
+		std::uniform_int_distribution< unsigned int > random_index(
+			0, static_cast< unsigned int >(selectedData.size() - 1));
 
 		for (std::size_t i = 0; i < duplicateReceivers; ++i) {
 			selectedData.push_back(selectedData[random_index(rng)]);
 		}
 
-		std::random_shuffle(selectedData.begin(), selectedData.end());
+		std::shuffle(selectedData.begin(), selectedData.end(), rng);
 	}
 };
 

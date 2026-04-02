@@ -24,6 +24,8 @@ option(bundled-speex "Build the included version of Speex instead of looking for
 option(rnnoise "Use RNNoise for machine learning noise reduction." ON)
 option(bundled-rnnoise "Build the included version of RNNoise instead of looking for one on the system." ${rnnoise})
 option(dtln "Use DTLN for machine learning speech cleanup." OFF)
+option(deepfilternet "Use DeepFilterNet for machine learning speech cleanup." OFF)
+option(webrtc-aec "Expose WebRTC AEC as an experimental echo cancellation option." OFF)
 
 option(manual-plugin "Include the built-in \"manual\" positional audio plugin." ON)
 
@@ -144,6 +146,8 @@ set(MUMBLE_SOURCES
 	"CustomElements.h"
 	"Database.cpp"
 	"Database.h"
+	"DeepFilterNetSpeechCleanup.cpp"
+	"DeepFilterNetSpeechCleanup.h"
 	"DeveloperConsole.cpp"
 	"DeveloperConsole.h"
 	"DTLNSpeechCleanup.cpp"
@@ -228,6 +232,8 @@ set(MUMBLE_SOURCES
 	"PersistentChatStore.h"
 	"QtWidgetUtils.cpp"
 	"QtWidgetUtils.h"
+	"RNNoiseSpeechCleanup.cpp"
+	"RNNoiseSpeechCleanup.h"
 	"RichTextEditor.cpp"
 	"RichTextEditor.h"
 	"RichTextEditorLink.ui"
@@ -254,6 +260,8 @@ set(MUMBLE_SOURCES
 	"SharedMemory.h"
 	"SocketRPC.cpp"
 	"SocketRPC.h"
+	"SpeechCleanupProcessor.cpp"
+	"SpeechCleanupProcessor.h"
 	"SvgIcon.cpp"
 	"SvgIcon.h"
 	"TalkingUI.cpp"
@@ -307,6 +315,8 @@ set(MUMBLE_SOURCES
 	"VoiceRecorderDialog.h"
 	"VoiceRecorderDialog.ui"
 	"VoiceRecorder.h"
+	"WebRTCAudioEchoCanceller.cpp"
+	"WebRTCAudioEchoCanceller.h"
 	"VolumeSliderWidgetAction.cpp"
 	"VolumeSliderWidgetAction.h"
 	"WebFetch.cpp"
@@ -816,6 +826,16 @@ if(rnnoise)
 			set_target_properties(rnnoise PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 		endif()
 
+		if(TARGET rnnoise_little_weights_blob)
+			add_dependencies(mumble rnnoise_little_weights_blob)
+		endif()
+
+		if(DEFINED RNNOISE_LITTLE_WEIGHTS_BLOB AND NOT "${RNNOISE_LITTLE_WEIGHTS_BLOB}" STREQUAL "")
+			install(FILES "${RNNOISE_LITTLE_WEIGHTS_BLOB}"
+				DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}/rnnoise"
+				COMPONENT mumble_client)
+		endif()
+
 		install_library(rnnoise mumble_client)
 	else()
 		find_pkg(rnnoise REQUIRED)
@@ -833,16 +853,35 @@ if(dtln)
 
 	set(DTLN_MODEL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dtln")
 	set(DTLN_MODEL_OUTPUT_DIR "${CMAKE_BINARY_DIR}/dtln")
-	set(DTLN_MODEL_FILES
-		"${DTLN_MODEL_SOURCE_DIR}/model_1.onnx"
-		"${DTLN_MODEL_SOURCE_DIR}/model_2.onnx"
-	)
+	set(DTLN_MODEL_VARIANTS baseline norm_500h norm_40h)
 
-	foreach(DTLN_MODEL_FILE ${DTLN_MODEL_FILES})
-		add_custom_command(TARGET mumble POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E make_directory "${DTLN_MODEL_OUTPUT_DIR}"
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DTLN_MODEL_FILE}" "${DTLN_MODEL_OUTPUT_DIR}"
+	foreach(DTLN_MODEL_VARIANT ${DTLN_MODEL_VARIANTS})
+		if(DTLN_MODEL_VARIANT STREQUAL "baseline")
+			set(DTLN_VARIANT_SOURCE_DIR "${DTLN_MODEL_SOURCE_DIR}")
+		else()
+			set(DTLN_VARIANT_SOURCE_DIR "${DTLN_MODEL_SOURCE_DIR}/${DTLN_MODEL_VARIANT}")
+		endif()
+
+		set(DTLN_VARIANT_MODEL_FILES
+			"${DTLN_VARIANT_SOURCE_DIR}/model_1.onnx"
+			"${DTLN_VARIANT_SOURCE_DIR}/model_2.onnx"
 		)
+
+		foreach(DTLN_VARIANT_MODEL_FILE ${DTLN_VARIANT_MODEL_FILES})
+			if(NOT EXISTS "${DTLN_VARIANT_MODEL_FILE}")
+				message(FATAL_ERROR "DTLN model file missing: ${DTLN_VARIANT_MODEL_FILE}")
+			endif()
+		endforeach()
+
+		add_custom_command(TARGET mumble POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${DTLN_MODEL_OUTPUT_DIR}/${DTLN_MODEL_VARIANT}"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DTLN_VARIANT_MODEL_FILES}
+				"${DTLN_MODEL_OUTPUT_DIR}/${DTLN_MODEL_VARIANT}"
+		)
+
+		install(FILES ${DTLN_VARIANT_MODEL_FILES}
+			DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}/dtln/${DTLN_MODEL_VARIANT}"
+			COMPONENT mumble_client)
 	endforeach()
 
 	if(DEFINED ONNXRUNTIME_RUNTIME AND NOT "${ONNXRUNTIME_RUNTIME}" STREQUAL "")
@@ -852,8 +891,76 @@ if(dtln)
 
 		install(FILES "${ONNXRUNTIME_RUNTIME}" DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}" COMPONENT mumble_client)
 	endif()
+endif()
 
-	install(FILES ${DTLN_MODEL_FILES} DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}/dtln" COMPONENT mumble_client)
+if(deepfilternet)
+	set(DEEPFILTERNET_MODEL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deepfilternet")
+	set(DEEPFILTERNET_MODEL_OUTPUT_DIR "${CMAKE_BINARY_DIR}/deepfilternet")
+	file(GLOB DEEPFILTERNET_MODEL_FILES
+		"${DEEPFILTERNET_MODEL_SOURCE_DIR}/*.tar.gz"
+	)
+	file(GLOB DEEPFILTERNET_PACKAGED_RUNTIME_FILES
+		"${DEEPFILTERNET_MODEL_SOURCE_DIR}/*.dll"
+	)
+	set(DEEPFILTERNET_RUNTIME_FILES ${DEEPFILTERNET_PACKAGED_RUNTIME_FILES})
+	set(DEEPFILTERNET_RUNTIME_ENABLED OFF)
+
+	if(DEEPFILTERNET_MODEL_FILES)
+		foreach(DEEPFILTERNET_MODEL_FILE ${DEEPFILTERNET_MODEL_FILES})
+			add_custom_command(TARGET mumble POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPFILTERNET_MODEL_OUTPUT_DIR}"
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DEEPFILTERNET_MODEL_FILE}" "${DEEPFILTERNET_MODEL_OUTPUT_DIR}"
+			)
+		endforeach()
+
+		install(FILES ${DEEPFILTERNET_MODEL_FILES} DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}/deepfilternet" COMPONENT mumble_client)
+	else()
+		message(WARNING "DeepFilterNet support was enabled but no model archives were found in ${DEEPFILTERNET_MODEL_SOURCE_DIR}")
+	endif()
+
+	if(WIN32)
+		add_subdirectory("${3RDPARTY_DIR}/deepfilternet-libdf-build" "${CMAKE_CURRENT_BINARY_DIR}/deepfilternet-libdf" EXCLUDE_FROM_ALL)
+		if(DEEPFILTERNET_RUNTIME_ENABLED AND NOT "${DEEPFILTERNET_RUNTIME_FILE}" STREQUAL "")
+			list(APPEND DEEPFILTERNET_RUNTIME_FILES "${DEEPFILTERNET_RUNTIME_FILE}")
+		endif()
+	endif()
+
+	if(DEEPFILTERNET_RUNTIME_FILES)
+		target_compile_definitions(mumble_client_object_lib PRIVATE "USE_DEEPFILTERNET")
+
+		if(TARGET deepfilternet_runtime AND DEEPFILTERNET_RUNTIME_ENABLED)
+			add_dependencies(mumble deepfilternet_runtime)
+		endif()
+
+		list(REMOVE_DUPLICATES DEEPFILTERNET_RUNTIME_FILES)
+
+		foreach(DEEPFILTERNET_RUNTIME_FILE ${DEEPFILTERNET_RUNTIME_FILES})
+			add_custom_command(TARGET mumble POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different "${DEEPFILTERNET_RUNTIME_FILE}" "$<TARGET_FILE_DIR:mumble>"
+			)
+		endforeach()
+
+		if(DEEPFILTERNET_PACKAGED_RUNTIME_FILES)
+			install(FILES ${DEEPFILTERNET_PACKAGED_RUNTIME_FILES} DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}" COMPONENT mumble_client)
+		endif()
+	else()
+		message(WARNING "DeepFilterNet support was enabled but no runtime DLLs were found or configured.")
+	endif()
+
+endif()
+
+if(webrtc-aec)
+	if(WIN32)
+		add_subdirectory("${3RDPARTY_DIR}/webrtc-audio-processing-build" "${CMAKE_CURRENT_BINARY_DIR}/webrtc-audio-processing" EXCLUDE_FROM_ALL)
+
+		# Disable all warnings that the vendored WebRTC APM code may emit.
+		disable_warnings_for_all_targets_in("${3RDPARTY_DIR}/webrtc-audio-processing-build")
+
+		target_compile_definitions(mumble_client_object_lib PRIVATE "USE_WEBRTC_AEC")
+		target_link_libraries(mumble_client_object_lib PRIVATE webrtc_audio_processing)
+	else()
+		message(WARNING "WebRTC AEC support is currently only available on Windows builds.")
+	endif()
 endif()
 
 if(qtspeech)

@@ -8,6 +8,7 @@
 #include "UiTheme.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QPersistentModelIndex>
 #include <QtGui/QContextMenuEvent>
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
@@ -229,6 +230,17 @@ QWidget *PersistentChatHistoryDelegate::widgetForIndex(const QModelIndex &index,
 			return nullptr;
 		}
 
+		if (auto *groupWidget = qobject_cast< PersistentChatMessageGroupWidget * >(cacheEntry.widget)) {
+			const QPersistentModelIndex persistentIndex(index);
+			auto *delegate = const_cast< PersistentChatHistoryDelegate * >(this);
+			connect(groupWidget, &PersistentChatMessageGroupWidget::measuredHeightChanged, this,
+					[delegate, persistentIndex](int) {
+						if (persistentIndex.isValid()) {
+							emit delegate->sizeHintChanged(persistentIndex);
+						}
+					});
+		}
+
 		cacheEntry.widget->setProperty("persistentChatStylesheet", stylesheet);
 		cacheEntry.widget->setAttribute(Qt::WA_DontShowOnScreen, true);
 		cacheEntry.widget->show();
@@ -279,7 +291,6 @@ QWidget *PersistentChatHistoryDelegate::createWidgetForRow(const PersistentChatH
 			}
 
 			for (QWidget *actionsWidget : groupWidget->findChildren< QWidget * >(QLatin1String("qwPersistentChatBubbleActions"))) {
-				actionsWidget->show();
 				actionsWidget->raise();
 			}
 

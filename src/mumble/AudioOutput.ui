@@ -300,6 +300,56 @@
        </widget>
       </item>
       <item row="5" column="0">
+       <widget class="QLabel" name="qlRemoteSpeechCleanupModel">
+        <property name="text">
+         <string>Cleanup Model</string>
+        </property>
+        <property name="buddy">
+         <cstring>qcbRemoteSpeechCleanupModel</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1" colspan="2">
+       <widget class="QComboBox" name="qcbRemoteSpeechCleanupModel">
+        <property name="toolTip">
+         <string>Select which packaged model to use for the chosen receive-side speech cleanup backend.</string>
+        </property>
+        <property name="whatsThis">
+         <string>&lt;b&gt;Cleanup model&lt;/b&gt;&lt;br /&gt;Chooses the model variant used by the selected receive-side speech cleanup backend.</string>
+        </property>
+        <property name="accessibleName">
+         <string>Remote speech cleanup model</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="qlRemoteSpeechCleanupModelPath">
+        <property name="text">
+         <string>Custom Model File</string>
+        </property>
+        <property name="buddy">
+         <cstring>qleRemoteSpeechCleanupModelPath</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QLineEdit" name="qleRemoteSpeechCleanupModelPath">
+        <property name="toolTip">
+         <string>Path to a custom RNNoise weights blob file for remote speech cleanup.</string>
+        </property>
+        <property name="accessibleName">
+         <string>Remote speech cleanup custom model path</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="2">
+       <widget class="QPushButton" name="qpbRemoteSpeechCleanupModelPathBrowse">
+        <property name="text">
+         <string>Browse...</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="0">
        <widget class="QLabel" name="qlRemoteSpeechCleanupPreset">
         <property name="text">
          <string>Cleanup Level</string>
@@ -309,7 +359,7 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="1" colspan="2">
+      <item row="7" column="1" colspan="2">
        <widget class="QComboBox" name="qcbRemoteSpeechCleanupPreset">
         <property name="toolTip">
          <string>Controls how strongly remote speech cleanup is mixed into incoming speech.</string>
@@ -930,6 +980,12 @@
   <tabstop>qsJitter</tabstop>
   <tabstop>qsVolume</tabstop>
   <tabstop>qsDelay</tabstop>
+  <tabstop>qcbRemoteSpeechCleanupAllUsers</tabstop>
+  <tabstop>qcbRemoteSpeechCleanupBackend</tabstop>
+  <tabstop>qcbRemoteSpeechCleanupModel</tabstop>
+  <tabstop>qleRemoteSpeechCleanupModelPath</tabstop>
+  <tabstop>qpbRemoteSpeechCleanupModelPathBrowse</tabstop>
+  <tabstop>qcbRemoteSpeechCleanupPreset</tabstop>
   <tabstop>qsOtherVolume</tabstop>
   <tabstop>qcbAttenuateOthers</tabstop>
   <tabstop>qcbAttenuateOthersOnTalk</tabstop>

@@ -14,6 +14,8 @@
 #include "AudioOutputBuffer.h"
 #include "AudioOutputCache.h"
 #include "MumbleProtocol.h"
+#include "SpeechCleanup.h"
+#include "Settings.h"
 
 #include <array>
 #include <memory>
@@ -21,8 +23,7 @@
 #include <vector>
 
 class ClientUser;
-class DTLNSpeechCleanup;
-struct DenoiseState;
+class SpeechCleanupProcessor;
 struct OpusDecoder;
 
 class AudioOutputSpeech : public AudioOutputBuffer {
@@ -62,16 +63,9 @@ protected:
 
 	QList< QByteArray > qlFrames;
 
-#ifdef USE_RNNOISE
-	DenoiseState *m_remoteSpeechCleanupState = nullptr;
-	unsigned int m_remoteSpeechCleanupFrameSize = 0;
-	std::array< float, 480 > m_remoteSpeechCleanupInputBuffer = {};
-	std::array< float, 480 > m_remoteSpeechCleanupOutputBuffer = {};
-#endif
-#ifdef USE_DTLN
-	std::unique_ptr< DTLNSpeechCleanup > m_dtlnSpeechCleanup;
+	std::unique_ptr< SpeechCleanupProcessor > m_remoteSpeechCleanup;
+	Mumble::SpeechCleanup::Selection m_remoteSpeechCleanupSelection = {};
 	std::array< float, 5760 > m_remoteSpeechCleanupMonoBuffer = {};
-#endif
 
 	bool isEffectivelyDualMono(const float *samples, unsigned int sampleCount) const;
 	void applyRemoteSpeechCleanup(float *samples, unsigned int sampleCount);

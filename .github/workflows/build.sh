@@ -44,6 +44,19 @@ case "$os" in
 		OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Ddatabase-postgresql-tests=OFF"
 		OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dasio=ON"
 		OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dg15=ON"
+		OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dwebrtc-aec=ON"
+
+		if [[ -n "${ONNXRUNTIME_ROOT:-}" ]]; then
+			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Ddtln=ON"
+		else
+			echo "::notice title=DTLN disabled::ONNXRUNTIME_ROOT was not set, so DTLN support will not be compiled into this Windows build."
+		fi
+
+		if command -v cargo >/dev/null 2>&1 || compgen -G "$GITHUB_WORKSPACE/src/mumble/deepfilternet/*.dll" > /dev/null; then
+			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Ddeepfilternet=ON"
+		else
+			echo "::notice title=DeepFilterNet disabled::cargo was not found and no packaged DeepFilterNet runtime DLL is present, so DeepFilterNet support will not be compiled into this Windows build."
+		fi
 
 		if [[ "${MUMBLE_ENABLE_WINDOWS_PACKAGING:-}" = "ON" ]]; then
 			OS_SPECIFIC_CMAKE_OPTIONS="$OS_SPECIFIC_CMAKE_OPTIONS -Dpackaging=ON"
@@ -124,15 +137,12 @@ if [[ "$run_build" == "yes" ]]; then
 	rm -f "$build_log"
 	rm -f "$normalized_build_log"
 
-	saved_err_trap=$(trap -p ERR || true)
 	trap - ERR
 	set +e
 	cmake --build . --config $BUILD_TYPE --verbose 2>&1 | tee "$build_log"
 	build_status=${PIPESTATUS[0]}
 	set -e
-	if [[ -n "$saved_err_trap" ]]; then
-		eval "$saved_err_trap"
-	fi
+	trap 'exit_code=$?; echo "::error file=.github/workflows/build.sh,line=${LINENO},title=CI build failed::Command \"${BASH_COMMAND}\" exited with status ${exit_code}"; exit "${exit_code}"' ERR
 
 	if [[ "$build_status" -ne 0 ]]; then
 		echo "::group::Build tool diagnostics"

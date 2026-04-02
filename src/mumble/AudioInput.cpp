@@ -7,7 +7,6 @@
 
 #include "API.h"
 #include "AudioOutput.h"
-#include "DTLNSpeechCleanup.h"
 #include "MainWindow.h"
 #include "MumbleProtocol.h"
 #include "NetworkConfig.h"
@@ -15,18 +14,14 @@
 #include "PluginManager.h"
 #include "ServerHandler.h"
 #include "SpeechCleanup.h"
+#include "SpeechCleanupProcessor.h"
 #include "User.h"
 #include "Utils.h"
 #include "VoiceRecorder.h"
+#include "WebRTCAudioEchoCanceller.h"
 #include "Global.h"
 
 #include <opus.h>
-
-#ifdef USE_RNNOISE
-extern "C" {
-#	include "rnnoise.h"
-}
-#endif
 
 #include <algorithm>
 #include <cassert>
@@ -35,13 +30,19 @@ extern "C" {
 #include <limits>
 #include <span>
 
-#if defined(USE_RNNOISE) || defined(USE_DTLN)
 /// Clip the given float value to a range that can be safely converted into a short (without causing integer overflow)
 static short clampFloatSample(float v) {
 	return static_cast< short >(std::clamp(v, static_cast< float >(std::numeric_limits< short >::min()),
 										   static_cast< float >(std::numeric_limits< short >::max())));
 }
-#endif
+
+static Mumble::SpeechCleanup::Selection currentInputSpeechCleanupSelection() {
+	return Mumble::SpeechCleanup::normalizeSelection({
+		Global::get().s.noiseCancelBackend,
+		Global::get().s.noiseCancelModelId,
+		Global::get().s.noiseCancelCustomModelPath,
+	});
+}
 
 void Resynchronizer::addMic(short *mic) {
 	bool drop = false;
@@ -218,7 +219,7 @@ bool AudioInputRegistrar::isMicrophoneAccessDeniedByOS() {
 }
 
 AudioInput::AudioInput()
-	: opusBuffer(static_cast< std::size_t >(Global::get().s.iFramesPerPacket * (SAMPLE_RATE / 100))) {
+	: opusBuffer(static_cast< std::size_t >(clampFramesPerPacket(Global::get().s.iFramesPerPacket) * (SAMPLE_RATE / 100))) {
 	bDebugDumpInput         = Global::get().bDebugDumpInput;
 	resync.bDebugPrintQueue = Global::get().bDebugPrintQueue;
 	if (bDebugDumpInput) {
@@ -249,12 +250,9 @@ AudioInput::AudioInput()
 
 	opus_encoder_ctl(opusState, OPUS_SET_VBR(0)); // CBR
 
-#ifdef USE_RNNOISE
-	denoiseState = rnnoise_create(nullptr);
-#endif
-#ifdef USE_DTLN
-	m_dtlnSpeechCleanup = std::make_unique< DTLNSpeechCleanup >();
-#endif
+	m_speechCleanupSelection = currentInputSpeechCleanupSelection();
+	m_speechCleanupProcessor = createSpeechCleanupProcessor(m_speechCleanupSelection);
+	m_webrtcEchoCanceller    = std::make_unique< WebRTCAudioEchoCanceller >(iSampleRate, iFrameSize);
 
 	qWarning("AudioInput: %d bits/s, %d hz, %d sample", iAudioQuality, iSampleRate, iFrameSize);
 	iEchoFreq = iMicFreq = iSampleRate;
@@ -305,12 +303,6 @@ AudioInput::~AudioInput() {
 	if (opusState) {
 		opus_encoder_destroy(opusState);
 	}
-
-#ifdef USE_RNNOISE
-	if (denoiseState) {
-		rnnoise_destroy(denoiseState);
-	}
-#endif
 
 	if (sesEcho)
 		speex_echo_state_destroy(sesEcho);
@@ -677,30 +669,48 @@ void AudioInput::addEcho(const void *data, unsigned int nsamp) {
 	}
 }
 
+int AudioInput::clampFramesPerPacket(int frames) {
+	return std::clamp(frames, 1, 6);
+}
+
+int AudioInput::packetDurationMsForFrames(int frames) {
+	return clampFramesPerPacket(frames) * 10;
+}
+
+int AudioInput::opusMaxAudioBitrateForFrames(int frames) {
+	const int packetDurationMs = packetDurationMsForFrames(frames);
+	const int packetCap = static_cast< int >((1275 * 8 * 1000) / packetDurationMs);
+
+	return std::min(packetCap, 510000);
+}
+
+int AudioInput::maxAudioBitrateForConfiguration(int serverBandwidth, int frames, bool experimentalHighBitrateEnabled,
+												bool transmitPosition, bool tcpMode) {
+	const int clampedFrames = clampFramesPerPacket(frames);
+	const int packetCap     = opusMaxAudioBitrateForFrames(clampedFrames);
+	const int configuredCap = experimentalHighBitrateEnabled ? 510000 : 192000;
+	const int hardCap       = std::min(configuredCap, packetCap);
+	if (serverBandwidth == -1) {
+		return std::max(8000, hardCap);
+	}
+
+	const int headerBytes = 20 + 8 + 4 + 1 + 2 + (transmitPosition ? 12 : 0) + (tcpMode ? 12 : 0) + clampedFrames;
+	const int overhead    = headerBytes * (800 / clampedFrames);
+
+	return std::clamp(serverBandwidth - overhead, 8000, hardCap);
+}
+
 void AudioInput::adjustBandwidth(int bitspersec, int &bitrate, int &frames, bool &allowLowDelay) {
-	frames        = Global::get().s.iFramesPerPacket;
+	frames        = clampFramesPerPacket(Global::get().s.iFramesPerPacket);
 	bitrate       = Global::get().s.iQuality;
 	allowLowDelay = Global::get().s.bAllowLowDelay;
 
-	if (bitspersec == -1) {
-		// No limit
-	} else {
-		if (getNetworkBandwidth(bitrate, frames) > bitspersec) {
-			if ((frames <= 4) && (bitspersec <= 32000))
-				frames = 4;
-			else if ((frames == 1) && (bitspersec <= 64000))
-				frames = 2;
-			else if ((frames == 2) && (bitspersec <= 48000))
-				frames = 4;
-			if (getNetworkBandwidth(bitrate, frames) > bitspersec) {
-				do {
-					bitrate -= 1000;
-				} while ((bitrate > 8000) && (getNetworkBandwidth(bitrate, frames) > bitspersec));
-			}
-		}
-	}
-	if (bitrate <= 8000)
-		bitrate = 8000;
+	const int maxBitrate = maxAudioBitrateForConfiguration(bitspersec, frames,
+														   Global::get().s.experimentalHighBitrateEnabled,
+														   Global::get().s.bTransmitPosition,
+														   NetworkConfig::TcpModeEnabled());
+
+	bitrate = std::clamp(bitrate, 8000, maxBitrate);
 }
 
 void AudioInput::setMaxBandwidth(int bitspersec) {
@@ -740,6 +750,7 @@ void AudioInput::setMaxBandwidth(int bitspersec) {
 }
 
 int AudioInput::getNetworkBandwidth(int bitrate, int frames) {
+	frames = clampFramesPerPacket(frames);
 	int overhead = 20 + 8 + 4 + 1 + 2 + (Global::get().s.bTransmitPosition ? 12 : 0)
 				   + (NetworkConfig::TcpModeEnabled() ? 12 : 0) + frames;
 	overhead *= (800 / frames);
@@ -774,16 +785,35 @@ void AudioInput::resetAudioProcessor() {
 	}
 
 	if (iEchoChannels > 0) {
-		int filterSize = iFrameSize * (10 + resync.getNominalLag());
-		sesEcho =
-			speex_echo_state_init_mc(iFrameSize, filterSize, 1, bEchoMulti ? static_cast< int >(iEchoChannels) : 1);
-		int iArg = iSampleRate;
-		speex_echo_ctl(sesEcho, SPEEX_ECHO_SET_SAMPLING_RATE, &iArg);
-		m_preprocessor.setEchoState(sesEcho);
+		const bool requestedWebRTCAec = (Global::get().s.echoOption == EchoCancelOptionID::WEBRTC_AEC);
+		const bool useWebRTCAec       =
+			requestedWebRTCAec && m_webrtcEchoCanceller && m_webrtcEchoCanceller->isReady();
 
-		qWarning("AudioInput: ECHO CANCELLER ACTIVE");
+		if (m_webrtcEchoCanceller) {
+			m_webrtcEchoCanceller->reset();
+		}
+
+		if (useWebRTCAec) {
+			sesEcho = nullptr;
+			m_preprocessor.setEchoState(nullptr);
+			qWarning("AudioInput: WEBRTC ECHO CANCELLER ACTIVE");
+		} else {
+			if (requestedWebRTCAec) {
+				qWarning("AudioInput: WebRTC echo canceller requested but unavailable, falling back to Speex");
+			}
+
+			int filterSize = iFrameSize * (10 + resync.getNominalLag());
+			sesEcho =
+				speex_echo_state_init_mc(iFrameSize, filterSize, 1, bEchoMulti ? static_cast< int >(iEchoChannels) : 1);
+			int iArg = iSampleRate;
+			speex_echo_ctl(sesEcho, SPEEX_ECHO_SET_SAMPLING_RATE, &iArg);
+			m_preprocessor.setEchoState(sesEcho);
+
+			qWarning("AudioInput: SPEEX ECHO CANCELLER ACTIVE");
+		}
 	} else {
 		sesEcho = nullptr;
+		m_preprocessor.setEchoState(nullptr);
 	}
 
 	bResetEncoder = true;
@@ -810,7 +840,13 @@ bool AudioInput::selectCodec() {
 
 void AudioInput::selectNoiseCancel() {
 	noiseCancel = Global::get().s.noiseCancelMode;
-	const Settings::SpeechCleanupBackend backend = Global::get().s.noiseCancelBackend;
+	const Mumble::SpeechCleanup::Selection selection = currentInputSpeechCleanupSelection();
+	const Settings::SpeechCleanupBackend backend     = selection.backend;
+
+	if (selection != m_speechCleanupSelection || !m_speechCleanupProcessor) {
+		m_speechCleanupSelection = selection;
+		m_speechCleanupProcessor = createSpeechCleanupProcessor(selection);
+	}
 
 	if (noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth) {
 		if (!Mumble::SpeechCleanup::isBackendAvailable(backend)) {
@@ -819,19 +855,11 @@ void AudioInput::selectNoiseCancel() {
 				  qUtf8Printable(Mumble::SpeechCleanup::unavailableReason(backend)));
 			noiseCancel = Settings::NoiseCancelSpeex;
 		}
-
-#ifdef USE_RNNOISE
-		if (backend == Settings::RNNoiseBackend && (!denoiseState || iFrameSize != 480)) {
-			qInfo("AudioInput: Ignoring request to enable RNNoise: internal error");
+		if (!m_speechCleanupProcessor || !m_speechCleanupProcessor->isReady()) {
+			qInfo("AudioInput: Ignoring request to enable %s: backend initialization failed",
+				  Mumble::SpeechCleanup::backendDisplayName(backend));
 			noiseCancel = Settings::NoiseCancelSpeex;
 		}
-#endif
-#ifdef USE_DTLN
-		if (backend == Settings::DTLNBackend && (!m_dtlnSpeechCleanup || !m_dtlnSpeechCleanup->isReady())) {
-			qInfo("AudioInput: Ignoring request to enable DTLN: backend initialization failed");
-			noiseCancel = Settings::NoiseCancelSpeex;
-		}
-#endif
 	}
 
 	bool preprocessorDenoise = false;
@@ -917,45 +945,32 @@ void AudioInput::encodeAudioFrame(AudioChunk chunk) {
 	}
 
 	short psClean[iFrameSize];
-	if (sesEcho && chunk.speaker) {
+	if (chunk.speaker && Global::get().s.echoOption == EchoCancelOptionID::WEBRTC_AEC && m_webrtcEchoCanceller
+		&& m_webrtcEchoCanceller->isReady()
+		&& m_webrtcEchoCanceller->processCaptureFrame(chunk.mic, psClean, chunk.speaker, iFrameSize,
+													 bEchoMulti ? iEchoChannels : 1)) {
+		psSource = psClean;
+	} else if (sesEcho && chunk.speaker) {
 		speex_echo_cancellation(sesEcho, chunk.mic, chunk.speaker, psClean);
 		psSource = psClean;
 	} else {
 		psSource = chunk.mic;
 	}
 
-#ifdef USE_RNNOISE
-	// At the time of writing this code, RNNoise only supports a sample rate of 48000 Hz.
 	if ((noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth)
-		&& Global::get().s.noiseCancelBackend == Settings::RNNoiseBackend) {
-		float denoiseFrames[480];
-		for (unsigned int i = 0; i < 480; i++) {
-			denoiseFrames[i] = psSource[i];
+		&& m_speechCleanupProcessor && m_speechCleanupProcessor->isReady()) {
+		std::array< float, 480 > cleanupFrame = {};
+		for (unsigned int i = 0; i < cleanupFrame.size(); ++i) {
+			cleanupFrame[i] = static_cast< float >(psSource[i]) / 32768.0f;
 		}
 
-		rnnoise_process_frame(denoiseState, denoiseFrames, denoiseFrames);
+		m_speechCleanupProcessor->processInPlace(cleanupFrame.data(),
+												 static_cast< unsigned int >(cleanupFrame.size()));
 
-		for (unsigned int i = 0; i < 480; i++) {
-			psSource[i] = clampFloatSample(denoiseFrames[i]);
+		for (unsigned int i = 0; i < cleanupFrame.size(); ++i) {
+			psSource[i] = clampFloatSample(cleanupFrame[i] * 32768.0f);
 		}
 	}
-#endif
-#ifdef USE_DTLN
-	if ((noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth)
-		&& Global::get().s.noiseCancelBackend == Settings::DTLNBackend && m_dtlnSpeechCleanup
-		&& m_dtlnSpeechCleanup->isReady()) {
-		std::array< float, 480 > dtlnFrame = {};
-		for (unsigned int i = 0; i < 480; ++i) {
-			dtlnFrame[i] = static_cast< float >(psSource[i]) / 32768.0f;
-		}
-
-		m_dtlnSpeechCleanup->processNormalizedMonoInPlace(dtlnFrame.data(), static_cast< unsigned int >(dtlnFrame.size()));
-
-		for (unsigned int i = 0; i < 480; ++i) {
-			psSource[i] = clampFloatSample(dtlnFrame[i] * 32768.0f);
-		}
-	}
-#endif
 
 	m_preprocessor.run(*psSource);
 

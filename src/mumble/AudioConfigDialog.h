@@ -50,6 +50,7 @@ public slots:
 	void on_qpbPushClickReset_clicked();
 
 	void on_qcbMuteCue_clicked(bool);
+	void on_qcbExperimentalHighBitrate_clicked(bool checked);
 	void on_qpbMuteCueBrowse_clicked();
 	void on_qpbMuteCuePreview_clicked();
 
@@ -70,6 +71,9 @@ public slots:
 	void on_qrbNoiseSupSpeex_toggled(bool checked);
 	void on_qrbNoiseSupRNNoise_toggled(bool checked);
 	void on_qrbNoiseSupBoth_toggled(bool checked);
+	void on_qcbNoiseSupBackend_currentIndexChanged(int);
+	void on_qcbNoiseSupModel_currentIndexChanged(int);
+	void on_qpbNoiseSupModelPathBrowse_clicked();
 };
 
 class AudioOutputDialog : public ConfigWidget, public Ui::AudioOutput {
@@ -113,6 +117,9 @@ public slots:
 	void on_qcbAttenuateOthers_clicked(bool checked);
 	void on_qcbOnlyAttenuateSameOutput_clicked(bool checked);
 	void on_qcbRemoteSpeechCleanupAllUsers_clicked(bool checked);
+	void on_qcbRemoteSpeechCleanupBackend_currentIndexChanged(int);
+	void on_qcbRemoteSpeechCleanupModel_currentIndexChanged(int);
+	void on_qpbRemoteSpeechCleanupModelPathBrowse_clicked();
 };
 
 #endif

@@ -219,11 +219,24 @@ void from_json(const nlohmann::json &j, Settings &settings) {
 	}
 
 	if (!Mumble::SpeechCleanup::isBackendAvailable(settings.noiseCancelBackend)) {
-		settings.noiseCancelBackend = Settings::RNNoiseBackend;
+		settings.noiseCancelBackend = Mumble::SpeechCleanup::fallbackBackend();
 	}
 
 	if (!Mumble::SpeechCleanup::isBackendAvailable(settings.remoteSpeechCleanupBackend)) {
-		settings.remoteSpeechCleanupBackend = Settings::RNNoiseBackend;
+		settings.remoteSpeechCleanupBackend = Mumble::SpeechCleanup::fallbackBackend();
+	}
+
+	settings.noiseCancelModelId =
+		Mumble::SpeechCleanup::normalizedModelId(settings.noiseCancelBackend, settings.noiseCancelModelId);
+	if (!Mumble::SpeechCleanup::usesCustomModelPath(settings.noiseCancelBackend, settings.noiseCancelModelId)) {
+		settings.noiseCancelCustomModelPath.clear();
+	}
+
+	settings.remoteSpeechCleanupModelId = Mumble::SpeechCleanup::normalizedModelId(
+		settings.remoteSpeechCleanupBackend, settings.remoteSpeechCleanupModelId);
+	if (!Mumble::SpeechCleanup::usesCustomModelPath(settings.remoteSpeechCleanupBackend,
+													 settings.remoteSpeechCleanupModelId)) {
+		settings.remoteSpeechCleanupCustomModelPath.clear();
 	}
 
 	if ((settings.noiseCancelMode == Settings::NoiseCancelRNN || settings.noiseCancelMode == Settings::NoiseCancelBoth)

@@ -23,9 +23,9 @@
 #include <QtWidgets/QScrollBar>
 
 namespace {
-	constexpr int ChatbarMinimumHeight         = 48;
-	constexpr int ChatbarVisibleLineCount      = 10;
-	constexpr int ChatbarVerticalChromePadding = 12;
+	constexpr int ChatbarMinimumHeight         = 28;
+	constexpr int ChatbarVisibleLineCount      = 5;
+	constexpr int ChatbarVerticalChromePadding = 8;
 }
 
 LogTextBrowser::LogTextBrowser(QWidget *p) : QTextBrowser(p) {

@@ -33,6 +33,7 @@
 	PROCESS(audio, MUTE_CUE_KEY, qsTxMuteCue)                                               \
 	PROCESS(audio, MUTE_CUE_POPUP_SHOWN, muteCueShown)                                      \
 	PROCESS(audio, AUDIO_QUALITY_KEY, iQuality)                                             \
+	PROCESS(audio, EXPERIMENTAL_HIGH_BITRATE_ENABLED_KEY, experimentalHighBitrateEnabled)   \
 	PROCESS(audio, LOUDNESS_KEY, iMinLoudness)                                              \
 	PROCESS(audio, VOLUME_KEY, fVolume)                                                     \
 	PROCESS(audio, EXTERNAL_APPLICATIONS_VOLUME_KEY, fOtherVolume)                          \
@@ -48,9 +49,13 @@
 	PROCESS(audio, VAD_MAX_KEY, fVADmax)                                                    \
 	PROCESS(audio, NOISE_CANCEL_MODE_KEY, noiseCancelMode)                                  \
 	PROCESS(audio, NOISE_CANCEL_BACKEND_KEY, noiseCancelBackend)                            \
+	PROCESS(audio, NOISE_CANCEL_MODEL_ID_KEY, noiseCancelModelId)                           \
+	PROCESS(audio, NOISE_CANCEL_CUSTOM_MODEL_PATH_KEY, noiseCancelCustomModelPath)         \
 	PROCESS(audio, SPEEX_NOISE_CANCEL_STRENGTH_KEY, iSpeexNoiseCancelStrength)              \
 	PROCESS(audio, REMOTE_SPEECH_CLEANUP_ENABLED_KEY, remoteSpeechCleanupEnabled)           \
 	PROCESS(audio, REMOTE_SPEECH_CLEANUP_BACKEND_KEY, remoteSpeechCleanupBackend)           \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_MODEL_ID_KEY, remoteSpeechCleanupModelId)         \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_CUSTOM_MODEL_PATH_KEY, remoteSpeechCleanupCustomModelPath) \
 	PROCESS(audio, REMOTE_SPEECH_CLEANUP_PRESET_KEY, remoteSpeechCleanupPreset)             \
 	PROCESS(audio, INPUT_CHANNEL_MASK_KEY, uiAudioInputChannelMask)                         \
 	PROCESS(audio, ALLOW_LOW_DELAY_MODE_KEY, bAllowLowDelay)                                \

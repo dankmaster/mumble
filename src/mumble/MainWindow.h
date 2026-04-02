@@ -97,6 +97,7 @@ private:
 	Q_OBJECT
 	Q_DISABLE_COPY(MainWindow)
 public:
+	bool isServerLogViewVisible() const;
 	UserModel *pmModel;
 	QMenu *qmUser;
 	QMenu *qmChannel;
@@ -281,6 +282,9 @@ public:
 	QImage imageFromLogBrowser(const LogTextBrowser *browser, const QTextCursor &cursor) const;
 	void openImageDialog(const QImage &image);
 	void openImageDialog(LogTextBrowser *browser, const QTextCursor &cursor);
+	void setPersistentChatContentMode(bool showServerLog, bool preserveScrollPosition = false,
+									 bool showComposer = false);
+	void renderLegacyActivityView(bool preserveScrollPosition = false);
 	void renderServerLogView(bool preserveScrollPosition = false);
 	void flushPersistentChatRender();
 	void renderPersistentChatViewImmediately(const QString &statusMessage = QString(), bool scrollToBottom = true,
@@ -383,7 +387,10 @@ protected:
 	QWidget *m_persistentChatChannelToolbar = nullptr;
 	QListWidget *m_persistentChatChannelList = nullptr;
 	QFrame *m_persistentChatDivider = nullptr;
+	QWidget *m_persistentChatConversationPanel = nullptr;
+	QWidget *m_persistentChatLogPanel = nullptr;
 	PersistentChatListWidget *m_persistentChatHistory = nullptr;
+	LogTextBrowser *m_persistentChatLogView = nullptr;
 	PersistentChatGateway *m_persistentChatGateway = nullptr;
 	PersistentChatController *m_persistentChatController = nullptr;
 	PersistentChatHistoryModel *m_persistentChatHistoryModel = nullptr;
@@ -422,6 +429,7 @@ protected:
 	int m_persistentChatBottomLockRendersRemaining = 0;
 	bool m_persistentChatPreviewRefreshPending = false;
 	bool m_persistentChatRestoreAnchorPending  = false;
+	bool m_persistentChatLogStickToBottom      = true;
 	QString m_persistentChatPendingAnchorRowId;
 	int m_persistentChatPendingAnchorOffset    = 0;
 	std::optional< MumbleProto::ChatMessage > m_pendingPersistentChatReply;

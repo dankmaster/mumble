@@ -65,6 +65,14 @@ Notes for local use:
 - Install Git for Windows. The script prefers Git Bash and auto-detects Visual
   Studio's bundled `cmake` and `ninja`, so they do not need to be added to
   `PATH` manually.
+- The local build script now auto-detects `ONNXRUNTIME_ROOT` from the newest
+  `.tmp\onnxruntime-win-x64-*` directory when present, which enables the DTLN
+  backend in local Windows client builds without extra manual flags.
+- If Rust was installed with `rustup`, the script also prepends
+  `%USERPROFILE%\.cargo\bin` to `PATH` so DeepFilterNet can build its runtime
+  DLL from the vendored `libDF` C API. Without `cargo` or a packaged
+  `deepfilter.dll`, DeepFilterNet is left disabled while the rest of the client
+  still builds.
 - `-InstallFfmpeg` downloads a portable Windows `ffmpeg` bundle into
   `build_tools\ffmpeg` and prepends it to `PATH` for the current run. It does
   not require Chocolatey or an administrator shell.
@@ -72,6 +80,9 @@ Notes for local use:
   loop. Pass `-EnablePackaging` only if you need installers and already have
   WiX available.
 - The script mirrors the `Windows Client` workflow's configure/build path.
+- The `Windows Client` workflow now bootstraps the pinned ONNX Runtime archive
+  for DTLN and installs Rust so the DeepFilterNet runtime DLL can be built on
+  the Windows runner as part of the client artifact build.
 - It builds unsigned Windows client artifacts. Pass `-EnablePackaging` only if
   you explicitly need the MSI installer output.
 - It skips local MySQL setup because that workflow has tests disabled.

@@ -527,10 +527,10 @@
          <number>1</number>
         </property>
         <property name="maximum">
-         <number>4</number>
+         <number>6</number>
         </property>
         <property name="pageStep">
-         <number>2</number>
+         <number>1</number>
         </property>
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -597,7 +597,7 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0" colspan="3">
+      <item row="4" column="0" colspan="3">
        <widget class="QLabel" name="qlBitrate">
         <property name="font">
          <font>
@@ -618,6 +618,19 @@
         </property>
        </widget>
       </item>
+      <item row="5" column="0" colspan="3">
+       <widget class="QLabel" name="qlExperimentalHighBitrateWarning">
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+      </item>
       <item row="0" column="0">
        <widget class="QLabel" name="qliQuality">
         <property name="text">
@@ -628,7 +641,20 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="0" colspan="2">
+      <item row="2" column="0" colspan="3">
+       <widget class="QCheckBox" name="qcbExperimentalHighBitrate">
+        <property name="toolTip">
+         <string>Allow custom voice bitrate above 192 kb/s, up to the current Opus packet-size and server-bandwidth limits.</string>
+        </property>
+        <property name="whatsThis">
+         <string>&lt;b&gt;Enable experimental high bitrate&lt;/b&gt;&lt;br /&gt;This unlocks custom voice bitrate above 192 kbit/s in the advanced audio input settings. The actual limit is still clamped by packet duration, Opus packet size and the connected server's maximum bandwidth.</string>
+        </property>
+        <property name="text">
+         <string>Enable experimental high bitrate voice</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
        <widget class="QCheckBox" name="qcbAllowLowDelay">
         <property name="toolTip">
          <string>Enable Opus' low-delay mode when the quality is set to &lt;b&gt;64 kb/s&lt;/b&gt; or higher. </string>
@@ -771,7 +797,7 @@
           </layout>
          </item>
          <item>
-          <layout class="QHBoxLayout" name="horizontalLayoutNoiseBackend">
+         <layout class="QHBoxLayout" name="horizontalLayoutNoiseBackend">
            <item>
             <widget class="QLabel" name="qlNoiseSupBackend">
              <property name="text">
@@ -794,11 +820,69 @@
               <string>Microphone speech cleanup backend</string>
              </property>
             </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="horizontalLayout_3">
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayoutNoiseModel">
+          <item>
+           <widget class="QLabel" name="qlNoiseSupModel">
+            <property name="text">
+             <string>Neural Model</string>
+            </property>
+            <property name="buddy">
+             <cstring>qcbNoiseSupModel</cstring>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="qcbNoiseSupModel">
+            <property name="toolTip">
+             <string>Select which packaged model to use for the chosen speech cleanup backend.</string>
+            </property>
+            <property name="whatsThis">
+             <string>&lt;b&gt;Neural model&lt;/b&gt;&lt;br /&gt;Chooses the model variant used by the selected speech cleanup backend.</string>
+            </property>
+            <property name="accessibleName">
+             <string>Microphone speech cleanup model</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayoutNoiseModelPath">
+          <item>
+           <widget class="QLabel" name="qlNoiseSupModelPath">
+            <property name="text">
+             <string>Custom Model File</string>
+            </property>
+            <property name="buddy">
+             <cstring>qleNoiseSupModelPath</cstring>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="qleNoiseSupModelPath">
+            <property name="toolTip">
+             <string>Path to a custom RNNoise weights blob file.</string>
+            </property>
+            <property name="accessibleName">
+             <string>Microphone speech cleanup custom model path</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="qpbNoiseSupModelPathBrowse">
+            <property name="text">
+             <string>Browse...</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayout_3">
            <item>
             <widget class="QLabel" name="qlSpeexNoiseSup">
              <property name="toolTip">
@@ -1218,6 +1302,9 @@
   <tabstop>qrbNoiseSupRNNoise</tabstop>
   <tabstop>qrbNoiseSupBoth</tabstop>
   <tabstop>qcbNoiseSupBackend</tabstop>
+  <tabstop>qcbNoiseSupModel</tabstop>
+  <tabstop>qleNoiseSupModelPath</tabstop>
+  <tabstop>qpbNoiseSupModelPathBrowse</tabstop>
   <tabstop>qsSpeexNoiseSupStrength</tabstop>
   <tabstop>qcbEnableCuePTT</tabstop>
   <tabstop>qcbEnableCueVAD</tabstop>

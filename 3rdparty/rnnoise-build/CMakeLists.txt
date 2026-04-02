@@ -57,6 +57,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(rnnoise_model)
 
 set(RNNOISE_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(RNNOISE_ASSET_OUTPUT_DIR "${CMAKE_BINARY_DIR}/rnnoise")
 file(MAKE_DIRECTORY "${RNNOISE_GENERATED_DIR}")
 
 add_custom_command(
@@ -76,8 +77,15 @@ add_custom_command(
     COMMENT "Downloading RNNoise model files"
 )
 
-target_sources(rnnoise PRIVATE
-	"${RNNOISE_GENERATED_DIR}/rnnoise_data.c"
+add_custom_target(rnnoise_generated_model_files
+	DEPENDS
+		"${RNNOISE_GENERATED_DIR}/rnnoise_data.c"
+		"${RNNOISE_GENERATED_DIR}/rnnoise_data.h"
+		"${RNNOISE_GENERATED_DIR}/rnnoise_data_little.c"
+		"${RNNOISE_GENERATED_DIR}/rnnoise_data_little.h"
+)
+
+set(RNNOISE_CORE_SOURCES
 	"${RNNOISE_SRC_DIR}/src/rnnoise_tables.c"
 	"${RNNOISE_SRC_DIR}/src/rnn.c"
 	"${RNNOISE_SRC_DIR}/src/pitch.c"
@@ -88,5 +96,50 @@ target_sources(rnnoise PRIVATE
 	"${RNNOISE_SRC_DIR}/src/denoise.c"
 	"${RNNOISE_SRC_DIR}/src/celt_lpc.c"
 )
+
+target_sources(rnnoise PRIVATE
+	"${RNNOISE_GENERATED_DIR}/rnnoise_data.c"
+	${RNNOISE_CORE_SOURCES}
+)
+
+add_dependencies(rnnoise rnnoise_generated_model_files)
+
+file(READ "${RNNOISE_SRC_DIR}/src/write_weights.c" RNNOISE_WRITE_WEIGHTS_SOURCE)
+string(REPLACE "\"rnnoise_data.c\"" "\"rnnoise_data_little.c\""
+	RNNOISE_WRITE_WEIGHTS_LITTLE_SOURCE "${RNNOISE_WRITE_WEIGHTS_SOURCE}")
+string(REPLACE "\"weights_blob.bin\"" "\"rnnoise_little.weights_blob.bin\""
+	RNNOISE_WRITE_WEIGHTS_LITTLE_SOURCE "${RNNOISE_WRITE_WEIGHTS_LITTLE_SOURCE}")
+string(REPLACE "fopen(\"rnnoise_little.weights_blob.bin\", \"w\")" "fopen(\"rnnoise_little.weights_blob.bin\", \"wb\")"
+	RNNOISE_WRITE_WEIGHTS_LITTLE_SOURCE "${RNNOISE_WRITE_WEIGHTS_LITTLE_SOURCE}")
+file(WRITE "${RNNOISE_GENERATED_DIR}/write_weights_little.c" "${RNNOISE_WRITE_WEIGHTS_LITTLE_SOURCE}")
+
+add_executable(rnnoise_write_little_weights EXCLUDE_FROM_ALL
+	"${RNNOISE_GENERATED_DIR}/write_weights_little.c"
+	${RNNOISE_CORE_SOURCES}
+)
+add_dependencies(rnnoise_write_little_weights rnnoise_generated_model_files)
+target_compile_definitions(rnnoise_write_little_weights PRIVATE "HAVE_CONFIG_H")
+target_include_directories(rnnoise_write_little_weights
+	PRIVATE SYSTEM
+		${CMAKE_CURRENT_SOURCE_DIR}
+		"${RNNOISE_GENERATED_DIR}"
+		"${RNNOISE_SRC_DIR}/include"
+		"${RNNOISE_SRC_DIR}/src"
+)
+set_target_properties(rnnoise_write_little_weights PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+target_disable_warnings(rnnoise_write_little_weights)
+
+set(RNNOISE_LITTLE_WEIGHTS_BLOB "${RNNOISE_ASSET_OUTPUT_DIR}/rnnoise_little.weights_blob.bin")
+add_custom_command(
+	OUTPUT "${RNNOISE_LITTLE_WEIGHTS_BLOB}"
+	COMMAND "${CMAKE_COMMAND}" -E make_directory "${RNNOISE_ASSET_OUTPUT_DIR}"
+	COMMAND rnnoise_write_little_weights
+	WORKING_DIRECTORY "${RNNOISE_ASSET_OUTPUT_DIR}"
+	DEPENDS rnnoise_write_little_weights
+	COMMENT "Generating RNNoise little weights blob"
+)
+add_custom_target(rnnoise_little_weights_blob ALL DEPENDS "${RNNOISE_LITTLE_WEIGHTS_BLOB}")
+
+set(RNNOISE_LITTLE_WEIGHTS_BLOB "${RNNOISE_LITTLE_WEIGHTS_BLOB}" PARENT_SCOPE)
 
 target_disable_warnings(rnnoise)

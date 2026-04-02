@@ -27,7 +27,10 @@ const std::vector< EchoCancelOption > &EchoCancelOption::getOptions() {
 		// Available only on Apple devices
 		{ EchoCancelOptionID::APPLE_AEC, QObject::tr("EXPERIMENTAL: Acoustic echo cancellation (Apple)."),
 		  QObject::tr("The support for this option is experimental only! This option works best when using built-in "
-					  "microphone and speaker.") }
+					  "microphone and speaker.") },
+		{ EchoCancelOptionID::WEBRTC_AEC, QObject::tr("EXPERIMENTAL: Echo cancellation (WebRTC)"),
+		  QObject::tr("Uses WebRTC's acoustic echo canceller on the microphone stream with speaker loopback as the "
+					  "far-end reference. This is only available in builds that include the WebRTC AEC runtime.") }
 	};
 
 	return echoCancelOptions;

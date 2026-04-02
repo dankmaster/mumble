@@ -6,11 +6,13 @@
 #ifndef MUMBLE_MUMBLE_DTLNSPEECHCLEANUP_H_
 #define MUMBLE_MUMBLE_DTLNSPEECHCLEANUP_H_
 
+#include <QString>
+
 #include <memory>
 
 class DTLNSpeechCleanup {
 public:
-	DTLNSpeechCleanup();
+	explicit DTLNSpeechCleanup(const QString &modelDirectory = QString());
 	~DTLNSpeechCleanup();
 
 	bool isReady() const;
