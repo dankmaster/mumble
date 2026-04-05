@@ -12,9 +12,13 @@ namespace {
 		}
 
 		const PersistentChatMessageGroupRowSpec &group = *row.messageGroup;
-		QStringList groupSignatureParts { row.rowId, group.header.actorLabel, group.header.timeLabel, group.header.scopeLabel };
+		QStringList groupSignatureParts { row.rowId, group.header.actorLabel, group.header.timeLabel,
+										 group.header.scopeLabel,
+										 QString::number(static_cast< int >(group.header.displayMode)) };
 		for (const PersistentChatBubbleSpec &bubble : group.bubbles) {
-			groupSignatureParts << QString::number(bubble.messageID) << bubble.bodyHtml << bubble.replyActor
+			groupSignatureParts << QString::number(bubble.messageID)
+								<< QString::number(static_cast< int >(bubble.displayMode)) << bubble.bodyHtml
+								<< bubble.transcriptActorLabel << bubble.transcriptTimeLabel << bubble.replyActor
 								<< bubble.replySnippet << bubble.actionText
 								<< QString::number(static_cast< int >(bubble.previewSpec.kind));
 		}

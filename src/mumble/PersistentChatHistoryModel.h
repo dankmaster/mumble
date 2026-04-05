@@ -37,6 +37,7 @@ struct PersistentChatLoadOlderRowSpec {
 
 struct PersistentChatTextRowSpec {
 	QString text;
+	PersistentChatDisplayMode displayMode = PersistentChatDisplayMode::Bubble;
 };
 
 struct PersistentChatMessageGroupRowSpec {

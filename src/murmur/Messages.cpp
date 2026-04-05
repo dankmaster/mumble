@@ -3037,13 +3037,14 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 	}
 
 	QString bodyText = msg.has_body_text() ? u8(msg.body_text()) : u8(msg.message());
+	bool bodyChanged = false;
 	const msdb::ChatMessageBodyFormat bodyFormat =
 		dbBodyFormatFromProto(msg.has_body_format() ? msg.body_format() : MumbleProto::ChatBodyFormatPlainText);
-	if (bodyText.isEmpty()) {
+	if (!isTextAllowed(bodyText, bodyChanged)) {
+		PERM_DENIED_TYPE(TextTooLong);
 		return;
 	}
-	if (iMaxTextMessageLength != 0 && bodyText.length() > iMaxTextMessageLength) {
-		PERM_DENIED_TYPE(TextTooLong);
+	if (bodyText.isEmpty()) {
 		return;
 	}
 	const std::optional< unsigned int > replyToMessageID =

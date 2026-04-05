@@ -23,9 +23,9 @@
 #include <QtWidgets/QScrollBar>
 
 namespace {
-	constexpr int ChatbarMinimumHeight         = 28;
+	constexpr int ChatbarMinimumHeight         = 26;
 	constexpr int ChatbarVisibleLineCount      = 5;
-	constexpr int ChatbarVerticalChromePadding = 8;
+	constexpr int ChatbarVerticalChromePadding = 6;
 }
 
 LogTextBrowser::LogTextBrowser(QWidget *p) : QTextBrowser(p) {
@@ -68,6 +68,56 @@ QTextCursor LogTextBrowser::imageCursorAt(const QPoint &position) const {
 	return QTextCursor();
 }
 
+QSize LogTextBrowser::minimumSizeHint() const {
+	const QVariant explicitSizeHint = property("persistentChatExplicitSizeHint");
+	if (explicitSizeHint.isValid()) {
+		const QSize sizeHint = explicitSizeHint.toSize();
+		if (sizeHint.isValid()) {
+			return sizeHint;
+		}
+	}
+
+	return QTextBrowser::minimumSizeHint();
+}
+
+QSize LogTextBrowser::sizeHint() const {
+	const QVariant explicitSizeHint = property("persistentChatExplicitSizeHint");
+	if (explicitSizeHint.isValid()) {
+		const QSize sizeHint = explicitSizeHint.toSize();
+		if (sizeHint.isValid()) {
+			return sizeHint;
+		}
+	}
+
+	return QTextBrowser::sizeHint();
+}
+
+bool LogTextBrowser::hasHeightForWidth() const {
+	const QVariant explicitSizeHint = property("persistentChatExplicitSizeHint");
+	if (explicitSizeHint.isValid()) {
+		const QSize sizeHint = explicitSizeHint.toSize();
+		if (sizeHint.isValid()) {
+			return true;
+		}
+	}
+
+	return QTextBrowser::hasHeightForWidth();
+}
+
+int LogTextBrowser::heightForWidth(int width) const {
+	Q_UNUSED(width);
+
+	const QVariant explicitSizeHint = property("persistentChatExplicitSizeHint");
+	if (explicitSizeHint.isValid()) {
+		const QSize sizeHint = explicitSizeHint.toSize();
+		if (sizeHint.isValid()) {
+			return sizeHint.height();
+		}
+	}
+
+	return QTextBrowser::heightForWidth(width);
+}
+
 void LogTextBrowser::mouseReleaseEvent(QMouseEvent *event) {
 	if (event && event->button() == Qt::LeftButton && anchorAt(event->pos()).isEmpty()) {
 		const QTextCursor imageCursor = imageCursorAt(event->pos());
@@ -98,6 +148,18 @@ void LogTextBrowser::resizeEvent(QResizeEvent *event) {
 	if (event->size().width() != event->oldSize().width()) {
 		emit contentWidthChanged(viewport()->width());
 	}
+}
+
+QSize LogTextBrowser::viewportSizeHint() const {
+	const QVariant explicitSizeHint = property("persistentChatExplicitSizeHint");
+	if (explicitSizeHint.isValid()) {
+		const QSize sizeHint = explicitSizeHint.toSize();
+		if (sizeHint.isValid()) {
+			return sizeHint;
+		}
+	}
+
+	return QTextBrowser::viewportSizeHint();
 }
 
 void LogTextBrowser::wheelEvent(QWheelEvent *event) {
@@ -203,6 +265,16 @@ bool ChatbarTextEdit::isShowingDefaultText() const {
 	return bDefaultVisible;
 }
 
+bool ChatbarTextEdit::sendImagesFromUrls(const QList< QUrl > &urls) {
+	if (urls.isEmpty()) {
+		return false;
+	}
+
+	QMimeData mimeData;
+	mimeData.setUrls(urls);
+	return sendImagesFromMimeData(&mimeData);
+}
+
 QSize ChatbarTextEdit::minimumSizeHint() const {
 	const int lineHeight = QFontMetrics(ChatbarTextEdit::font()).height();
 	return QSize(0, std::max(ChatbarMinimumHeight, lineHeight + ChatbarVerticalChromePadding));
@@ -247,7 +319,7 @@ void ChatbarTextEdit::doResize() {
 void ChatbarTextEdit::doScrollbar() {
 	const int documentHeight = static_cast< int >(document()->documentLayout()->documentSize().height());
 	const int availableHeight = viewport() ? viewport()->height() : height();
-	setVerticalScrollBarPolicy(documentHeight > availableHeight ? Qt::ScrollBarAlwaysOn : Qt::ScrollBarAlwaysOff);
+	setVerticalScrollBarPolicy(documentHeight > availableHeight ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
 	ensureCursorVisible();
 }
 

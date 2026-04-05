@@ -7,10 +7,10 @@ use std::time::Instant;
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
 use ini::Ini;
-use ndarray::{prelude::*, Axis};
 use tar::Archive;
 use tract_core::internal::tract_itertools::izip;
 use tract_core::internal::tract_smallvec::alloc::collections::VecDeque;
+use tract_core::ndarray::{prelude::*, Axis};
 use tract_core::ops;
 use tract_core::prelude::*;
 use tract_onnx::{prelude::*, tract_hir::shapefactoid};
@@ -75,16 +75,20 @@ impl Default for DfParams {
         #[cfg(feature = "default-model-ll")]
         {
             log::debug!("Loading model DeepFilterNet3_ll_onnx.tar.gz");
-            return DfParams::from_bytes(include_bytes!(
-                "../../models/DeepFilterNet3_ll_onnx.tar.gz"
-            ))
+            return DfParams::from_bytes(include_bytes!(concat!(
+                env!("DEEPFILTERNET_MODEL_DIR"),
+                "/DeepFilterNet3_ll_onnx.tar.gz"
+            )))
             .expect("Could not load model config");
         }
         #[cfg(feature = "default-model")]
         {
             log::debug!("Loading model DeepFilterNet3_onnx.tar.gz");
-            DfParams::from_bytes(include_bytes!("../../models/DeepFilterNet3_onnx.tar.gz"))
-                .expect("Could not load model config")
+            DfParams::from_bytes(include_bytes!(concat!(
+                env!("DEEPFILTERNET_MODEL_DIR"),
+                "/DeepFilterNet3_onnx.tar.gz"
+            )))
+            .expect("Could not load model config")
         }
         #[cfg(not(feature = "default-model"))]
         panic!("Not compiled with a default model")
@@ -772,7 +776,7 @@ fn init_encoder_impl(
     n_ch: usize,
 ) -> Result<TypedModel> {
     log::debug!("Start init encoder.");
-    let s = m.symbol_table.sym("S");
+    let s = m.symbols.sym("S");
 
     let nb_erb = df_cfg.get("nb_erb").unwrap().parse::<usize>()?;
     let nb_df = df_cfg.get("nb_df").unwrap().parse::<usize>()?;
@@ -821,7 +825,7 @@ fn init_erb_decoder_impl(
     mask_reduction: Option<ReduceMask>,
 ) -> Result<TypedModel> {
     log::debug!("Start init ERB decoder.");
-    let s = m.symbol_table.sym("S");
+    let s = m.symbols.sym("S");
 
     let nb_erb = df_cfg.get("nb_erb").unwrap().parse::<usize>()?;
     let layer_width = net_cfg.get("conv_ch").unwrap().parse::<usize>()?;
@@ -934,7 +938,7 @@ fn init_df_decoder_impl(
     n_ch: usize,
 ) -> Result<TypedModel> {
     log::debug!("Start init DF decoder.");
-    let s = m.symbol_table.sym("S");
+    let s = m.symbols.sym("S");
 
     let nb_erb = df_cfg.get("nb_erb").unwrap().parse::<usize>()?;
     let nb_df = df_cfg.get("nb_df").unwrap().parse::<usize>()?;

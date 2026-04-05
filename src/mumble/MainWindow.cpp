@@ -91,10 +91,12 @@
 #include <QtCore/QSignalBlocker>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QUrlQuery>
+#include <QtGui/QMouseEvent>
 #include <QtGui/QClipboard>
 #include <QtGui/QDesktopServices>
 #include <QtGui/QImageReader>
 #include <QtGui/QPainter>
+#include <QtGui/QPainterPath>
 #include <QtGui/QScreen>
 #include <QtGui/QTextDocument>
 #include <QtGui/QTextDocumentFragment>
@@ -106,6 +108,7 @@
 #include <QtNetwork/QHostAddress>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
+#include <QtWidgets/QApplication>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QFrame>
 #include <QtWidgets/QFormLayout>
@@ -156,6 +159,545 @@ namespace {
 	constexpr int PersistentChatUnreadRole  = Qt::UserRole + 5;
 	constexpr int LocalServerLogScope       = -1;
 	constexpr int PersistentChatBottomInsetHeight = 18;
+
+	enum class PersistentChatComposerGlyph {
+		Attach,
+		Send
+	};
+
+	QColor alphaColor(const QColor &color, qreal alpha) {
+		QColor adjusted = color;
+		adjusted.setAlphaF(qBound< qreal >(0.0, alpha, 1.0));
+		return adjusted;
+	}
+
+	QPixmap tintedIconPixmap(const QIcon &icon, const QSize &size, const QColor &color) {
+		const QSize effectiveSize = size.isValid() ? size : QSize(16, 16);
+		QPixmap pixmap            = icon.pixmap(effectiveSize);
+		if (pixmap.isNull()) {
+			return pixmap;
+		}
+
+		QPainter painter(&pixmap);
+		painter.setRenderHint(QPainter::Antialiasing, true);
+		painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+		painter.fillRect(pixmap.rect(), color);
+		return pixmap;
+	}
+
+	QPointF composerGlyphPoint(const QRectF &rect, qreal x, qreal y) {
+		return QPointF(rect.left() + (rect.width() * x / 18.0), rect.top() + (rect.height() * y / 18.0));
+	}
+
+	QPainterPath persistentChatComposerGlyphPath(PersistentChatComposerGlyph glyph, const QRectF &rect) {
+		QPainterPath path;
+		switch (glyph) {
+			case PersistentChatComposerGlyph::Attach:
+				path.moveTo(composerGlyphPoint(rect, 11.9, 4.2));
+				path.cubicTo(composerGlyphPoint(rect, 11.1, 3.6), composerGlyphPoint(rect, 10.2, 3.3),
+							 composerGlyphPoint(rect, 9.2, 3.3));
+				path.cubicTo(composerGlyphPoint(rect, 7.2, 3.3), composerGlyphPoint(rect, 5.6, 4.9),
+							 composerGlyphPoint(rect, 5.6, 6.9));
+				path.lineTo(composerGlyphPoint(rect, 5.6, 11.8));
+				path.cubicTo(composerGlyphPoint(rect, 5.6, 14.1), composerGlyphPoint(rect, 7.5, 16.0),
+							 composerGlyphPoint(rect, 9.8, 16.0));
+				path.cubicTo(composerGlyphPoint(rect, 12.1, 16.0), composerGlyphPoint(rect, 14.0, 14.1),
+							 composerGlyphPoint(rect, 14.0, 11.8));
+				path.lineTo(composerGlyphPoint(rect, 14.0, 7.3));
+				path.cubicTo(composerGlyphPoint(rect, 14.0, 5.7), composerGlyphPoint(rect, 12.7, 4.5),
+							 composerGlyphPoint(rect, 11.1, 4.5));
+				path.cubicTo(composerGlyphPoint(rect, 9.6, 4.5), composerGlyphPoint(rect, 8.3, 5.7),
+							 composerGlyphPoint(rect, 8.3, 7.3));
+				path.lineTo(composerGlyphPoint(rect, 8.3, 11.3));
+				path.cubicTo(composerGlyphPoint(rect, 8.3, 12.2), composerGlyphPoint(rect, 9.0, 12.9),
+							 composerGlyphPoint(rect, 9.9, 12.9));
+				path.cubicTo(composerGlyphPoint(rect, 10.8, 12.9), composerGlyphPoint(rect, 11.5, 12.2),
+							 composerGlyphPoint(rect, 11.5, 11.3));
+				break;
+			case PersistentChatComposerGlyph::Send:
+				path.moveTo(composerGlyphPoint(rect, 2.4, 8.9));
+				path.lineTo(composerGlyphPoint(rect, 15.5, 2.4));
+				path.lineTo(composerGlyphPoint(rect, 11.0, 15.6));
+				path.lineTo(composerGlyphPoint(rect, 8.6, 10.3));
+				path.lineTo(composerGlyphPoint(rect, 2.4, 8.9));
+				break;
+		}
+
+		return path;
+	}
+
+	QPixmap persistentChatComposerGlyphPixmap(PersistentChatComposerGlyph glyph, const QSize &size, const QColor &color) {
+		const QSize effectiveSize = size.isValid() ? size : QSize(18, 18);
+		QPixmap pixmap(effectiveSize);
+		pixmap.fill(Qt::transparent);
+
+		QPainter painter(&pixmap);
+		painter.setRenderHint(QPainter::Antialiasing, true);
+		QPen pen(color, glyph == PersistentChatComposerGlyph::Attach ? 1.55 : 1.45, Qt::SolidLine, Qt::RoundCap,
+				 Qt::RoundJoin);
+		painter.setPen(pen);
+		painter.setBrush(Qt::NoBrush);
+
+		const QRectF glyphRect(1.0, 1.0, effectiveSize.width() - 2.0, effectiveSize.height() - 2.0);
+		painter.drawPath(persistentChatComposerGlyphPath(glyph, glyphRect));
+		if (glyph == PersistentChatComposerGlyph::Send) {
+			painter.drawLine(composerGlyphPoint(glyphRect, 2.4, 8.9), composerGlyphPoint(glyphRect, 8.6, 10.3));
+		}
+
+		return pixmap;
+	}
+
+	QIcon persistentChatComposerGlyphIcon(PersistentChatComposerGlyph glyph, const QSize &size, const QColor &normalColor,
+										  const QColor &activeColor, const QColor &disabledColor) {
+		QIcon icon;
+		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, normalColor), QIcon::Normal);
+		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, activeColor), QIcon::Active);
+		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, activeColor), QIcon::Selected);
+		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, disabledColor), QIcon::Disabled);
+		return icon;
+	}
+
+	QPixmap serverNavigatorSelfAvatarPixmap(const QString &initial, const QSize &size, const QColor &backgroundColor,
+											const QColor &textColor, const QColor &presenceColor,
+											const QColor &presenceRingColor) {
+		const QSize effectiveSize = size.isValid() ? size : QSize(24, 24);
+		QPixmap pixmap(effectiveSize);
+		pixmap.fill(Qt::transparent);
+
+		QPainter painter(&pixmap);
+		painter.setRenderHint(QPainter::Antialiasing, true);
+		const QRectF avatarRect(0.5, 0.5, effectiveSize.width() - 1.0, effectiveSize.height() - 1.0);
+		painter.setPen(Qt::NoPen);
+		painter.setBrush(backgroundColor);
+		painter.drawEllipse(avatarRect);
+
+		QFont avatarFont;
+		avatarFont.setBold(true);
+		avatarFont.setPixelSize(std::max(11, effectiveSize.height() / 2));
+		painter.setFont(avatarFont);
+		painter.setPen(textColor);
+		painter.drawText(avatarRect.adjusted(0.0, -0.5, 0.0, 0.0), Qt::AlignCenter, initial.left(1).toUpper());
+
+		const qreal ringDiameter = std::max< qreal >(9.0, effectiveSize.width() * 0.42);
+		const qreal dotDiameter  = ringDiameter - 3.0;
+		const QRectF ringRect(avatarRect.right() - ringDiameter + 0.5, avatarRect.bottom() - ringDiameter + 0.5,
+							  ringDiameter, ringDiameter);
+		const QRectF dotRect(ringRect.center().x() - dotDiameter / 2.0, ringRect.center().y() - dotDiameter / 2.0,
+							 dotDiameter, dotDiameter);
+		painter.setBrush(presenceRingColor);
+		painter.drawEllipse(ringRect);
+		painter.setBrush(presenceColor);
+		painter.drawEllipse(dotRect);
+
+		return pixmap;
+	}
+
+	enum class ServerNavigatorPresenceState {
+		Online,
+		Away,
+		Muted,
+		Deafened
+	};
+
+	QString serverNavigatorPresenceStateLabel(ServerNavigatorPresenceState state) {
+		switch (state) {
+			case ServerNavigatorPresenceState::Away:
+				return QObject::tr("Away");
+			case ServerNavigatorPresenceState::Muted:
+				return QObject::tr("Muted");
+			case ServerNavigatorPresenceState::Deafened:
+				return QObject::tr("Deafened");
+			case ServerNavigatorPresenceState::Online:
+			default:
+				return QObject::tr("Online");
+		}
+	}
+
+	struct ServerNavigatorPresenceDisplay {
+		QString name;
+		QString label;
+		ServerNavigatorPresenceState currentState = ServerNavigatorPresenceState::Online;
+		QColor presenceColor;
+		QColor onlineColor;
+		QColor awayColor;
+		QColor mutedStateColor;
+		QColor deafenedColor;
+		QColor mutedTextColor;
+		QColor textColor;
+		QColor avatarBackgroundColor;
+		QColor avatarTextColor;
+		QColor presenceRingColor;
+		QColor panelColor;
+		QColor borderColor;
+		QColor hoverColor;
+		QColor selectedColor;
+		QColor dividerColor;
+		QColor dangerColor;
+	};
+
+	QColor serverNavigatorPresenceStateColor(const ServerNavigatorPresenceDisplay &display,
+											 ServerNavigatorPresenceState state) {
+		switch (state) {
+			case ServerNavigatorPresenceState::Away:
+				return display.awayColor;
+			case ServerNavigatorPresenceState::Muted:
+				return display.mutedStateColor;
+			case ServerNavigatorPresenceState::Deafened:
+				return display.deafenedColor;
+			case ServerNavigatorPresenceState::Online:
+			default:
+				return display.onlineColor;
+		}
+	}
+
+	QPixmap serverNavigatorStatusDotPixmap(const QSize &size, const QColor &fillColor, const QColor &ringColor = QColor()) {
+		const QSize effectiveSize = size.isValid() ? size : QSize(10, 10);
+		QPixmap pixmap(effectiveSize);
+		pixmap.fill(Qt::transparent);
+
+		QPainter painter(&pixmap);
+		painter.setRenderHint(QPainter::Antialiasing, true);
+		const QRectF dotRect(1.0, 1.0, effectiveSize.width() - 2.0, effectiveSize.height() - 2.0);
+		if (ringColor.isValid() && ringColor.alpha() > 0) {
+			painter.setPen(Qt::NoPen);
+			painter.setBrush(ringColor);
+			painter.drawEllipse(dotRect);
+			painter.setBrush(fillColor);
+			painter.drawEllipse(dotRect.adjusted(1.5, 1.5, -1.5, -1.5));
+		} else {
+			painter.setPen(Qt::NoPen);
+			painter.setBrush(fillColor);
+			painter.drawEllipse(dotRect);
+		}
+
+		return pixmap;
+	}
+
+	QIcon serverNavigatorSkinIcon(const QString &skinPath) {
+		QIcon icon;
+		SvgIcon::addSvgPixmapsToIcon(icon, skinPath);
+		return icon;
+	}
+
+	class ServerNavigatorUserMenuPopup : public QFrame {
+	public:
+		explicit ServerNavigatorUserMenuPopup(QWidget *parent = nullptr) : QFrame(parent) {
+			setObjectName(QLatin1String("qwServerNavigatorUserMenuPopup"));
+			setAttribute(Qt::WA_StyledBackground, false);
+			setAttribute(Qt::WA_TranslucentBackground, true);
+			setFocusPolicy(Qt::StrongFocus);
+			setFixedWidth(214);
+
+			QVBoxLayout *layout = new QVBoxLayout(this);
+			layout->setContentsMargins(8, 8, 8, 18);
+			layout->setSpacing(0);
+
+			QFrame *headerFrame = new QFrame(this);
+			headerFrame->setObjectName(QLatin1String("qfServerNavigatorUserMenuHeader"));
+			headerFrame->setAttribute(Qt::WA_StyledBackground, true);
+			QHBoxLayout *headerLayout = new QHBoxLayout(headerFrame);
+			headerLayout->setContentsMargins(14, 10, 14, 12);
+			headerLayout->setSpacing(10);
+
+			m_avatarLabel = new QLabel(headerFrame);
+			m_avatarLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuAvatar"));
+			m_avatarLabel->setAlignment(Qt::AlignCenter);
+			m_avatarLabel->setFixedSize(38, 38);
+
+			QWidget *headerTextWidget = new QWidget(headerFrame);
+			QVBoxLayout *headerTextLayout = new QVBoxLayout(headerTextWidget);
+			headerTextLayout->setContentsMargins(0, 0, 0, 0);
+			headerTextLayout->setSpacing(1);
+
+			m_nameLabel = new QLabel(QObject::tr("You"), headerTextWidget);
+			m_nameLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuName"));
+			m_nameLabel->setTextFormat(Qt::PlainText);
+			QFont nameFont = m_nameLabel->font();
+			nameFont.setBold(true);
+			nameFont.setPointSizeF(std::max(nameFont.pointSizeF() - 0.4, 10.2));
+			m_nameLabel->setFont(nameFont);
+
+			m_statusLabel = new QLabel(QObject::tr("Online"), headerTextWidget);
+			m_statusLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuStatus"));
+			m_statusLabel->setTextFormat(Qt::PlainText);
+			QFont statusFont = m_statusLabel->font();
+			statusFont.setPointSizeF(std::max(statusFont.pointSizeF() - 1.0, 8.8));
+			m_statusLabel->setFont(statusFont);
+
+			headerTextLayout->addWidget(m_nameLabel);
+			headerTextLayout->addWidget(m_statusLabel);
+			headerLayout->addWidget(m_avatarLabel, 0, Qt::AlignTop);
+			headerLayout->addWidget(headerTextWidget, 1, Qt::AlignVCenter);
+
+			m_stateList = new QWidget(this);
+			QVBoxLayout *stateListLayout = new QVBoxLayout(m_stateList);
+			stateListLayout->setContentsMargins(0, 0, 0, 0);
+			stateListLayout->setSpacing(1);
+
+			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Online);
+			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Away);
+			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Muted);
+			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Deafened);
+
+			m_muteButton = createActionButton(QObject::tr("Self mute"), true, QLatin1String("neutral"));
+			m_deafButton = createActionButton(QObject::tr("Self deafen"), true, QLatin1String("neutral"));
+			m_settingsButton = createActionButton(QObject::tr("Settings"), false, QLatin1String("neutral"));
+			m_disconnectButton = createActionButton(QObject::tr("Disconnect"), false, QLatin1String("danger"));
+
+			layout->addWidget(headerFrame);
+			layout->addSpacing(4);
+			layout->addWidget(m_stateList);
+			layout->addSpacing(5);
+			layout->addWidget(createSeparator());
+			layout->addSpacing(5);
+			layout->addWidget(m_muteButton);
+			layout->addWidget(m_deafButton);
+			layout->addSpacing(5);
+			layout->addWidget(createSeparator());
+			layout->addSpacing(5);
+			layout->addWidget(m_settingsButton);
+			layout->addSpacing(5);
+			layout->addWidget(createSeparator());
+			layout->addSpacing(5);
+			layout->addWidget(m_disconnectButton);
+		}
+
+		void sync(const ServerNavigatorPresenceDisplay &display, bool muteChecked, bool deafChecked, bool settingsEnabled,
+				  bool disconnectEnabled) {
+			m_panelColor   = display.panelColor;
+			m_borderColor  = display.borderColor;
+			m_arrowFill    = display.panelColor;
+			m_arrowOutline = display.borderColor;
+
+			m_avatarLabel->setPixmap(serverNavigatorSelfAvatarPixmap(display.name.left(1), m_avatarLabel->size(),
+																 display.avatarBackgroundColor, display.avatarTextColor,
+																 display.presenceColor, display.presenceRingColor));
+			m_nameLabel->setText(display.name);
+			m_statusLabel->setText(display.label);
+			m_statusLabel->setStyleSheet(
+				QString::fromLatin1("color:%1;").arg(display.presenceColor.name(QColor::HexArgb)));
+
+			m_preferredFocusButton = nullptr;
+			for (const PresenceRowWidgets &row : m_presenceRows) {
+				const QColor rowColor = serverNavigatorPresenceStateColor(display, row.state);
+				const bool selected   = row.state == display.currentState;
+				const bool interactive = row.state != ServerNavigatorPresenceState::Away;
+				const QColor rowBackground = selected ? alphaColor(rowColor, 0.14) : QColor(Qt::transparent);
+				const QColor rowTextColor = selected ? display.textColor : display.mutedTextColor;
+				const QColor hoverBackground = interactive ? display.hoverColor : rowBackground;
+				const QColor hoverTextColor = interactive ? display.textColor : rowTextColor;
+				row.button->setIcon(QIcon(serverNavigatorStatusDotPixmap(row.button->iconSize(), rowColor)));
+				row.button->setToolTip(interactive ? QString() : QObject::tr("Away is shown automatically when you are idle."));
+				row.button->setStyleSheet(
+					QString::fromLatin1("QPushButton {"
+										" border: none;"
+										" border-radius: 5px;"
+										" background: %1;"
+										" color: %2;"
+										" font-size: 12px;"
+										" padding: 6px 10px;"
+										" text-align: left;"
+										"}"
+										"QPushButton:hover {"
+										" background: %3;"
+										" color: %4;"
+										"}")
+						.arg(rowBackground.name(QColor::HexArgb), rowTextColor.name(QColor::HexArgb),
+							 hoverBackground.name(QColor::HexArgb), hoverTextColor.name(QColor::HexArgb)));
+				if (selected && interactive) {
+					m_preferredFocusButton = row.button;
+				}
+			}
+
+			m_muteButton->setChecked(muteChecked);
+			m_deafButton->setChecked(deafChecked);
+			m_settingsButton->setEnabled(settingsEnabled);
+			m_disconnectButton->setEnabled(disconnectEnabled);
+			if (!m_preferredFocusButton) {
+				m_preferredFocusButton = m_muteButton;
+			}
+
+			QColor neutralActionColor = display.textColor;
+			neutralActionColor.setAlphaF(0.72f);
+			const QColor neutralIconColor = neutralActionColor;
+			const QColor dangerIconColor  = display.dangerColor;
+			m_muteButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:muted_self.svg")),
+													 QSize(14, 14), neutralIconColor)));
+			m_deafButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:deafened_self.svg")),
+													 QSize(14, 14), neutralIconColor)));
+			m_settingsButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:config_ui.svg")),
+														 QSize(14, 14), neutralIconColor)));
+			m_disconnectButton->setIcon(
+				QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:disconnect.svg")), QSize(14, 14),
+									  dangerIconColor)));
+
+			const QString colorText = display.textColor.name(QColor::HexArgb);
+			const QString colorMuted = neutralActionColor.name(QColor::HexArgb);
+			const QString colorHover = display.hoverColor.name(QColor::HexArgb);
+			const QString colorSelected = display.selectedColor.name(QColor::HexArgb);
+			const QString colorDivider = display.dividerColor.name(QColor::HexArgb);
+			const QString colorDanger = display.dangerColor.name(QColor::HexArgb);
+			setStyleSheet(QString::fromLatin1(
+							  "QFrame#qfServerNavigatorUserMenuHeader {"
+							  " border-bottom: 1px solid %1;"
+							  "}"
+							  "QLabel#qlServerNavigatorUserMenuName {"
+							  " color: %3;"
+							  "}"
+							  "QFrame#qfServerNavigatorUserMenuSeparator {"
+							  " background: %1;"
+							  "}"
+							  "QPushButton[serverNavigatorMenuRow='true'] {"
+							  " border: none;"
+							  " border-radius: 5px;"
+							  " background: transparent;"
+							  " color: %4;"
+							  " font-size: 12px;"
+							  " padding: 6px 10px;"
+							  " text-align: left;"
+							  "}"
+							  "QPushButton[serverNavigatorMenuRow='true']:hover {"
+							  " background: %5;"
+							  " color: %3;"
+							  "}"
+							  "QPushButton[serverNavigatorMenuRow='true']:checked {"
+							  " background: %6;"
+							  " color: %3;"
+							  "}"
+							  "QPushButton[serverNavigatorMenuRole='danger'] {"
+							  " color: %7;"
+							  "}"
+							  "QPushButton[serverNavigatorMenuRole='danger']:hover {"
+							  " background: %5;"
+							  " color: %7;"
+							  "}"
+							  "QPushButton[serverNavigatorMenuRow='true']:disabled {"
+							  " color: %4;"
+							  "}")
+							  .arg(colorDivider, colorSelected, colorText, colorMuted, colorHover, colorSelected,
+								   colorDanger));
+			adjustSize();
+			update();
+		}
+
+		void setArrowCenterX(int x) {
+			m_arrowCenterX = x;
+			update();
+		}
+
+		QPushButton *presenceButton(ServerNavigatorPresenceState state) const {
+			for (const PresenceRowWidgets &row : m_presenceRows) {
+				if (row.state == state) {
+					return row.button;
+				}
+			}
+
+			return nullptr;
+		}
+
+		QPushButton *preferredFocusButton() const {
+			return m_preferredFocusButton ? m_preferredFocusButton : m_muteButton;
+		}
+
+		QPushButton *muteButton() const {
+			return m_muteButton;
+		}
+
+		QPushButton *deafButton() const {
+			return m_deafButton;
+		}
+
+		QPushButton *settingsButton() const {
+			return m_settingsButton;
+		}
+
+		QPushButton *disconnectButton() const {
+			return m_disconnectButton;
+		}
+
+	protected:
+		void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE {
+			Q_UNUSED(event);
+
+			QPainter painter(this);
+			painter.setRenderHint(QPainter::Antialiasing, true);
+
+			constexpr qreal arrowHeight = 10.0;
+			constexpr qreal arrowHalfWidth = 8.0;
+			const QRectF bubbleRect = rect().adjusted(0.5, 0.5, -0.5, -arrowHeight - 0.5);
+			const qreal arrowCenter =
+				qBound(bubbleRect.left() + 20.0, static_cast< qreal >(m_arrowCenterX), bubbleRect.right() - 20.0);
+
+			QPainterPath bubblePath;
+			bubblePath.addRoundedRect(bubbleRect, 10.0, 10.0);
+
+			QPainterPath arrowPath;
+			arrowPath.moveTo(arrowCenter - arrowHalfWidth, bubbleRect.bottom());
+			arrowPath.lineTo(arrowCenter, bubbleRect.bottom() + arrowHeight);
+			arrowPath.lineTo(arrowCenter + arrowHalfWidth, bubbleRect.bottom());
+			arrowPath.closeSubpath();
+
+			const QPainterPath popupPath = bubblePath.united(arrowPath);
+			painter.setPen(QPen(m_borderColor, 1.0));
+			painter.setBrush(m_panelColor);
+			painter.drawPath(popupPath);
+		}
+
+	private:
+		struct PresenceRowWidgets {
+			ServerNavigatorPresenceState state = ServerNavigatorPresenceState::Online;
+			QPushButton *button = nullptr;
+		};
+
+		void addPresenceRow(QVBoxLayout *layout, ServerNavigatorPresenceState state) {
+			QPushButton *button = new QPushButton(serverNavigatorPresenceStateLabel(state), m_stateList);
+			button->setProperty("serverNavigatorPresenceRow", true);
+			button->setCursor(state == ServerNavigatorPresenceState::Away ? Qt::ArrowCursor : Qt::PointingHandCursor);
+			button->setFlat(true);
+			button->setIconSize(QSize(9, 9));
+			button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+			button->setFocusPolicy(state == ServerNavigatorPresenceState::Away ? Qt::NoFocus : Qt::StrongFocus);
+			layout->addWidget(button);
+			m_presenceRows << PresenceRowWidgets{ state, button };
+		}
+
+		QPushButton *createActionButton(const QString &label, bool checkable, const QString &role) {
+			QPushButton *button = new QPushButton(label, this);
+			button->setProperty("serverNavigatorMenuRow", true);
+			button->setProperty("serverNavigatorMenuRole", role);
+			button->setCheckable(checkable);
+			button->setCursor(Qt::PointingHandCursor);
+			button->setFlat(true);
+			button->setIconSize(QSize(14, 14));
+			button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+			return button;
+		}
+
+		QWidget *createSeparator() {
+			QFrame *separator = new QFrame(this);
+			separator->setObjectName(QLatin1String("qfServerNavigatorUserMenuSeparator"));
+			separator->setAttribute(Qt::WA_StyledBackground, true);
+			separator->setFixedHeight(1);
+			return separator;
+		}
+
+		QLabel *m_avatarLabel = nullptr;
+		QLabel *m_nameLabel = nullptr;
+		QLabel *m_statusLabel = nullptr;
+		QWidget *m_stateList = nullptr;
+		QList< PresenceRowWidgets > m_presenceRows;
+		QPushButton *m_preferredFocusButton = nullptr;
+		QPushButton *m_muteButton = nullptr;
+		QPushButton *m_deafButton = nullptr;
+		QPushButton *m_settingsButton = nullptr;
+		QPushButton *m_disconnectButton = nullptr;
+		int m_arrowCenterX = 170;
+		QColor m_panelColor = QColor(46, 51, 60);
+		QColor m_borderColor = QColor(58, 63, 74);
+		QColor m_arrowFill = QColor(46, 51, 60);
+		QColor m_arrowOutline = QColor(58, 63, 74);
+	};
+
 	bool chatMessageLessThan(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
 		const quint64 lhsCreatedAt = lhs.has_created_at() ? lhs.created_at() : 0;
 		const quint64 rhsCreatedAt = rhs.has_created_at() ? rhs.created_at() : 0;
@@ -549,7 +1091,7 @@ namespace {
 				return hint;
 			}
 
-			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 12));
+			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 10));
 		}
 
 		void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
@@ -571,11 +1113,12 @@ namespace {
 				scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal);
 			const bool textChannelRow = scopeValue == static_cast< int >(MumbleProto::TextChannel);
 			const bool voiceChannelRow = scopeValue == static_cast< int >(MumbleProto::Channel);
+			static const QIcon s_voiceRoomIcon(QLatin1String("skin:priority_speaker.svg"));
 
 			QString chipText = QStringLiteral("#");
 			switch (scopeValue) {
 				case LocalServerLogScope:
-					chipText = QObject::tr("ACT");
+					chipText = QObject::tr("LOG");
 					break;
 				case static_cast< int >(MumbleProto::ServerGlobal):
 					chipText = QObject::tr("ALL");
@@ -584,17 +1127,21 @@ namespace {
 					chipText = QObject::tr("VC");
 					break;
 				case static_cast< int >(MumbleProto::TextChannel):
-					chipText = QStringLiteral("#");
+					chipText = QObject::tr("TXT");
 					break;
 				default:
 					break;
 			}
 
 			if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-				const QColor backgroundColor =
-					selected ? tokens->accentSubtle : (hovered ? tokens->overlay : QColor(Qt::transparent));
+				QColor backgroundColor(Qt::transparent);
+				if (selected) {
+					backgroundColor = alphaColor(tokens->surface1, 0.42);
+				} else if (hovered) {
+					backgroundColor = alphaColor(tokens->surface1, 0.24);
+				}
 				const QColor textColor =
-					selected ? (utilityRow ? tokens->textPrimary : tokens->accent)
+					selected ? tokens->textPrimary
 							 : ((hovered || unreadCount > 0 || utilityRow || voiceChannelRow) ? tokens->textPrimary
 																							  : tokens->textSecondary);
 				const QColor secondaryTextColor = selected ? textColor : tokens->textMuted;
@@ -602,14 +1149,17 @@ namespace {
 				const QColor unreadTextColor    = tokens->accent;
 				const QColor chipFillColor =
 					scopeValue == LocalServerLogScope
-						? tokens->orange
+						? alphaColor(tokens->yellow, 0.82)
 						: (scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
-							   ? tokens->purple
-							   : (voiceChannelRow ? tokens->green : QColor(Qt::transparent)));
+							   ? alphaColor(tokens->accent, 0.18)
+							   : (textChannelRow
+									  ? (selected ? alphaColor(tokens->accent, 0.18) : alphaColor(tokens->surface1, 0.62))
+									  : QColor(Qt::transparent)));
 				const QColor chipTextColor =
 					scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
 						? tokens->crust
-						: (voiceChannelRow ? tokens->crust : secondaryTextColor);
+						: (textChannelRow ? (selected ? tokens->accent : tokens->textMuted) : secondaryTextColor);
+				const QColor voiceIconColor = selected ? tokens->accent : secondaryTextColor;
 
 				QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
 				painter->save();
@@ -620,10 +1170,10 @@ namespace {
 					painter->drawRoundedRect(rowRect, 8.0f, 8.0f);
 				}
 				if (selected && rowRect.isValid()) {
-					const QRect accentRect(rowRect.left(), rowRect.top() + 3, 2, rowRect.height() - 6);
+					const QRect accentRect(rowRect.left(), rowRect.top() + 3, 3, rowRect.height() - 6);
 					painter->setPen(Qt::NoPen);
 					painter->setBrush(tokens->accent);
-					painter->drawRoundedRect(accentRect, 1.0f, 1.0f);
+					painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
 				}
 
 				QFont chipFont(opt.font);
@@ -632,17 +1182,24 @@ namespace {
 				const QFontMetrics chipMetrics(chipFont);
 
 				int x = rowRect.left() + 8;
-				const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
-				const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
-				if (chipFillColor.alpha() > 0) {
-					painter->setPen(Qt::NoPen);
-					painter->setBrush(chipFillColor);
-					painter->drawRoundedRect(chipRect, 3.0f, 3.0f);
+				if (voiceChannelRow) {
+					const QRect iconRect(x, rowRect.center().y() - 6, 12, 12);
+					painter->drawPixmap(iconRect.topLeft(),
+										tintedIconPixmap(s_voiceRoomIcon, iconRect.size(), voiceIconColor));
+					x = iconRect.right() + 8;
+				} else {
+					const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
+					const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
+					if (chipFillColor.alpha() > 0) {
+						painter->setPen(Qt::NoPen);
+						painter->setBrush(chipFillColor);
+						painter->drawRoundedRect(chipRect, 4.0f, 4.0f);
+					}
+					painter->setPen(chipTextColor);
+					painter->setFont(chipFont);
+					painter->drawText(chipRect, Qt::AlignCenter, chipText);
+					x = chipRect.right() + 8;
 				}
-				painter->setPen(chipTextColor);
-				painter->setFont(chipFont);
-				painter->drawText(chipRect, Qt::AlignCenter, chipText);
-				x = chipRect.right() + 8;
 
 				int textRight = rowRect.right() - 8;
 				if (unreadCount > 0) {
@@ -676,13 +1233,12 @@ namespace {
 				mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.04 : 0.02);
 			const QColor channelHoverColor =
 				mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.03 : 0.02);
-			const QColor channelSelectedColor =
-				mixColors(channelRowColor, chrome.accentColor, chrome.darkTheme ? 0.18 : 0.10);
 			const QColor utilityOutlineColor =
 				mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.05);
 			const QColor rowFillColor =
 				selected
-					? (utilityRow ? chrome.selectedColor : channelSelectedColor)
+					? (utilityRow ? mixColors(utilityRowColor, chrome.selectedColor, chrome.darkTheme ? 0.22 : 0.14)
+								  : mixColors(channelRowColor, chrome.accentColor, chrome.darkTheme ? 0.10 : 0.06))
 					: (hovered ? (utilityRow
 									  ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.03)
 									  : channelHoverColor)
@@ -692,33 +1248,34 @@ namespace {
 						 : (utilityRow ? utilityOutlineColor : QColor(Qt::transparent));
 			const QColor textColor =
 				selected
-					? chrome.selectedTextColor
+					? chrome.textColor
 					: ((textChannelRow || voiceChannelRow) && unreadCount == 0
 						   ? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.10 : 0.05)
 						   : chrome.textColor);
 			const QColor mutedTextColor =
 				selected
-					? chrome.selectedTextColor
+					? chrome.textColor
 					: ((textChannelRow || voiceChannelRow)
 						   ? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.18 : 0.10)
 						   : chrome.mutedTextColor);
 			const QColor chipFillColor =
-				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.12 : 0.08)
-						 : (utilityRow
-								? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06)
-								: (textChannelRow
-									   ? QColor(Qt::transparent)
-									   : (voiceChannelRow
-											  ? mixColors(channelRowColor, QColor::fromRgb(76, 175, 80), chrome.darkTheme ? 0.82 : 0.72)
-											  : mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.05))));
+				selected
+					? (textChannelRow
+						   ? mixColors(chrome.selectedColor, chrome.panelColor, chrome.darkTheme ? 0.22 : 0.14)
+						   : mixColors(chrome.selectedColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.05))
+					: (utilityRow ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06)
+								  : (textChannelRow
+										 ? mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.08)
+										 : QColor(Qt::transparent)));
 			const QColor chipTextColor =
-				voiceChannelRow ? mixColors(chrome.panelColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.04)
-								: (selected ? chrome.selectedTextColor : mutedTextColor);
+				textChannelRow ? (selected ? chrome.selectedTextColor : mutedTextColor)
+							   : (selected ? chrome.textColor : mutedTextColor);
 			const QColor unreadFillColor =
 				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.16 : 0.10)
 						 : mixColors(chrome.selectedColor, utilityRow ? utilityRowColor : channelRowColor,
 									 chrome.darkTheme ? 0.44 : 0.28);
 			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
+			const QColor voiceIconColor  = selected ? chrome.accentColor : mutedTextColor;
 
 			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
 			painter->save();
@@ -728,6 +1285,12 @@ namespace {
 				painter->setBrush(rowFillColor);
 				painter->drawRoundedRect(rowRect, 10.0f, 10.0f);
 			}
+			if (selected && rowRect.isValid()) {
+				const QRect accentRect(rowRect.left(), rowRect.top() + 3, 3, rowRect.height() - 6);
+				painter->setPen(Qt::NoPen);
+				painter->setBrush(chrome.accentColor);
+				painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
+			}
 
 			QFont chipFont(opt.font);
 			chipFont.setBold(true);
@@ -735,17 +1298,24 @@ namespace {
 			const QFontMetrics chipMetrics(chipFont);
 
 			int x = rowRect.left() + 8;
-			const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
-			const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
-			if (chipFillColor.alpha() > 0) {
-				painter->setPen(Qt::NoPen);
-				painter->setBrush(chipFillColor);
-				painter->drawRoundedRect(chipRect, 9.0f, 9.0f);
+			if (voiceChannelRow) {
+				const QRect iconRect(x, rowRect.center().y() - 6, 12, 12);
+				painter->drawPixmap(iconRect.topLeft(),
+									tintedIconPixmap(s_voiceRoomIcon, iconRect.size(), voiceIconColor));
+				x = iconRect.right() + 8;
+			} else {
+				const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
+				const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
+				if (chipFillColor.alpha() > 0) {
+					painter->setPen(Qt::NoPen);
+					painter->setBrush(chipFillColor);
+					painter->drawRoundedRect(chipRect, 4.0f, 4.0f);
+				}
+				painter->setPen(chipTextColor);
+				painter->setFont(chipFont);
+				painter->drawText(chipRect, Qt::AlignCenter, chipText);
+				x = chipRect.right() + 8;
 			}
-			painter->setPen(chipTextColor);
-			painter->setFont(chipFont);
-			painter->drawText(chipRect, Qt::AlignCenter, chipText);
-			x = chipRect.right() + 8;
 
 			int textRight = rowRect.right() - 8;
 			if (unreadCount > 0) {
@@ -1249,7 +1819,8 @@ QString persistentChatInlineDataImageThumbnailHtml(const QString &imageSrc, cons
 	const int boundedHeight = std::max(1, std::min(imageSize.height(), PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT));
 	QString imageHtml       = QString::fromLatin1(
 								  "<img src=\"%1\" alt=\"%2\" "
-								  "style=\"display:block; width:100%%; max-width:%3px; height:auto; max-height:%4px; "
+								  "width=\"%3\" height=\"%4\" "
+								  "style=\"display:block; width:%3px; height:%4px; max-width:%3px; max-height:%4px; "
 								  "border:none; outline:none; margin:0; background:transparent;\" />")
 								  .arg(imageSrc.toHtmlEscaped())
 								  .arg(altText.toHtmlEscaped())
@@ -1388,12 +1959,34 @@ QString persistentChatInlineDataImageThumbnailHtml(const QString &imageSrc, cons
 		return normalizedHtml;
 	}
 
+	QString persistentChatLinkedPlainTextHtml(const QString &content) {
+		static const QRegularExpression s_urlRegex(QLatin1String("(https?://[^\\s<>\"']+)"),
+												   QRegularExpression::CaseInsensitiveOption);
+		QString html;
+		int lastOffset = 0;
+		auto appendEscapedSegment = [&html](const QString &segment) {
+			html += segment.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+		};
+
+		for (QRegularExpressionMatchIterator it = s_urlRegex.globalMatch(content); it.hasNext();) {
+			const QRegularExpressionMatch match = it.next();
+			appendEscapedSegment(content.mid(lastOffset, match.capturedStart() - lastOffset));
+			const QString urlText = match.captured(1);
+			html += QString::fromLatin1("<a href=\"%1\">%2</a>")
+						.arg(urlText.toHtmlEscaped(), urlText.toHtmlEscaped());
+			lastOffset = match.capturedEnd();
+		}
+
+		appendEscapedSegment(content.mid(lastOffset));
+		return html;
+	}
+
 	QString persistentChatContentHtml(
 		const QString &content,
 		const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
 		const QString normalizedContent = normalizedPersistentChatText(content);
 		if (!Qt::mightBeRichText(normalizedContent)) {
-			return normalizedContent.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+			return persistentChatLinkedPlainTextHtml(normalizedContent);
 		}
 
 		const QString sanitizedHtml = normalizePersistentChatInlineStyles(Log::validHtml(normalizedContent));
@@ -1486,7 +2079,7 @@ QString persistentChatMessageBodyHtml(
 			return persistentChatContentHtml(Markdown::markdownToHTML(bodyText), buildInlineDataImageReplacement);
 		}
 
-		return bodyText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+		return persistentChatContentHtml(bodyText, buildInlineDataImageReplacement);
 		}
 
 		return persistentChatContentHtml(u8(message.message()), buildInlineDataImageReplacement);
@@ -2005,6 +2598,69 @@ QString persistentChatMessageBodyHtml(
 		return urls;
 	}
 
+	bool persistentChatSourceTextIsSinglePreviewableUrl(const QString &sourceText) {
+		static const QRegularExpression s_singleUrlPattern(
+			QLatin1String("^\\s*https?://[^\\s<>\"']+\\s*$"), QRegularExpression::CaseInsensitiveOption);
+		return s_singleUrlPattern.match(normalizedPersistentChatText(sourceText)).hasMatch();
+	}
+
+	QString persistentChatPreviewUrlDisplayHtml(const QString &urlText) {
+		QString displayHtml;
+		displayHtml.reserve(urlText.size() * 2);
+
+		int consecutiveTokenChars = 0;
+		const auto appendBreakOpportunity = [&displayHtml, &consecutiveTokenChars]() {
+			displayHtml += QLatin1String("<wbr/>");
+			consecutiveTokenChars = 0;
+		};
+
+		for (const QChar character : urlText) {
+			displayHtml += QString(character).toHtmlEscaped();
+			switch (character.unicode()) {
+				case '/':
+				case '?':
+				case '&':
+				case '=':
+				case '#':
+				case '%':
+				case '-':
+				case '_':
+				case '.':
+					appendBreakOpportunity();
+					break;
+				default:
+					++consecutiveTokenChars;
+					if (consecutiveTokenChars >= 14) {
+						appendBreakOpportunity();
+					}
+					break;
+			}
+		}
+
+		return displayHtml;
+	}
+
+	QString persistentChatPreviewSourceUrlHtml(const QString &sourceText) {
+		const QString normalizedUrl = normalizedPersistentChatText(sourceText).trimmed();
+		if (normalizedUrl.isEmpty()) {
+			return QString();
+		}
+
+		QColor mutedUrlColor = qApp->palette().color(QPalette::Link);
+		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+			mutedUrlColor = mixColors(tokens->subtext0, tokens->accent, 0.22);
+		}
+		mutedUrlColor.setAlphaF(std::clamp(mutedUrlColor.alphaF() * 0.88f, 0.0f, 1.0f));
+
+		return QString::fromLatin1(
+				   "<!--mumble-preview-url-->"
+				   "<div style='margin:0; padding:0 0 6px 0; line-height:1.3;'>"
+				   "<a class='mumble-preview-url' href=\"%1\" style=\"font-size:0.82em; color:%3; text-decoration:none;\">%2</a>"
+				   "</div>")
+			.arg(normalizedUrl.toHtmlEscaped(), persistentChatPreviewUrlDisplayHtml(normalizedUrl),
+				 mutedUrlColor.name(QColor::HexArgb));
+	}
+
 	struct PersistentChatReplyReference {
 		unsigned int messageID = 0;
 		QString actor;
@@ -2241,10 +2897,13 @@ MainWindow::MainWindow(QWidget *p)
 }
 
 // Loading a state that was stored by a different version of Qt can lead to a crash.
-// This function calculates the state version based on Qt's version and MainWindow.ui's hash (provided through CMake).
-// That way we also avoid potentially causing bugs/glitches when there are changes to MainWindow's widgets.
+// This function calculates the state version based on Qt's version, MainWindow.ui's
+// hash (provided through CMake), and an explicit runtime shell revision.
+// The latter is needed because modern shell structure now changes in MainWindow.cpp
+// too, especially the toolbar/dock topology that restoreState() serializes.
 constexpr int MainWindow::stateVersion() {
-	return MUMBLE_MAINWINDOW_UI_HASH ^ QT_VERSION;
+	constexpr int kRuntimeShellStateVersion = 0x20260406;
+	return MUMBLE_MAINWINDOW_UI_HASH ^ QT_VERSION ^ kRuntimeShellStateVersion;
 }
 
 void MainWindow::createActions() {
@@ -2670,25 +3329,26 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorContainer = new QWidget(this);
 	m_serverNavigatorContainer->setObjectName(QLatin1String("qwServerNavigator"));
 	m_serverNavigatorContainer->setAttribute(Qt::WA_StyledBackground, true);
-	m_serverNavigatorContainer->setMinimumWidth(196);
+	m_serverNavigatorContainer->setFixedWidth(176);
+	m_serverNavigatorContainer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
 	QVBoxLayout *layout = new QVBoxLayout(m_serverNavigatorContainer);
-	layout->setContentsMargins(0, 5, 4, 4);
-	layout->setSpacing(5);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(0);
 
 	m_serverNavigatorContentFrame = new QFrame(m_serverNavigatorContainer);
 	m_serverNavigatorContentFrame->setObjectName(QLatin1String("qfServerNavigatorContent"));
 	m_serverNavigatorContentFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *contentLayout = new QVBoxLayout(m_serverNavigatorContentFrame);
-	contentLayout->setContentsMargins(7, 7, 7, 7);
-	contentLayout->setSpacing(5);
+	contentLayout->setContentsMargins(6, 4, 6, 6);
+	contentLayout->setSpacing(2);
 
 	m_serverNavigatorHeaderFrame = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorHeaderFrame->setObjectName(QLatin1String("qfServerNavigatorHeader"));
 
 	QVBoxLayout *headerLayout = new QVBoxLayout(m_serverNavigatorHeaderFrame);
-	headerLayout->setContentsMargins(0, 0, 0, 1);
-	headerLayout->setSpacing(2);
+	headerLayout->setContentsMargins(0, 0, 0, 0);
+	headerLayout->setSpacing(0);
 
 	m_serverNavigatorEyebrow = new QLabel(tr("Server"), m_serverNavigatorHeaderFrame);
 	m_serverNavigatorEyebrow->setObjectName(QLatin1String("qlServerNavigatorEyebrow"));
@@ -2702,7 +3362,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTitle->setObjectName(QLatin1String("qlServerNavigatorTitle"));
 	QFont titleFont = m_serverNavigatorTitle->font();
 	titleFont.setBold(true);
-	titleFont.setPointSizeF(titleFont.pointSizeF() + 0.5);
+	titleFont.setPointSizeF(titleFont.pointSizeF());
 	m_serverNavigatorTitle->setFont(titleFont);
 	m_serverNavigatorTitle->setTextFormat(Qt::PlainText);
 	m_serverNavigatorTitle->setWordWrap(true);
@@ -2723,12 +3383,12 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsMotdFrame->setAttribute(Qt::WA_StyledBackground, true);
 	m_serverNavigatorTextChannelsMotdFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *textChannelsMotdLayout = new QVBoxLayout(m_serverNavigatorTextChannelsMotdFrame);
-	textChannelsMotdLayout->setContentsMargins(7, 6, 7, 6);
-	textChannelsMotdLayout->setSpacing(3);
+	textChannelsMotdLayout->setContentsMargins(6, 5, 6, 5);
+	textChannelsMotdLayout->setSpacing(2);
 
 	QHBoxLayout *textChannelsMotdHeaderLayout = new QHBoxLayout();
 	textChannelsMotdHeaderLayout->setContentsMargins(0, 0, 0, 0);
-	textChannelsMotdHeaderLayout->setSpacing(3);
+	textChannelsMotdHeaderLayout->setSpacing(4);
 
 	m_serverNavigatorTextChannelsMotdTitle = new QLabel(tr("MOTD"), m_serverNavigatorTextChannelsMotdFrame);
 	m_serverNavigatorTextChannelsMotdTitle->setObjectName(QLatin1String("qlServerNavigatorTextChannelsMotdTitle"));
@@ -2781,13 +3441,13 @@ void MainWindow::setupServerNavigator() {
 	qtvUsers->setFrameShape(QFrame::NoFrame);
 	qtvUsers->setUniformRowHeights(true);
 	qtvUsers->setAnimated(true);
-	qtvUsers->setIndentation(24);
+	qtvUsers->setIndentation(12);
 	qtvUsers->setRootIsDecorated(false);
 	qtvUsers->setExpandsOnDoubleClick(false);
 	qtvUsers->setAllColumnsShowFocus(false);
 	qtvUsers->setMouseTracking(true);
-	qtvUsers->setMinimumWidth(172);
-	qtvUsers->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	qtvUsers->setMinimumWidth(0);
+	qtvUsers->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 	qtvUsers->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 	qtvUsers->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 	qtvUsers->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -2797,7 +3457,7 @@ void MainWindow::setupServerNavigator() {
 	qtvUsers->viewport()->setMouseTracking(true);
 	qtvUsers->setStyleSheet(QString());
 	qtvUsers->viewport()->setStyleSheet(QString());
-	contentLayout->addWidget(qtvUsers);
+	contentLayout->addWidget(qtvUsers, 3);
 
 	m_serverNavigatorTextChannelsDivider = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorTextChannelsDivider->setObjectName(QLatin1String("qfServerNavigatorTextChannelsDivider"));
@@ -2809,10 +3469,10 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsFrame = new QFrame(m_serverNavigatorContentFrame);
 	m_serverNavigatorTextChannelsFrame->setObjectName(QLatin1String("qfServerNavigatorTextChannels"));
 	m_serverNavigatorTextChannelsFrame->setAttribute(Qt::WA_StyledBackground, true);
-	m_serverNavigatorTextChannelsFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	m_serverNavigatorTextChannelsFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 	QVBoxLayout *textChannelsLayout = new QVBoxLayout(m_serverNavigatorTextChannelsFrame);
 	textChannelsLayout->setContentsMargins(0, 0, 0, 0);
-	textChannelsLayout->setSpacing(2);
+	textChannelsLayout->setSpacing(0);
 
 	m_serverNavigatorTextChannelsEyebrow = new QLabel(tr("Text"), m_serverNavigatorTextChannelsFrame);
 	m_serverNavigatorTextChannelsEyebrow->setObjectName(QLatin1String("qlServerNavigatorTextChannelsEyebrow"));
@@ -2852,7 +3512,7 @@ void MainWindow::setupServerNavigator() {
 	m_persistentChatChannelList->setSelectionMode(QAbstractItemView::SingleSelection);
 	m_persistentChatChannelList->setContextMenuPolicy(Qt::CustomContextMenu);
 	m_persistentChatChannelList->setMouseTracking(true);
-	m_persistentChatChannelList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	m_persistentChatChannelList->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 	m_persistentChatChannelList->setMinimumHeight(0);
 	m_persistentChatChannelList->setMaximumHeight(QWIDGETSIZE_MAX);
 	m_persistentChatChannelList->setItemDelegate(new PersistentChatScopeListDelegate(m_persistentChatChannelList));
@@ -2860,21 +3520,84 @@ void MainWindow::setupServerNavigator() {
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsEyebrow);
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsTitle);
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsSubtitle);
-	textChannelsLayout->addWidget(m_persistentChatChannelList);
+	textChannelsLayout->addWidget(m_persistentChatChannelList, 1);
 	m_serverNavigatorTextChannelsFrame->hide();
-	contentLayout->addWidget(m_serverNavigatorTextChannelsFrame);
-	contentLayout->addStretch(1);
+	contentLayout->addWidget(m_serverNavigatorTextChannelsFrame, 2);
 
-	m_serverNavigatorFooter = new QLabel(tr("Ctrl+F searches the server tree."), m_serverNavigatorContainer);
+	m_serverNavigatorFooterFrame = new QFrame(m_serverNavigatorContentFrame);
+	m_serverNavigatorFooterFrame->setObjectName(QLatin1String("qfServerNavigatorFooterFrame"));
+	m_serverNavigatorFooterFrame->setAttribute(Qt::WA_StyledBackground, true);
+	m_serverNavigatorFooterFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	QVBoxLayout *footerLayout = new QVBoxLayout(m_serverNavigatorFooterFrame);
+	footerLayout->setContentsMargins(0, 7, 0, 0);
+	footerLayout->setSpacing(0);
+
+	m_serverNavigatorFooterPresenceButton = new QPushButton(m_serverNavigatorFooterFrame);
+	m_serverNavigatorFooterPresenceButton->setObjectName(QLatin1String("qpbServerNavigatorFooterPresence"));
+	m_serverNavigatorFooterPresenceButton->setAccessibleName(tr("Open self menu"));
+	m_serverNavigatorFooterPresenceButton->setAttribute(Qt::WA_StyledBackground, true);
+	m_serverNavigatorFooterPresenceButton->setCursor(Qt::PointingHandCursor);
+	m_serverNavigatorFooterPresenceButton->setFlat(true);
+	m_serverNavigatorFooterPresenceButton->setCheckable(false);
+	m_serverNavigatorFooterPresenceButton->setAutoDefault(false);
+	m_serverNavigatorFooterPresenceButton->setDefault(false);
+	m_serverNavigatorFooterPresenceButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	QHBoxLayout *footerPresenceLayout = new QHBoxLayout(m_serverNavigatorFooterPresenceButton);
+	footerPresenceLayout->setContentsMargins(0, 0, 0, 0);
+	footerPresenceLayout->setSpacing(8);
+
+	m_serverNavigatorFooterAvatar = new QLabel(m_serverNavigatorFooterPresenceButton);
+	m_serverNavigatorFooterAvatar->setObjectName(QLatin1String("qlServerNavigatorFooterAvatar"));
+	m_serverNavigatorFooterAvatar->setAlignment(Qt::AlignCenter);
+	m_serverNavigatorFooterAvatar->setFixedSize(24, 24);
+
+	QWidget *footerInfo = new QWidget(m_serverNavigatorFooterPresenceButton);
+	QVBoxLayout *footerInfoLayout = new QVBoxLayout(footerInfo);
+	footerInfoLayout->setContentsMargins(0, 0, 0, 0);
+	footerInfoLayout->setSpacing(0);
+
+	m_serverNavigatorFooterName = new QLabel(tr("You"), footerInfo);
+	m_serverNavigatorFooterName->setObjectName(QLatin1String("qlServerNavigatorFooterName"));
+	QFont footerNameFont = m_serverNavigatorFooterName->font();
+	footerNameFont.setBold(true);
+	footerNameFont.setPointSizeF(std::max(footerNameFont.pointSizeF() - 0.4, 9.6));
+	m_serverNavigatorFooterName->setFont(footerNameFont);
+	m_serverNavigatorFooterName->setTextFormat(Qt::PlainText);
+	m_serverNavigatorFooterName->setWordWrap(false);
+
+	m_serverNavigatorFooterPresence = new QLabel(tr("Online"), footerInfo);
+	m_serverNavigatorFooterPresence->setObjectName(QLatin1String("qlServerNavigatorFooterPresence"));
+	QFont footerPresenceFont = m_serverNavigatorFooterPresence->font();
+	footerPresenceFont.setPointSizeF(std::max(footerPresenceFont.pointSizeF() - 1.1, 8.6));
+	m_serverNavigatorFooterPresence->setFont(footerPresenceFont);
+	m_serverNavigatorFooterPresence->setTextFormat(Qt::PlainText);
+	m_serverNavigatorFooterPresence->setWordWrap(false);
+
+	footerInfoLayout->addWidget(m_serverNavigatorFooterName);
+	footerInfoLayout->addWidget(m_serverNavigatorFooterPresence);
+
+	footerPresenceLayout->addWidget(m_serverNavigatorFooterAvatar, 0, Qt::AlignTop);
+	footerPresenceLayout->addWidget(footerInfo, 0, Qt::AlignVCenter);
+	footerPresenceLayout->addStretch(1);
+
+	m_serverNavigatorFooter = new QLabel(tr("Ctrl+F searches the server tree."), m_serverNavigatorFooterFrame);
 	m_serverNavigatorFooter->setObjectName(QLatin1String("qlServerNavigatorFooter"));
+	m_serverNavigatorFooter->setAlignment(Qt::AlignLeft | Qt::AlignTop);
 	m_serverNavigatorFooter->setWordWrap(true);
 	m_serverNavigatorFooter->setTextFormat(Qt::PlainText);
 	m_serverNavigatorFooter->setTextInteractionFlags(Qt::NoTextInteraction);
-	m_serverNavigatorFooter->hide();
+	footerLayout->addWidget(m_serverNavigatorFooterPresenceButton);
+	footerLayout->addWidget(m_serverNavigatorFooter);
+	m_serverNavigatorFooterPresenceButton->hide();
+	m_serverNavigatorFooterFrame->hide();
+	contentLayout->addWidget(m_serverNavigatorFooterFrame);
 
 	connect(m_serverNavigatorTextChannelsMotdToggleButton, &QToolButton::clicked, this, [this]() {
 		m_persistentChatMotdHidden = !m_persistentChatMotdHidden;
 		updatePersistentChatChrome(currentPersistentChatTarget());
+	});
+	connect(m_serverNavigatorFooterPresenceButton, &QPushButton::clicked, this, [this]() {
+		toggleServerNavigatorUserMenu();
 	});
 	connect(m_serverNavigatorTextChannelsMotdBody, &QLabel::linkActivated, this,
 			[this](const QString &link) { on_qteLog_anchorClicked(QUrl(link)); });
@@ -2939,7 +3662,6 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsMotdBody->installEventFilter(this);
 
 	layout->addWidget(m_serverNavigatorContentFrame, 1);
-	layout->addWidget(m_serverNavigatorFooter);
 
 	refreshServerNavigatorStyles();
 	updateServerNavigatorVoiceTreeHeight();
@@ -2952,8 +3674,8 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatContainer->setObjectName(QLatin1String("qwPersistentChat"));
 	m_persistentChatContainer->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *layout       = new QVBoxLayout(m_persistentChatContainer);
-	layout->setContentsMargins(2, 4, 0, 2);
-	layout->setSpacing(4);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(2);
 
 	qdwChat->setWindowTitle(tr("Conversation"));
 	qdwChat->setMinimumWidth(360);
@@ -2964,7 +3686,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHeaderFrame->setObjectName(QLatin1String("qfPersistentChatHeader"));
 
 	QVBoxLayout *headerLayout = new QVBoxLayout(m_persistentChatHeaderFrame);
-	headerLayout->setContentsMargins(8, 4, 8, 4);
+	headerLayout->setContentsMargins(8, 2, 8, 2);
 	headerLayout->setSpacing(0);
 
 	m_persistentChatHeaderEyebrow = new QLabel(tr("Text"), m_persistentChatHeaderFrame);
@@ -2988,6 +3710,8 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHeaderContext->setAttribute(Qt::WA_StyledBackground, true);
 	m_persistentChatHeaderContext->setTextFormat(Qt::PlainText);
 	m_persistentChatHeaderContext->setTextInteractionFlags(Qt::NoTextInteraction);
+	m_persistentChatHeaderContext->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+	m_persistentChatHeaderContext->setAlignment(Qt::AlignCenter);
 	m_persistentChatHeaderContext->hide();
 
 	m_persistentChatHeaderSubtitle =
@@ -3084,26 +3808,49 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatComposerFrame->setAttribute(Qt::WA_StyledBackground, true);
 	m_persistentChatComposerFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *composerLayout = new QVBoxLayout(m_persistentChatComposerFrame);
-	composerLayout->setContentsMargins(12, 8, 12, 8);
-	composerLayout->setSpacing(4);
+	composerLayout->setContentsMargins(8, 0, 8, 2);
+	composerLayout->setSpacing(0);
 	composerLayout->addWidget(m_persistentChatReplyFrame);
 
 	QWidget *composerInputRow = new QWidget(m_persistentChatComposerFrame);
 	composerInputRow->setObjectName(QLatin1String("qwPersistentChatComposerInputRow"));
+	composerInputRow->setAttribute(Qt::WA_StyledBackground, true);
 	composerInputRow->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	composerInputRow->setMinimumHeight(30);
 	QHBoxLayout *composerInputLayout = new QHBoxLayout(composerInputRow);
-	composerInputLayout->setContentsMargins(0, 0, 0, 0);
-	composerInputLayout->setSpacing(8);
+	composerInputLayout->setContentsMargins(8, 0, 5, 0);
+	composerInputLayout->setSpacing(4);
 	composerInputLayout->addWidget(qteChat, 1);
+
+	const QSize composerIconSize(16, 16);
+	const QColor composerIconColor(0x5a, 0x5f, 0x6b);
+	const QColor composerIconHoverColor(0x79, 0x7f, 0x8d);
+	const QColor composerIconDisabledColor = alphaColor(composerIconColor, 0.55);
+
+	m_persistentChatAttachButton = new QToolButton(composerInputRow);
+	m_persistentChatAttachButton->setObjectName(QLatin1String("qtbPersistentChatAttach"));
+	m_persistentChatAttachButton->setAutoRaise(true);
+	m_persistentChatAttachButton->setToolTip(tr("Attach image"));
+	m_persistentChatAttachButton->setIcon(persistentChatComposerGlyphIcon(
+		PersistentChatComposerGlyph::Attach, composerIconSize, composerIconColor, composerIconHoverColor,
+		composerIconDisabledColor));
+	m_persistentChatAttachButton->setIconSize(composerIconSize);
+	m_persistentChatAttachButton->setFixedSize(24, 24);
+	m_persistentChatAttachButton->setCursor(Qt::PointingHandCursor);
+	m_persistentChatAttachButton->setFocusPolicy(Qt::NoFocus);
+	composerInputLayout->addWidget(m_persistentChatAttachButton, 0, Qt::AlignVCenter);
 
 	m_persistentChatSendButton = new QToolButton(composerInputRow);
 	m_persistentChatSendButton->setObjectName(QLatin1String("qtbPersistentChatSend"));
 	m_persistentChatSendButton->setAutoRaise(true);
 	m_persistentChatSendButton->setToolTip(tr("Send message"));
-	m_persistentChatSendButton->setIcon(style()->standardIcon(QStyle::SP_ArrowForward));
-	m_persistentChatSendButton->setIconSize(QSize(14, 14));
-	m_persistentChatSendButton->setFixedSize(32, 32);
+	m_persistentChatSendButton->setIcon(persistentChatComposerGlyphIcon(
+		PersistentChatComposerGlyph::Send, composerIconSize, composerIconColor, composerIconHoverColor,
+		composerIconDisabledColor));
+	m_persistentChatSendButton->setIconSize(composerIconSize);
+	m_persistentChatSendButton->setFixedSize(24, 24);
 	m_persistentChatSendButton->setCursor(Qt::PointingHandCursor);
+	m_persistentChatSendButton->setFocusPolicy(Qt::NoFocus);
 	composerInputLayout->addWidget(m_persistentChatSendButton, 0, Qt::AlignVCenter);
 	composerLayout->addWidget(composerInputRow);
 
@@ -3309,7 +4056,42 @@ void MainWindow::setupPersistentChatDock() {
 					m_persistentChatHistory->stabilizeVisibleContent();
 				}
 			});
-	connect(qteChat, &QTextEdit::textChanged, this, &MainWindow::updatePersistentChatSendButton);
+	connect(qteChat, &QTextEdit::textChanged, this, [this]() {
+		const bool keepBottomPinned = m_persistentChatHistory && m_persistentChatHistory->isScrolledToBottom();
+		updatePersistentChatSendButton();
+		if (!keepBottomPinned || !m_persistentChatHistory) {
+			return;
+		}
+
+		QTimer::singleShot(0, this, [this]() {
+			if (!m_persistentChatHistory) {
+				return;
+			}
+
+			if (QScrollBar *scrollBar = m_persistentChatHistory->verticalScrollBar()) {
+				scrollBar->setValue(scrollBar->maximum());
+			}
+		});
+	});
+	connect(m_persistentChatAttachButton, &QToolButton::clicked, this, [this]() {
+		if (!qteChat || !m_persistentChatAttachButton || !m_persistentChatAttachButton->isEnabled()) {
+			return;
+		}
+
+		QFileDialog dialog(this, tr("Attach image"));
+		dialog.setFileMode(QFileDialog::ExistingFiles);
+		dialog.setNameFilter(tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"));
+		const QString picturesLocation = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+		if (!picturesLocation.isEmpty()) {
+			dialog.setDirectory(picturesLocation);
+		}
+
+		if (dialog.exec() != QDialog::Accepted) {
+			return;
+		}
+
+		qteChat->sendImagesFromUrls(dialog.selectedUrls());
+	});
 	connect(m_persistentChatSendButton, &QToolButton::clicked, this, [this]() {
 		if (!qteChat || !qteChat->isEnabled() || qteChat->isShowingDefaultText()) {
 			return;
@@ -3441,6 +4223,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			QString::fromLatin1(
 				"QWidget#qwServerNavigator {"
 				" background-color: %1;"
+				" border-left: 1px solid %2;"
 				"}"
 				"QFrame#qfServerNavigatorHeader {"
 				" background-color: transparent;"
@@ -3457,19 +4240,56 @@ void MainWindow::refreshServerNavigatorStyles() {
 				"QLabel#qlServerNavigatorVoiceSectionEyebrow,"
 				"QLabel#qlServerNavigatorTextChannelsEyebrow {"
 				" color: %3;"
-				" letter-spacing: 0.12em;"
+				" font-size: 9.5px;"
+				" font-weight: 600;"
+				" letter-spacing: 0.14em;"
 				"}"
 				"QLabel#qlServerNavigatorTitle,"
 				"QLabel#qlServerNavigatorTextChannelsTitle {"
 				" color: %4;"
-				" font-weight: 700;"
+				" font-size: 11px;"
+				" font-weight: 600;"
 				"}"
 				"QLabel#qlServerNavigatorSubtitle,"
 				"QLabel#qlServerNavigatorFooter,"
 				"QLabel#qlServerNavigatorVoiceSectionSubtitle,"
 				"QLabel#qlServerNavigatorTextChannelsSubtitle {"
 				" color: %5;"
-				" line-height: 1.35em;"
+				" font-size: 9.5px;"
+				" line-height: 1.18em;"
+				"}"
+				"QFrame#qfServerNavigatorFooterFrame {"
+				" background-color: transparent;"
+				" border-top: 1px solid %2;"
+				" margin-top: 4px;"
+				"}"
+				"QPushButton#qpbServerNavigatorFooterPresence {"
+				" background-color: transparent;"
+				" border: none;"
+				" border-radius: 6px;"
+				" padding: 0px;"
+				" text-align: left;"
+				"}"
+				"QPushButton#qpbServerNavigatorFooterPresence:hover {"
+				" background-color: %6;"
+				"}"
+				"QLabel#qlServerNavigatorFooter {"
+				" color: %5;"
+				" font-size: 9.5px;"
+				" line-height: 1.18em;"
+				" padding: 0px;"
+				"}"
+				"QLabel#qlServerNavigatorFooterName {"
+				" color: %4;"
+				" font-size: 10.8px;"
+				" font-weight: 600;"
+				"}"
+				"QLabel#qlServerNavigatorFooterPresence {"
+				" color: %5;"
+				" font-size: 9.2px;"
+				"}"
+				"QLabel#qlServerNavigatorFooterAvatar {"
+				" padding: 0px;"
 				"}"
 				"QFrame#qfServerNavigatorTextChannels {"
 				" background-color: transparent;"
@@ -3479,31 +4299,35 @@ void MainWindow::refreshServerNavigatorStyles() {
 				" background-color: %2;"
 				" min-height: 0px;"
 				" max-height: 1px;"
-				" margin: 4px 0px;"
+				" margin: 4px 0px 3px 0px;"
 				" border: none;"
 				"}"
 				"QFrame#qfServerNavigatorTextChannelsMotd {"
-				" background-color: %6;"
+				" background-color: %2;"
 				" border: none;"
-				" border-bottom: 1px solid %2;"
-				" border-radius: 0px;"
+				" border-radius: 8px;"
 				"}"
 				"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
 				" color: %5;"
+				" font-size: 10px;"
 				" font-weight: 600;"
 				"}"
 				"QLabel#qlServerNavigatorTextChannelsMotdBody {"
-				" color: %5;"
+				" color: %4;"
 				" background: transparent;"
-				" line-height: 1.35em;"
+				" font-size: 9.8px;"
+				" line-height: 1.24em;"
 				"}"
 				"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
 				" border: none;"
 				" background: transparent;"
-				" color: %7;"
-				" padding: 1px 0px;"
+				" color: %8;"
+				" padding: 0px;"
+				" font-size: 10px;"
+				" font-weight: 600;"
 				"}"
 				"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
+				" background: transparent;"
 				" color: %8;"
 				"}"
 				"QTreeView#qtvUsers,"
@@ -3521,12 +4345,12 @@ void MainWindow::refreshServerNavigatorStyles() {
 				" background: transparent;"
 				" image: none;"
 				" border-image: none;"
-				" min-width: 24px;"
-				" min-height: 24px;"
+				" min-width: 15px;"
+				" min-height: 18px;"
 				"}"
 				"QTreeView#qtvUsers::item,"
 				"QListWidget#qlwPersistentTextChannels::item {"
-				" min-height: 28px;"
+				" min-height: 20px;"
 				" padding: 0px;"
 				" border: none;"
 				" background: transparent;"
@@ -3589,6 +4413,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 	QString serverNavigatorStyle = QString::fromLatin1(
 			"QWidget#qwServerNavigator {"
 			" background-color: %1;"
+			" border-left: 1px solid %6;"
 			"}"
 			"QFrame#qfServerNavigatorHeader {"
 			" background-color: transparent;"
@@ -3598,35 +4423,70 @@ void MainWindow::refreshServerNavigatorStyles() {
 			"}"
 			"QFrame#qfServerNavigatorContent {"
 			" background-color: %2;"
-			" border: 1px solid %6;"
-			" border-radius: 12px;"
-			" margin: 0px 2px 0px 0px;"
+			" border: none;"
+			" border-radius: 0px;"
+			" margin: 0px;"
 			"}"
 			"QLabel#qlServerNavigatorEyebrow {"
 			" color: %3;"
-			" letter-spacing: 0.12em;"
+			" font-size: 9.5px;"
+			" font-weight: 600;"
+			" letter-spacing: 0.14em;"
 			"}"
 			"QLabel#qlServerNavigatorTitle {"
 			" color: %4;"
-			" font-weight: 700;"
+			" font-size: 11px;"
+			" font-weight: 600;"
 			"}"
 			"QLabel#qlServerNavigatorSubtitle {"
 			" color: %5;"
-			" line-height: 1.3em;"
+			" font-size: 9.5px;"
+			" line-height: 1.18em;"
 			" padding-bottom: 0px;"
+			"}"
+			"QFrame#qfServerNavigatorFooterFrame {"
+			" background-color: transparent;"
+			" border-top: 1px solid %6;"
+			" margin-top: 4px;"
+			"}"
+			"QPushButton#qpbServerNavigatorFooterPresence {"
+			" background-color: transparent;"
+			" border: none;"
+			" border-radius: 6px;"
+			" padding: 0px;"
+			" text-align: left;"
+			"}"
+			"QPushButton#qpbServerNavigatorFooterPresence:hover {"
+			" background-color: %2;"
 			"}"
 			"QLabel#qlServerNavigatorFooter {"
 			" color: %5;"
-			" line-height: 1.3em;"
-			" padding: 0px 2px;"
+			" font-size: 9.5px;"
+			" line-height: 1.2em;"
+			" padding: 0px;"
+			"}"
+			"QLabel#qlServerNavigatorFooterName {"
+			" color: %4;"
+			" font-size: 10.8px;"
+			" font-weight: 600;"
+			"}"
+			"QLabel#qlServerNavigatorFooterPresence {"
+			" color: %5;"
+			" font-size: 9.2px;"
+			"}"
+			"QLabel#qlServerNavigatorFooterAvatar {"
+			" padding: 0px;"
 			"}"
 			"QLabel#qlServerNavigatorVoiceSectionEyebrow, QLabel#qlServerNavigatorTextChannelsEyebrow {"
 			" color: %3;"
-			" letter-spacing: 0.12em;"
+			" font-size: 9.5px;"
+			" font-weight: 600;"
+			" letter-spacing: 0.14em;"
 			"}"
 			"QLabel#qlServerNavigatorVoiceSectionSubtitle, QLabel#qlServerNavigatorTextChannelsSubtitle {"
 			" color: %5;"
-			" line-height: 1.35em;"
+			" font-size: 9.5px;"
+			" line-height: 1.18em;"
 			"}"
 			"QFrame#qfServerNavigatorTextChannels {"
 			" background-color: transparent;"
@@ -3636,37 +4496,42 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" background-color: %6;"
 			" min-height: 0px;"
 			" max-height: 1px;"
-			" margin: 1px 0px;"
+			" margin: 4px 0px 3px 0px;"
 			" border: none;"
 			"}"
 			"QLabel#qlServerNavigatorTextChannelsTitle {"
 			" color: %4;"
-			" font-weight: 700;"
+			" font-size: 11px;"
+			" font-weight: 600;"
 			"}"
 			"QFrame#qfServerNavigatorTextChannelsMotd {"
-			" background-color: %2;"
-			" border: 1px solid %6;"
-			" border-radius: 10px;"
+			" background-color: %8;"
+			" border: none;"
+			" border-radius: 8px;"
 			"}"
 			"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
-			" color: %4;"
+			" color: %5;"
+			" font-size: 10px;"
 			" font-weight: 600;"
 			"}"
 			"QLabel#qlServerNavigatorTextChannelsMotdBody {"
-			" color: %4;"
+			" color: %5;"
 			" background: transparent;"
-			" line-height: 1.35em;"
+			" font-size: 9.5px;"
+			" line-height: 1.24em;"
 			"}"
 			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
-			" border: 1px solid transparent;"
-			" border-radius: 8px;"
+			" border: none;"
+			" border-radius: 0px;"
 			" background: transparent;"
 			" color: %5;"
-			" padding: 1px 6px;"
+			" padding: 0px;"
+			" font-size: 10px;"
+			" font-weight: 600;"
 			"}"
 			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
-			" border-color: %6;"
-			" background-color: %8;"
+			" border-color: transparent;"
+			" background-color: transparent;"
 			" color: %4;"
 			"}"
 			"QTreeView#qtvUsers {"
@@ -3686,8 +4551,8 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" background: transparent;"
 			" image: none;"
 			" border-image: none;"
-			" min-width: 24px;"
-			" min-height: 24px;"
+			" min-width: 15px;"
+			" min-height: 18px;"
 			"}"
 			"QTreeView#qtvUsers::branch:hover, QTreeView#qtvUsers::branch:selected {"
 			" background: transparent;"
@@ -3708,8 +4573,8 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" border-image: none;"
 			" }"
 			"QTreeView#qtvUsers::item {"
-			" min-height: 26px;"
-			" padding: 0px 7px;"
+			" min-height: 20px;"
+			" padding: 0px 4px;"
 			" border: none;"
 			" border-radius: 0px;"
 			" margin: 0px;"
@@ -3740,7 +4605,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" outline: none;"
 			"}"
 			"QListWidget#qlwPersistentTextChannels::item {"
-			" min-height: 26px;"
+			" min-height: 20px;"
 			" padding: 0px;"
 			" border: none;"
 			" border-radius: 0px;"
@@ -3770,6 +4635,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 	serverNavigatorStyle.replace(QStringLiteral("%2"), chrome.elevatedCardColor.name());
 	serverNavigatorStyle.replace(QStringLiteral("%1"), chrome.cardColor.name());
 	m_serverNavigatorContainer->setStyleSheet(serverNavigatorStyle);
+	syncServerNavigatorUserMenu();
 	refreshServerNavigatorMotdHeight();
 }
 
@@ -3778,7 +4644,7 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 		return;
 	}
 
-	static const int minimumExpandedMotdHeight = 96;
+	static const int minimumExpandedMotdHeight = 48;
 
 	if (m_persistentChatWelcomeText.trimmed().isEmpty() || m_persistentChatMotdHidden
 		|| !m_serverNavigatorTextChannelsMotdFrame->isVisible() || !m_serverNavigatorTextChannelsMotdBody->isVisible()) {
@@ -3821,10 +4687,10 @@ void MainWindow::refreshPersistentChatStyles() {
 	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
 		const QColor historyColor           = tokens->base;
 		const QColor railColor              = tokens->mantle;
-		const QColor inputColor             = tokens->surface0;
+		const QColor inputColor             = mixColors(historyColor, tokens->surface0, 0.54);
 		const QColor seamColor              = tokens->surface1;
 		const QColor peerBubbleColor        = mixColors(tokens->surface0, tokens->surface2, 0.62);
-		const QColor selfBubbleColor        = mixColors(tokens->surface0, tokens->accent, 0.28);
+		const QColor selfBubbleColor        = mixColors(tokens->surface0, tokens->accent, 0.36);
 		const QColor bubbleBorderColor      = mixColors(tokens->surface1, tokens->text, 0.16);
 		const QColor bubbleActiveBorderColor = mixColors(tokens->surface2, tokens->accent, 0.72);
 		QColor selfTintColor                = tokens->accent;
@@ -3876,9 +4742,10 @@ void MainWindow::refreshPersistentChatStyles() {
 									  "}"
 									  "QMenuBar::item {"
 									  " background: transparent;"
-									  " border-radius: 4px;"
+									  " border-radius: 3px;"
+									  " font-size: 11px;"
 									  " margin: 0px 1px;"
-									  " padding: 3px 6px;"
+									  " padding: 2px 5px;"
 									  " color: %2;"
 									  "}"
 									  "QMenuBar::item:selected {"
@@ -3903,22 +4770,21 @@ void MainWindow::refreshPersistentChatStyles() {
 										   qssColor(tokens->surface0), qssColor(tokens->surface1)));
 		}
 		if (qtIconToolbar) {
-			qtIconToolbar->setIconSize(QSize(16, 16));
+			qtIconToolbar->setIconSize(QSize(14, 14));
 			qtIconToolbar->setStyleSheet(
 				QString::fromLatin1(
 					"QToolBar {"
 					" background-color: %1;"
 					" border: none;"
-					" border-bottom: 1px solid %2;"
-					" spacing: 2px;"
-					" padding: 0px 1px 0px 0px;"
+					" spacing: 1px;"
+					" padding: 0px;"
 					"}"
-					"QToolBar::separator { background: %2; width: 1px; margin: 3px 4px; }"
+					"QToolBar::separator { background: %2; width: 1px; margin: 2px 3px; }"
 					"QToolBar QToolButton {"
 					" border: none;"
-					" border-radius: 4px;"
+					" border-radius: 3px;"
 					" background: transparent;"
-					" padding: 2px;"
+					" padding: 1px;"
 					" margin: 0px;"
 					"}"
 					"QToolBar QToolButton:hover { background: %3; }"
@@ -3929,13 +4795,13 @@ void MainWindow::refreshPersistentChatStyles() {
 					" border: 1px solid %2;"
 					" border-radius: 6px;"
 					" color: %5;"
-					" min-height: 20px;"
-					" padding: 0px 7px;"
-					" margin-left: 3px;"
+					" min-height: 18px;"
+					" padding: 0px 6px;"
+					" margin-left: 2px;"
 					"}"
 					"QToolBar QComboBox:hover { border-color: %6; }"
 					"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
-					.arg(qssColor(tokens->mantle), qssColor(tokens->surface1), qssColor(tokens->surface0),
+					.arg(qssColor(tokens->crust), qssColor(tokens->surface1), qssColor(tokens->surface0),
 						 qssColor(tokens->accentSubtle), qssColor(tokens->text), qssColor(tokens->accent)));
 		}
 		setStyleSheet(QString::fromLatin1(
@@ -3963,9 +4829,9 @@ void MainWindow::refreshPersistentChatStyles() {
 						  "ChatbarTextEdit#qteChat QScrollBar:vertical,"
 						  "QListWidget#qlwPersistentTextChannels QScrollBar:vertical,"
 						  "QTreeView#qtvUsers QScrollBar:vertical {"
-						  " background: %2;"
-						  " width: 8px;"
-						  " margin: 3px 1px 3px 0px;"
+						  " background: transparent;"
+						  " width: 5px;"
+						  " margin: 2px 0px 2px 0px;"
 						  " border: none;"
 						  "}"
 						  "QTextBrowser#qteLog QScrollBar::handle:vertical,"
@@ -3973,16 +4839,16 @@ void MainWindow::refreshPersistentChatStyles() {
 						  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical,"
 						  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical,"
 						  "QTreeView#qtvUsers QScrollBar::handle:vertical {"
-						  " background: %3;"
+						  " background: %2;"
 						  " min-height: 24px;"
-						  " border-radius: 4px;"
+						  " border-radius: 3px;"
 						  "}"
 						  "QTextBrowser#qteLog QScrollBar:horizontal,"
 						  "QListWidget#qtePersistentChatHistory QScrollBar:horizontal,"
 						  "ChatbarTextEdit#qteChat QScrollBar:horizontal {"
-						  " background: %2;"
-						  " height: 6px;"
-						  " margin: 0px 1px 1px 1px;"
+						  " background: transparent;"
+						  " height: 5px;"
+						  " margin: 0px;"
 						  " border: none;"
 						  "}"
 						  "QTextBrowser#qteLog QScrollBar::handle:vertical:hover,"
@@ -3995,12 +4861,12 @@ void MainWindow::refreshPersistentChatStyles() {
 						  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical:pressed,"
 						  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:pressed,"
 						  "QTreeView#qtvUsers QScrollBar::handle:vertical:pressed {"
-						  " background: %4;"
+						  " background: %3;"
 						  "}"
 						  "QTextBrowser#qteLog QScrollBar::handle:horizontal,"
 						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal,"
 						  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal {"
-						  " background: %3;"
+						  " background: %2;"
 						  " min-width: 24px;"
 						  " border-radius: 3px;"
 						  "}"
@@ -4010,7 +4876,7 @@ void MainWindow::refreshPersistentChatStyles() {
 						  "QTextBrowser#qteLog QScrollBar::handle:horizontal:pressed,"
 						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:pressed,"
 						  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:pressed {"
-						  " background: %4;"
+						  " background: %3;"
 						  "}"
 						  "QTextBrowser#qteLog QScrollBar::add-line:vertical,"
 						  "QTextBrowser#qteLog QScrollBar::sub-line:vertical,"
@@ -4049,14 +4915,25 @@ void MainWindow::refreshPersistentChatStyles() {
 						  " height: 0px;"
 						  "}"
 						  "QListWidget#qtePersistentChatHistory QScrollBar:vertical {"
-						  " width: 6px;"
+						  " width: 0px;"
 						  " margin: 0px;"
 						  "}"
+						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar:vertical {"
+						  " width: 5px;"
+						  "}"
 						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical {"
+						  " background: transparent;"
 						  " border-radius: 3px;"
+						  "}"
+						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical {"
+						  " background: %2;"
+						  "}"
+						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:hover,"
+						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:pressed {"
+						  " background: %3;"
 						  "}")
-						  .arg(qssColor(seamColor), qssColor(historyColor), qssColor(tokens->surface1),
-							   qssColor(tokens->overlay0)));
+						  .arg(qssColor(seamColor), qssColor(alphaColor(tokens->text, 0.10)),
+							   qssColor(alphaColor(tokens->text, 0.20))));
 
 		if (m_persistentChatHistory) {
 			QPalette historyPalette = m_persistentChatHistory->palette();
@@ -4128,15 +5005,16 @@ void MainWindow::refreshPersistentChatStyles() {
 
 		if (qteChat) {
 			QPalette inputPalette = qteChat->palette();
-			inputPalette.setColor(QPalette::Base, inputColor);
-			inputPalette.setColor(QPalette::AlternateBase, inputColor);
-			inputPalette.setColor(QPalette::Window, inputColor);
+			inputPalette.setColor(QPalette::Base, Qt::transparent);
+			inputPalette.setColor(QPalette::AlternateBase, Qt::transparent);
+			inputPalette.setColor(QPalette::Window, Qt::transparent);
 			inputPalette.setColor(QPalette::Text, tokens->text);
 			inputPalette.setColor(QPalette::Highlight, tokens->accent);
 			inputPalette.setColor(QPalette::HighlightedText, tokens->crust);
-			qteChat->setAutoFillBackground(true);
+			inputPalette.setColor(QPalette::PlaceholderText, tokens->overlay0);
+			qteChat->setAutoFillBackground(false);
 			qteChat->setPalette(inputPalette);
-			qteChat->viewport()->setAutoFillBackground(true);
+			qteChat->viewport()->setAutoFillBackground(false);
 			qteChat->viewport()->setPalette(inputPalette);
 			qteChat->setStyleSheet(QString());
 			qteChat->viewport()->setStyleSheet(QString());
@@ -4161,15 +5039,21 @@ void MainWindow::refreshPersistentChatStyles() {
 				"}"
 				"QLabel#qlPersistentChatHeaderEyebrow {"
 				" color: %3;"
-				" letter-spacing: 0.08em;"
+				" font-size: 9px;"
+				" font-weight: 600;"
+				" letter-spacing: 0.12em;"
 				"}"
 				"QLabel#qlPersistentChatHeaderSubtitle {"
 				" color: %4;"
-				" line-height: 1.3em;"
+				" font-size: 10px;"
+				" line-height: 1.2em;"
 				"}"
 				"QLabel#qlPersistentChatHeaderContext {"
 				" color: %4;"
-				" background-color: transparent;"
+				" background-color: %12;"
+				" border-radius: 999px;"
+				" padding: 1px 7px;"
+				" font-size: 9px;"
 				"}"
 				"QListWidget#qtePersistentChatHistory {"
 				" border: none;"
@@ -4185,17 +5069,18 @@ void MainWindow::refreshPersistentChatStyles() {
 				"}"
 				"QFrame#qfPersistentChatComposer {"
 				" border: none;"
-				" border-top: 1px solid %2;"
-				" background-color: %5;"
+				" border-top: none;"
+				" background-color: %1;"
 				"}"
 				"QWidget#qwPersistentChatComposerInputRow {"
-				" background: transparent;"
-				" border: none;"
+				" background: %6;"
+				" border: 1px solid %2;"
+				" border-radius: 9px;"
 				" padding: 0px;"
 				"}"
 				"QFrame#qfPersistentChatReply {"
 				" border: none;"
-				" border-radius: 6px;"
+				" border-radius: 9px;"
 				" background-color: %6;"
 				"}"
 				"QLabel#qlPersistentChatReplyLabel {"
@@ -4205,24 +5090,37 @@ void MainWindow::refreshPersistentChatStyles() {
 				"QLabel#qlPersistentChatReplySnippet {"
 				" color: %4;"
 				"}"
+				"QToolButton#qtbPersistentChatAttach {"
+				" border: none;"
+				" border-radius: 6px;"
+				" background-color: transparent;"
+				" min-width: 24px;"
+				" min-height: 24px;"
+				" max-width: 24px;"
+				" max-height: 24px;"
+				" padding: 0px;"
+				"}"
+				"QToolButton#qtbPersistentChatAttach:hover {"
+				" background-color: %12;"
+				"}"
+				"QToolButton#qtbPersistentChatAttach:disabled {"
+				" background-color: transparent;"
+				"}"
 				"QToolButton#qtbPersistentChatSend {"
 				" border: none;"
-				" border-radius: 16px;"
+				" border-radius: 6px;"
 				" background-color: transparent;"
-				" color: %4;"
-				" min-width: 32px;"
-				" min-height: 32px;"
-				" max-width: 32px;"
-				" max-height: 32px;"
+				" min-width: 24px;"
+				" min-height: 24px;"
+				" max-width: 24px;"
+				" max-height: 24px;"
 				" padding: 0px;"
 				"}"
 				"QToolButton#qtbPersistentChatSend:hover {"
-				" background-color: %6;"
-				" color: %11;"
+				" background-color: %12;"
 				"}"
 				"QToolButton#qtbPersistentChatSend:disabled {"
 				" background-color: transparent;"
-				" color: %3;"
 				"}"
 				"QFrame#qfPersistentChatBanner {"
 				" border: 1px solid %2;"
@@ -4281,19 +5179,27 @@ void MainWindow::refreshPersistentChatStyles() {
 				"}"
 				"QWidget#qwPersistentChatMessageGroup[rowActive=\"true\"] {"
 				" background-color: %14;"
-				" border-radius: 12px;"
+				" border-radius: 10px;"
 				"}"
 				"QWidget#qwPersistentChatMessageGroup[selfAuthored=\"true\"][rowActive=\"true\"] {"
 				" background-color: %14;"
-				" border-radius: 12px;"
+				" border-radius: 10px;"
 				"}"
 				"QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"],"
 				"QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"][rowActive=\"true\"] {"
 				" background: transparent;"
 				"}"
+				"QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"],"
+				"QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"][rowActive=\"true\"] {"
+				" background: transparent;"
+				" border-radius: 0px;"
+				"}"
 				"QFrame#qfPersistentChatDateDividerLine {"
 				" background-color: %2;"
 				" border: none;"
+				"}"
+				"QFrame#qfPersistentChatDateDividerLine[compactTranscript=\"true\"] {"
+				" background-color: %10;"
 				"}"
 				"QLabel#qlPersistentChatDateDividerText {"
 				" color: %3;"
@@ -4301,14 +5207,20 @@ void MainWindow::refreshPersistentChatStyles() {
 				" font-weight: 600;"
 				" letter-spacing: 0.08em;"
 				"}"
+				"QLabel#qlPersistentChatDateDividerText[compactTranscript=\"true\"] {"
+				" color: %11;"
+				" font-size: 0.86em;"
+				" font-weight: 700;"
+				" letter-spacing: 0.14em;"
+				"}"
 				"QFrame#qfPersistentChatAvatarFrame {"
 				" border: 1px solid %10;"
-				" border-radius: 16px;"
+				" border-radius: 11px;"
 				" background-color: %12;"
 				"}"
 				"QLabel#qlPersistentChatAvatarFallback {"
 				" border: none;"
-				" border-radius: 16px;"
+				" border-radius: 11px;"
 				" background-color: transparent;"
 				" color: %11;"
 				" font-weight: 700;"
@@ -4318,12 +5230,12 @@ void MainWindow::refreshPersistentChatStyles() {
 				"}"
 				"QLabel#qlPersistentChatGroupActor {"
 				" color: %11;"
-				" font-weight: 700;"
-				" font-size: 0.84em;"
+				" font-weight: 600;"
+				" font-size: 0.80em;"
 				"}"
 				"QLabel#qlPersistentChatGroupTime {"
 				" color: %3;"
-				" font-size: 0.72em;"
+				" font-size: 0.66em;"
 				"}"
 				"QToolButton#qtbPersistentChatGroupScope {"
 				" border: none;"
@@ -4337,16 +5249,16 @@ void MainWindow::refreshPersistentChatStyles() {
 				"QWidget#qwPersistentChatBubbleActions {"
 				" background: %6;"
 				" border: 1px solid %2;"
-				" border-radius: 4px;"
+				" border-radius: 3px;"
 				"}"
 				"QToolButton#qtbPersistentChatBubbleAction {"
 				" border: none;"
 				" background: transparent;"
 				" color: %4;"
-				" min-width: 24px;"
-				" min-height: 24px;"
-				" max-width: 24px;"
-				" max-height: 24px;"
+				" min-width: 22px;"
+				" min-height: 22px;"
+				" max-width: 22px;"
+				" max-height: 22px;"
 				" padding: 0px;"
 				"}"
 				"QToolButton#qtbPersistentChatBubbleAction:hover {"
@@ -4355,18 +5267,18 @@ void MainWindow::refreshPersistentChatStyles() {
 				"}"
 				"QFrame#qfPersistentChatBubble {"
 				" border: 1px solid %10;"
-				" border-top-left-radius: 18px;"
-				" border-top-right-radius: 18px;"
-				" border-bottom-left-radius: 8px;"
-				" border-bottom-right-radius: 18px;"
+				" border-top-left-radius: 10px;"
+				" border-top-right-radius: 10px;"
+				" border-bottom-left-radius: 10px;"
+				" border-bottom-right-radius: 10px;"
 				" background-color: %8;"
 				"}"
 				"QFrame#qfPersistentChatBubble[selfAuthored=\"true\"] {"
 				" border-color: %11;"
-				" border-top-left-radius: 18px;"
-				" border-top-right-radius: 18px;"
-				" border-bottom-left-radius: 18px;"
-				" border-bottom-right-radius: 8px;"
+				" border-top-left-radius: 10px;"
+				" border-top-right-radius: 10px;"
+				" border-bottom-left-radius: 10px;"
+				" border-bottom-right-radius: 10px;"
 				" background-color: %9;"
 				"}"
 				"QFrame#qfPersistentChatBubble[bubbleActive=\"true\"] {"
@@ -4379,11 +5291,25 @@ void MainWindow::refreshPersistentChatStyles() {
 				" border: none;"
 				" background: transparent;"
 				"}"
+				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"],"
+				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"],"
+				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][bubbleActive=\"true\"],"
+				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"][bubbleActive=\"true\"] {"
+				" border: none;"
+				" border-radius: 0px;"
+				" background: transparent;"
+				"}"
 				"QFrame#qfPersistentChatBubbleQuote {"
 				" border: 1px solid %10;"
-				" border-left: 3px solid %11;"
-				" border-radius: 12px;"
+				" border-left: 2px solid %11;"
+				" border-radius: 9px;"
 				" background-color: %6;"
+				"}"
+				"QFrame#qfPersistentChatBubbleQuote[compactTranscript=\"true\"] {"
+				" border: none;"
+				" border-left: 2px solid %11;"
+				" border-radius: 0px;"
+				" background: transparent;"
 				"}"
 				"QLabel#qlPersistentChatBubbleQuoteActor {"
 				" color: %11;"
@@ -4392,16 +5318,16 @@ void MainWindow::refreshPersistentChatStyles() {
 				" color: %4;"
 				"}"
 				"ChatbarTextEdit#qteChat {"
-				" border: 1px solid %2;"
-				" border-radius: 6px;"
-				" background-color: %6;"
+				" border: none;"
+				" border-radius: 0px;"
+				" background-color: transparent;"
 				" color: %7;"
 				" min-height: 28px;"
-				" max-height: 80px;"
-				" padding: 6px 12px;"
+				" max-height: 84px;"
+				" padding: 4px 0px;"
 				"}"
 				"ChatbarTextEdit#qteChat:focus {"
-				" border-color: %11;"
+				" border: none;"
 				"}"
 				"ChatbarTextEdit#qteChat > QWidget {"
 				" border: none;"
@@ -4411,6 +5337,8 @@ void MainWindow::refreshPersistentChatStyles() {
 				"}"
 				"QLabel#qlPersistentChatHeaderTitle {"
 				" color: %7;"
+				" font-size: 12px;"
+				" font-weight: 600;"
 				"}"),
 				QStringList { qssColor(historyColor), qssColor(seamColor), qssColor(tokens->overlay0),
 							  qssColor(tokens->subtext0), qssColor(railColor), qssColor(inputColor),
@@ -4436,12 +5364,13 @@ void MainWindow::refreshPersistentChatStyles() {
 	const QColor historyColor        = chrome.cardColor;
 	const QColor headerSurfaceColor  =
 		mixColors(historyColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.78 : 0.20);
-	const QColor inputColor          = chrome.inputColor;
+	const QColor inputColor          =
+		mixColors(historyColor, chrome.inputColor, chrome.darkTheme ? 0.56 : 0.72);
 	const QColor seamColor           = chrome.dividerColor;
 	const QColor peerBubbleColor     =
 		mixColors(chrome.cardColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.88 : 0.22);
 	const QColor selfBubbleColor     =
-		mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.32 : 0.18);
+		mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.38 : 0.24);
 	const QColor bubbleBorderColor   =
 		mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.07);
 	const QColor bubbleActiveBorderColor =
@@ -4497,9 +5426,10 @@ void MainWindow::refreshPersistentChatStyles() {
 								  "}"
 								  "QMenuBar::item {"
 								  " background: transparent;"
-								  " border-radius: 8px;"
+								  " border-radius: 3px;"
+								  " font-size: 11px;"
 								  " margin: 0px 1px;"
-								  " padding: 3px 6px;"
+								  " padding: 2px 5px;"
 								  "}"
 								  "QMenuBar::item:selected {"
 								  " background: %2;"
@@ -4513,16 +5443,16 @@ void MainWindow::refreshPersistentChatStyles() {
 									   chrome.selectedTextColor.name()));
 	}
 	if (qtIconToolbar) {
-		qtIconToolbar->setIconSize(QSize(16, 16));
+		qtIconToolbar->setIconSize(QSize(14, 14));
 		qtIconToolbar->setStyleSheet(
 			QString::fromLatin1(
-				"QToolBar { background-color: %1; border: none; spacing: 2px; padding: 0px 1px 0px 0px; }"
-				"QToolBar::separator { background: transparent; width: 2px; }"
+				"QToolBar { background-color: %1; border: none; spacing: 1px; padding: 0px; }"
+				"QToolBar::separator { background: transparent; width: 1px; margin: 2px 3px; }"
 				"QToolBar QToolButton {"
 				" border: none;"
-				" border-radius: 8px;"
+				" border-radius: 3px;"
 				" background: transparent;"
-				" padding: 2px;"
+				" padding: 1px;"
 				" margin: 0px;"
 				"}"
 				"QToolBar QToolButton:hover { background: %2; }"
@@ -4532,13 +5462,13 @@ void MainWindow::refreshPersistentChatStyles() {
 				" border: 1px solid %5;"
 				" border-radius: 9px;"
 				" color: %6;"
-				" min-height: 20px;"
-				" padding: 0px 7px;"
-				" margin-left: 3px;"
+				" min-height: 18px;"
+				" padding: 0px 6px;"
+				" margin-left: 2px;"
 				"}"
 				"QToolBar QComboBox:hover { border-color: %2; }"
 				"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
-				.arg(chrome.railColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name(),
+				.arg(chrome.cardColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name(),
 					 chrome.elevatedCardColor.name(), chrome.dividerColor.name(), chrome.textColor.name()));
 	}
 	setStyleSheet(QString::fromLatin1(
@@ -4568,8 +5498,8 @@ void MainWindow::refreshPersistentChatStyles() {
 					  "QListWidget#qlwPersistentTextChannels QScrollBar:vertical,"
 					  "QTreeView#qtvUsers QScrollBar:vertical {"
 					  " background: transparent;"
-					  " width: 8px;"
-					  " margin: 3px 1px 3px 0px;"
+					  " width: 5px;"
+					  " margin: 2px 0px 2px 0px;"
 					  " border: none;"
 					  "}"
 					  "QTextBrowser#qteLog QScrollBar::handle:vertical,"
@@ -4579,14 +5509,14 @@ void MainWindow::refreshPersistentChatStyles() {
 					  "QTreeView#qtvUsers QScrollBar::handle:vertical {"
 					  " background: %2;"
 					  " min-height: 24px;"
-					  " border-radius: 4px;"
+					  " border-radius: 3px;"
 					  "}"
 					  "QTextBrowser#qteLog QScrollBar:horizontal,"
 					  "QListWidget#qtePersistentChatHistory QScrollBar:horizontal,"
 					  "ChatbarTextEdit#qteChat QScrollBar:horizontal {"
 					  " background: transparent;"
-					  " height: 6px;"
-					  " margin: 0px 1px 1px 1px;"
+					  " height: 5px;"
+					  " margin: 0px;"
 					  " border: none;"
 					  "}"
 					  "QTextBrowser#qteLog QScrollBar::handle:vertical:hover,"
@@ -4653,14 +5583,25 @@ void MainWindow::refreshPersistentChatStyles() {
 					  " height: 0px;"
 					  "}"
 					  "QListWidget#qtePersistentChatHistory QScrollBar:vertical {"
-					  " width: 6px;"
+					  " width: 0px;"
 					  " margin: 0px;"
 					  "}"
+					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar:vertical {"
+					  " width: 5px;"
+					  "}"
 					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical {"
+					  " background: transparent;"
 					  " border-radius: 3px;"
+					  "}"
+					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical {"
+					  " background: %2;"
+					  "}"
+					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:hover,"
+					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:pressed {"
+					  " background: %3;"
 					  "}")
-					  .arg(chrome.dividerColor.name(), chrome.scrollbarHandleColor.name(),
-						   chrome.scrollbarHandleHoverColor.name()));
+					  .arg(chrome.dividerColor.name(), qssColor(alphaColor(chrome.textColor, 0.10)),
+						   qssColor(alphaColor(chrome.textColor, 0.20))));
 
 	if (m_persistentChatHistory) {
 		QPalette historyPalette = m_persistentChatHistory->palette();
@@ -4735,15 +5676,16 @@ void MainWindow::refreshPersistentChatStyles() {
 
 	if (qteChat) {
 		QPalette inputPalette = qteChat->palette();
-		inputPalette.setColor(QPalette::Base, inputColor);
-		inputPalette.setColor(QPalette::AlternateBase, inputColor);
-		inputPalette.setColor(QPalette::Window, inputColor);
+		inputPalette.setColor(QPalette::Base, Qt::transparent);
+		inputPalette.setColor(QPalette::AlternateBase, Qt::transparent);
+		inputPalette.setColor(QPalette::Window, Qt::transparent);
 		inputPalette.setColor(QPalette::Text, chrome.textColor);
 		inputPalette.setColor(QPalette::Highlight, chrome.selectedColor);
 		inputPalette.setColor(QPalette::HighlightedText, chrome.selectedTextColor);
-		qteChat->setAutoFillBackground(true);
+		inputPalette.setColor(QPalette::PlaceholderText, chrome.mutedTextColor);
+		qteChat->setAutoFillBackground(false);
 		qteChat->setPalette(inputPalette);
-		qteChat->viewport()->setAutoFillBackground(true);
+		qteChat->viewport()->setAutoFillBackground(false);
 		qteChat->viewport()->setPalette(inputPalette);
 		qteChat->setStyleSheet(QString());
 		qteChat->viewport()->setStyleSheet(QString());
@@ -4772,17 +5714,21 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QLabel#qlPersistentChatHeaderEyebrow {"
 			" color: %5;"
-			" letter-spacing: 0.08em;"
+			" font-size: 9px;"
+			" font-weight: 600;"
+			" letter-spacing: 0.12em;"
 			"}"
 			"QLabel#qlPersistentChatHeaderSubtitle {"
 			" color: %3;"
-			" line-height: 1.3em;"
+			" font-size: 10px;"
+			" line-height: 1.2em;"
 			"}"
 			"QLabel#qlPersistentChatHeaderContext {"
 			" color: %6;"
 			" background-color: %12;"
 			" border-radius: 999px;"
-			" padding: 2px 8px;"
+			" padding: 1px 7px;"
+			" font-size: 9px;"
 			"}"
 			"QListWidget#qtePersistentChatHistory {"
 			" border: none;"
@@ -4802,19 +5748,20 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QFrame#qfPersistentChatComposer {"
 			" border: none;"
-			" border-top: 1px solid %1;"
+			" border-top: none;"
 			" background-color: %2;"
 			" border-bottom-left-radius: 0px;"
 			" border-bottom-right-radius: 0px;"
 			"}"
 			"QWidget#qwPersistentChatComposerInputRow {"
-			" background: transparent;"
-			" border: none;"
+			" background: %4;"
+			" border: 1px solid %1;"
+			" border-radius: 9px;"
 			" padding: 0px;"
 			"}"
 			"QFrame#qfPersistentChatReply {"
 			" border: none;"
-			" border-radius: 11px;"
+			" border-radius: 9px;"
 			" background-color: %10;"
 			"}"
 			"QLabel#qlPersistentChatReplyLabel {"
@@ -4824,24 +5771,37 @@ void MainWindow::refreshPersistentChatStyles() {
 			"QLabel#qlPersistentChatReplySnippet {"
 			" color: %3;"
 			"}"
+			"QToolButton#qtbPersistentChatAttach {"
+			" border: none;"
+			" border-radius: 6px;"
+			" background-color: transparent;"
+			" min-width: 24px;"
+			" min-height: 24px;"
+			" max-width: 24px;"
+			" max-height: 24px;"
+			" padding: 0px;"
+			"}"
+			"QToolButton#qtbPersistentChatAttach:hover {"
+			" background-color: %12;"
+			"}"
+			"QToolButton#qtbPersistentChatAttach:disabled {"
+			" background-color: transparent;"
+			"}"
 			"QToolButton#qtbPersistentChatSend {"
 			" border: none;"
-			" border-radius: 16px;"
+			" border-radius: 6px;"
 			" background-color: transparent;"
-			" color: %3;"
-			" min-width: 32px;"
-			" min-height: 32px;"
-			" max-width: 32px;"
-			" max-height: 32px;"
+			" min-width: 24px;"
+			" min-height: 24px;"
+			" max-width: 24px;"
+			" max-height: 24px;"
 			" padding: 0px;"
 			"}"
 			"QToolButton#qtbPersistentChatSend:hover {"
-			" background-color: %4;"
-			" color: %6;"
+			" background-color: %12;"
 			"}"
 			"QToolButton#qtbPersistentChatSend:disabled {"
 			" background-color: transparent;"
-			" color: %3;"
 			"}"
 			"QFrame#qfPersistentChatBanner {"
 			" border: 1px solid %1;"
@@ -4900,19 +5860,27 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QWidget#qwPersistentChatMessageGroup[rowActive=\"true\"] {"
 			" background-color: %15;"
-			" border-radius: 12px;"
+			" border-radius: 10px;"
 			"}"
 			"QWidget#qwPersistentChatMessageGroup[selfAuthored=\"true\"][rowActive=\"true\"] {"
 			" background-color: %15;"
-			" border-radius: 12px;"
+			" border-radius: 10px;"
 			"}"
 			"QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"],"
 			"QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"][rowActive=\"true\"] {"
 			" background: transparent;"
 			"}"
+			"QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"],"
+			"QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"][rowActive=\"true\"] {"
+			" background: transparent;"
+			" border-radius: 0px;"
+			"}"
 			"QFrame#qfPersistentChatDateDividerLine {"
 			" background-color: %1;"
 			" border: none;"
+			"}"
+			"QFrame#qfPersistentChatDateDividerLine[compactTranscript=\"true\"] {"
+			" background-color: %14;"
 			"}"
 			"QLabel#qlPersistentChatDateDividerText {"
 			" color: %3;"
@@ -4920,14 +5888,20 @@ void MainWindow::refreshPersistentChatStyles() {
 			" font-weight: 600;"
 			" letter-spacing: 0.08em;"
 			"}"
+			"QLabel#qlPersistentChatDateDividerText[compactTranscript=\"true\"] {"
+			" color: %11;"
+			" font-size: 0.86em;"
+			" font-weight: 700;"
+			" letter-spacing: 0.14em;"
+			"}"
 			"QFrame#qfPersistentChatAvatarFrame {"
 			" border: 1px solid %14;"
-			" border-radius: 16px;"
+			" border-radius: 11px;"
 			" background-color: %13;"
 			"}"
 			"QLabel#qlPersistentChatAvatarFallback {"
 			" border: none;"
-			" border-radius: 16px;"
+			" border-radius: 11px;"
 			" background-color: transparent;"
 			" color: %6;"
 			" font-weight: 700;"
@@ -4937,12 +5911,12 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QLabel#qlPersistentChatGroupActor {"
 			" color: %6;"
-			" font-weight: 700;"
-			" font-size: 0.84em;"
+			" font-weight: 600;"
+			" font-size: 0.80em;"
 			"}"
 			"QLabel#qlPersistentChatGroupTime {"
 			" color: %3;"
-			" font-size: 0.72em;"
+			" font-size: 0.66em;"
 			"}"
 			"QToolButton#qtbPersistentChatGroupScope {"
 			" border: none;"
@@ -4956,16 +5930,16 @@ void MainWindow::refreshPersistentChatStyles() {
 			"QWidget#qwPersistentChatBubbleActions {"
 			" background: %4;"
 			" border: 1px solid %1;"
-			" border-radius: 4px;"
+			" border-radius: 3px;"
 			"}"
 			"QToolButton#qtbPersistentChatBubbleAction {"
 			" border: none;"
 			" background: transparent;"
 			" color: %3;"
-			" min-width: 24px;"
-			" min-height: 24px;"
-			" max-width: 24px;"
-			" max-height: 24px;"
+			" min-width: 22px;"
+			" min-height: 22px;"
+			" max-width: 22px;"
+			" max-height: 22px;"
 			" padding: 0px;"
 			"}"
 			"QToolButton#qtbPersistentChatBubbleAction:hover {"
@@ -4974,18 +5948,18 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QFrame#qfPersistentChatBubble {"
 			" border: 1px solid %14;"
-			" border-top-left-radius: 18px;"
-			" border-top-right-radius: 18px;"
-			" border-bottom-left-radius: 8px;"
-			" border-bottom-right-radius: 18px;"
+			" border-top-left-radius: 10px;"
+			" border-top-right-radius: 10px;"
+			" border-bottom-left-radius: 10px;"
+			" border-bottom-right-radius: 10px;"
 			" background-color: %7;"
 			"}"
 			"QFrame#qfPersistentChatBubble[selfAuthored=\"true\"] {"
 			" border-color: %6;"
-			" border-top-left-radius: 18px;"
-			" border-top-right-radius: 18px;"
-			" border-bottom-left-radius: 18px;"
-			" border-bottom-right-radius: 8px;"
+			" border-top-left-radius: 10px;"
+			" border-top-right-radius: 10px;"
+			" border-bottom-left-radius: 10px;"
+			" border-bottom-right-radius: 10px;"
 			" background-color: %9;"
 			"}"
 			"QFrame#qfPersistentChatBubble[bubbleActive=\"true\"] {"
@@ -4998,11 +5972,25 @@ void MainWindow::refreshPersistentChatStyles() {
 			" border: none;"
 			" background: transparent;"
 			"}"
+			"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"],"
+			"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"],"
+			"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][bubbleActive=\"true\"],"
+			"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"][bubbleActive=\"true\"] {"
+			" border: none;"
+			" border-radius: 0px;"
+			" background: transparent;"
+			"}"
 			"QFrame#qfPersistentChatBubbleQuote {"
 			" border: 1px solid %14;"
-			" border-left: 3px solid %13;"
-			" border-radius: 12px;"
+			" border-left: 2px solid %13;"
+			" border-radius: 9px;"
 			" background-color: %10;"
+			"}"
+			"QFrame#qfPersistentChatBubbleQuote[compactTranscript=\"true\"] {"
+			" border: none;"
+			" border-left: 2px solid %13;"
+			" border-radius: 0px;"
+			" background: transparent;"
 			"}"
 			"QLabel#qlPersistentChatBubbleQuoteActor {"
 			" color: %6;"
@@ -5011,16 +5999,16 @@ void MainWindow::refreshPersistentChatStyles() {
 			" color: %3;"
 			"}"
 			"ChatbarTextEdit#qteChat {"
-			" border: 1px solid %1;"
-			" border-radius: 6px;"
-			" background-color: %4;"
+			" border: none;"
+			" border-radius: 0px;"
+			" background-color: transparent;"
 			" color: %6;"
 			" min-height: 28px;"
-			" max-height: 80px;"
-			" padding: 6px 12px;"
+			" max-height: 84px;"
+			" padding: 4px 0px;"
 			"}"
 			"ChatbarTextEdit#qteChat:focus {"
-			" border-color: %6;"
+			" border: none;"
 			"}"
 			"ChatbarTextEdit#qteChat > QWidget {"
 			" border: none;"
@@ -5029,6 +6017,8 @@ void MainWindow::refreshPersistentChatStyles() {
 			"}"
 			"QLabel#qlPersistentChatHeaderTitle {"
 			" color: %6;"
+			" font-size: 12px;"
+			" font-weight: 600;"
 			"}"),
 			QStringList { qssColor(chrome.borderColor), qssColor(historyColor), qssColor(chrome.mutedTextColor),
 						  qssColor(inputColor), qssColor(chrome.eyebrowColor), qssColor(chrome.textColor),
@@ -5479,14 +6469,12 @@ void MainWindow::updateServerNavigatorVoiceTreeHeight() {
 		rowHeight = std::max(qtvUsers->fontMetrics().height() + 10, 24);
 	}
 
-	const int desiredHeight = (visibleRows * rowHeight) + (qtvUsers->frameWidth() * 2);
-	const int maximumHeight = 320;
-	const int clampedHeight = std::min(desiredHeight, maximumHeight);
+	const int visibleRowsBeforeScroll = std::min(visibleRows, 4);
+	const int minimumHeight = (visibleRowsBeforeScroll * rowHeight) + (qtvUsers->frameWidth() * 2);
 
-	qtvUsers->setVerticalScrollBarPolicy(desiredHeight > maximumHeight ? Qt::ScrollBarAsNeeded
-																		 : Qt::ScrollBarAlwaysOff);
-	qtvUsers->setMinimumHeight(clampedHeight);
-	qtvUsers->setMaximumHeight(clampedHeight);
+	qtvUsers->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+	qtvUsers->setMinimumHeight(minimumHeight);
+	qtvUsers->setMaximumHeight(QWIDGETSIZE_MAX);
 	qtvUsers->updateGeometry();
 }
 
@@ -5505,19 +6493,20 @@ void MainWindow::updatePersistentChatChannelListHeight() {
 
 	int rowHeight = m_persistentChatChannelList->sizeHintForRow(0);
 	if (rowHeight <= 0) {
-		rowHeight = std::max(m_persistentChatChannelList->fontMetrics().height() + 12, 24);
+		rowHeight = std::max(m_persistentChatChannelList->fontMetrics().height() + 10, 24);
 	}
 
 	const int desiredHeight = (itemCount * rowHeight)
 							  + std::max(0, itemCount - 1) * m_persistentChatChannelList->spacing()
 							  + (m_persistentChatChannelList->frameWidth() * 2);
-	const int maximumHeight = 176;
-	const int clampedHeight = std::min(desiredHeight, maximumHeight);
+	const int visibleItemsBeforeScroll = std::min(itemCount, 3);
+	const int minimumHeight = (visibleItemsBeforeScroll * rowHeight)
+							  + std::max(0, visibleItemsBeforeScroll - 1) * m_persistentChatChannelList->spacing()
+							  + (m_persistentChatChannelList->frameWidth() * 2);
 
-	m_persistentChatChannelList->setVerticalScrollBarPolicy(desiredHeight > maximumHeight ? Qt::ScrollBarAsNeeded
-																						  : Qt::ScrollBarAlwaysOff);
-	m_persistentChatChannelList->setMinimumHeight(clampedHeight);
-	m_persistentChatChannelList->setMaximumHeight(clampedHeight);
+	m_persistentChatChannelList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+	m_persistentChatChannelList->setMinimumHeight(std::min(desiredHeight, minimumHeight));
+	m_persistentChatChannelList->setMaximumHeight(QWIDGETSIZE_MAX);
 	m_persistentChatChannelList->updateGeometry();
 }
 
@@ -5558,7 +6547,7 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 				}
 				case MumbleProto::Channel: {
 					Channel *channel = Channel::get(scopeID);
-					scopeLabel       = channel ? persistentTextAclChannelLabel(channel) : tr("Channel %1").arg(scopeID);
+					scopeLabel       = channel ? channel->qsName : tr("Channel %1").arg(scopeID);
 					break;
 				}
 				default:
@@ -7015,15 +8004,18 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 		row.kind      = PersistentChatHistoryRowKind::UnreadDivider;
 		row.rowId     = rowId;
 		row.signature = makeHash(QStringList { rowId, text });
-		row.text      = PersistentChatTextRowSpec { text };
+		row.text      = PersistentChatTextRowSpec { text, PersistentChatDisplayMode::Bubble };
 		rows.push_back(row);
 	};
+	// Keep voice-room chat on the same bubble rendering path as text rooms.
+	const bool compactTranscriptMode = false;
 	auto addDateDivider = [&](const QString &text, const QString &rowId) {
 		PersistentChatHistoryRow row;
 		row.kind      = PersistentChatHistoryRowKind::DateDivider;
 		row.rowId     = rowId;
 		row.signature = makeHash(QStringList { rowId, text });
-		row.text      = PersistentChatTextRowSpec { text };
+		row.text      = PersistentChatTextRowSpec { text, compactTranscriptMode ? PersistentChatDisplayMode::CompactTranscript
+																				 : PersistentChatDisplayMode::Bubble };
 		rows.push_back(row);
 	};
 	auto addLoadOlder = [&](const QString &text, bool loading, bool enabled) {
@@ -7040,7 +8032,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 								 const PersistentChatRender::SelfIdentity &selfIdentity) {
 		std::vector< MumbleProto::ChatMessage > slice(m_persistentChatMessages.begin() + beginIndex,
 													  m_persistentChatMessages.begin() + endIndex);
-		auto groups = PersistentChatRender::buildGroups(slice, selfIdentity);
+		auto groups = PersistentChatRender::buildGroups(slice, selfIdentity, compactTranscriptMode);
 		for (PersistentChatRender::PersistentChatRenderGroup &group : groups) {
 			for (PersistentChatRender::PersistentChatRenderBubble &bubble : group.bubbles) {
 				bubble.messageIndex += static_cast< int >(beginIndex);
@@ -7050,40 +8042,49 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 	};
 
 	if (m_persistentChatMessages.empty()) {
-		QString eyebrow = tr("Text");
-		QString title;
-		QString body;
-		QStringList hints;
-		if (target.scope == MumbleProto::ServerGlobal || target.scope == MumbleProto::Aggregate) {
-			eyebrow = tr("Legacy");
-		} else if (target.scope == MumbleProto::TextChannel) {
-			eyebrow = tr("Room");
-		}
-
-		if (!statusMessage.isEmpty()) {
-			title = target.label.isEmpty() ? tr("Loading conversation") : tr("Loading %1").arg(target.label);
-			body  = statusMessage;
-			hints << tr("Fetching recent messages and read state");
-		} else if (target.readOnly && !target.statusMessage.trimmed().isEmpty()) {
-			title = tr("Read-only conversation");
-			body  = target.statusMessage;
-			hints << tr("Choose another room to reply");
-		} else if (target.scope == MumbleProto::Aggregate) {
-			title = tr("Nothing here yet");
-			body  = tr("Combined activity only shows conversations you can currently read.");
-			hints << tr("Unread state stays with each room");
+		const bool suppressRoomEmptyState =
+			statusMessage.isEmpty() && !target.readOnly && !target.directMessage && !target.legacyTextPath
+			&& (target.scope == MumbleProto::TextChannel || target.scope == MumbleProto::Channel);
+		if (suppressRoomEmptyState) {
+			m_persistentChatRestoreAnchorPending = false;
+			m_persistentChatPendingAnchorRowId.clear();
+			m_persistentChatPendingAnchorOffset = 0;
 		} else {
-			title = tr("Nothing here yet");
-			body  = target.readOnly ? tr("No accessible messages yet.") : tr("No messages in %1 yet.").arg(target.label);
-			if (target.readOnly) {
-				hints << tr("Choose another room to reply");
-			} else {
-				hints << tr("Start the first message below");
-				hints << tr("Messages stay with this room");
+			QString eyebrow = tr("Text");
+			QString title;
+			QString body;
+			QStringList hints;
+			if (target.scope == MumbleProto::ServerGlobal || target.scope == MumbleProto::Aggregate) {
+				eyebrow = tr("Legacy");
+			} else if (target.scope == MumbleProto::TextChannel) {
+				eyebrow = tr("Room");
 			}
-		}
 
-		addStateCard(eyebrow, title, body, hints);
+			if (!statusMessage.isEmpty()) {
+				title = target.label.isEmpty() ? tr("Loading conversation") : tr("Loading %1").arg(target.label);
+				body  = statusMessage;
+				hints << tr("Fetching recent messages and read state");
+			} else if (target.readOnly && !target.statusMessage.trimmed().isEmpty()) {
+				title = tr("Read-only conversation");
+				body  = target.statusMessage;
+				hints << tr("Choose another room to reply");
+			} else if (target.scope == MumbleProto::Aggregate) {
+				title = tr("Nothing here yet");
+				body  = tr("Combined activity only shows conversations you can currently read.");
+				hints << tr("Unread state stays with each room");
+			} else {
+				title = tr("Nothing here yet");
+				body  = target.readOnly ? tr("No accessible messages yet.") : tr("No messages in %1 yet.").arg(target.label);
+				if (target.readOnly) {
+					hints << tr("Choose another room to reply");
+				} else {
+					hints << tr("Start the first message below");
+					hints << tr("Messages stay with this room");
+				}
+			}
+
+			addStateCard(eyebrow, title, body, hints);
+		}
 	} else {
 		qsizetype largestSourceChars         = -1;
 		qsizetype largestRenderedChars       = -1;
@@ -7153,6 +8154,8 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			headerSpec.selfAuthored   = group.selfAuthored;
 			headerSpec.aggregateScope = target.scope == MumbleProto::Aggregate;
 			headerSpec.systemMessage  = group.systemMessage;
+			headerSpec.displayMode    = compactTranscriptMode ? PersistentChatDisplayMode::CompactTranscript
+															 : PersistentChatDisplayMode::Bubble;
 			headerSpec.actorLabel     = persistentChatActorLabel(firstMessage);
 			headerSpec.actorColor     = persistentChatActorAccentColor(headerSpec.actorLabel);
 			headerSpec.avatarForegroundColor = headerSpec.actorColor;
@@ -7176,7 +8179,9 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			groupRowSpec.avatarFallbackText = avatarFallbackText;
 			groupRowSpec.firstMessageID    = group.firstMessageID;
 			groupRowSpec.firstThreadID     = group.lastThreadID;
-			QStringList groupSignatureParts { row.rowId, headerSpec.actorLabel, headerSpec.timeLabel, headerSpec.scopeLabel };
+			QStringList groupSignatureParts { row.rowId, headerSpec.actorLabel, headerSpec.timeLabel,
+											 headerSpec.scopeLabel,
+											 QString::number(static_cast< int >(headerSpec.displayMode)) };
 
 			for (const PersistentChatRender::PersistentChatRenderBubble &bubble : group.bubbles) {
 				const MumbleProto::ChatMessage &message = m_persistentChatMessages[bubble.messageIndex];
@@ -7187,12 +8192,24 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				if (bubble.systemMessage) {
 					const QString systemText =
 						persistentChatSystemMessageText(message).value_or(tr("System event")).toHtmlEscaped();
+					const QColor systemDividerColor = activeUiThemeTokens()
+														 ? activeUiThemeTokens()->surface1
+														 : m_persistentChatHistory->palette().color(QPalette::Mid);
+					const QColor systemTextColor = activeUiThemeTokens()
+													  ? activeUiThemeTokens()->overlay0
+													  : m_persistentChatHistory->palette().color(QPalette::Mid);
 					bodyHtml = QString::fromLatin1(
-								   "<div style='text-align:center; color:%1; font-style:italic; font-size:0.8em; "
-								   "padding:1px 16px;'>%2</div>")
-								   .arg(activeUiThemeTokens() ? activeUiThemeTokens()->overlay0.name()
-															  : m_persistentChatHistory->palette().color(QPalette::Mid).name(),
-										systemText);
+								   "<table width='100%%' cellspacing='0' cellpadding='0' "
+								   "style='margin:4px 0; border:none; background:transparent;'>"
+								   "<tr>"
+								   "<td style='border-top:1px solid %1;'></td>"
+								   "<td style='padding:0 12px; text-align:center; color:%2; font-style:italic; "
+								   "font-size:0.8em; white-space:nowrap;'>%3</td>"
+								   "<td style='border-top:1px solid %1;'></td>"
+								   "</tr>"
+								   "</table>")
+								   .arg(systemDividerColor.name(QColor::HexArgb),
+										systemTextColor.name(QColor::HexArgb), systemText);
 				} else if (message.has_deleted_at() && message.deleted_at() > 0) {
 					bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 				} else {
@@ -7212,7 +8229,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 						replyReference = extractPersistentChatReplyReference(rawBodyHtml, &rawBodyHtml);
 					}
 					const auto buildInlineDataImageReplacement =
-						[this](const QString &source, const QString &altText,
+						[this, &bubbleImageResources](const QString &source, const QString &altText,
 							   const PersistentChatInlineDataImageInfo &info) {
 							mumble::chatperf::recordNote(
 								"chat.inline_data_image.builder",
@@ -7231,15 +8248,11 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 							const QString token = registerPersistentChatInlineDataImageSource(source);
 							const QUrl openUrl = persistentChatInlineDataImageOpenUrl(token);
-							const QString thumbnailSrc = persistentChatInlineDataImageThumbnailSource(previewImage);
-							if (thumbnailSrc.isEmpty()) {
-								mumble::chatperf::recordValue("chat.inline_data_image.thumbnail_failed", 1);
-								return persistentChatInlineDataImagePlaceholderHtml(
-									info, altText, openUrl.toString(QUrl::FullyEncoded));
-							}
+							const QUrl resourceUrl = persistentChatInlineDataImageResourceUrl(token);
+							bubbleImageResources.push_back(qMakePair(resourceUrl, previewImage));
 							mumble::chatperf::recordValue("chat.inline_data_image.preview_ready", 1);
 							return persistentChatInlineDataImageThumbnailHtml(
-								thumbnailSrc, openUrl.toString(QUrl::FullyEncoded), altText,
+								resourceUrl.toString(QUrl::FullyEncoded), openUrl.toString(QUrl::FullyEncoded), altText,
 								previewImage.size(), info.estimatedBytes);
 						};
 					bodyHtml = message.has_body_text()
@@ -7284,6 +8297,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				PersistentChatBubbleSpec bubbleSpec;
 				bubbleSpec.messageID    = message.message_id();
 				bubbleSpec.threadID     = message.thread_id();
+				bubbleSpec.displayMode  = headerSpec.displayMode;
 				bubbleSpec.bodyHtml     = bodyHtml;
 				bubbleSpec.imageResources = bubbleImageResources;
 				bubbleSpec.selfAuthored = bubble.selfAuthored;
@@ -7301,6 +8315,9 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 										 : (target.scope == MumbleProto::Aggregate ? tr("Open room") : tr("Reply"));
 				bubbleSpec.actionScope  = message.has_scope() ? message.scope() : MumbleProto::Channel;
 				bubbleSpec.actionScopeID = message.has_scope_id() ? message.scope_id() : 0;
+				bubbleSpec.transcriptActorLabel = headerSpec.actorLabel;
+				bubbleSpec.transcriptActorColor = headerSpec.actorColor;
+				bubbleSpec.transcriptTimeLabel  = persistentChatTimestampLabel(bubble.createdAt);
 
 				if (replyReference) {
 					bubbleSpec.hasReply       = true;
@@ -7313,10 +8330,16 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 					if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
 						bubbleSpec.previewKey = *previewKey;
 						bubbleSpec.previewSpec = persistentChatPreviewSpec(*previewKey);
+						if (persistentChatSourceTextIsSinglePreviewableUrl(messageSourceText)) {
+							bubbleSpec.bodyHtml = persistentChatPreviewSourceUrlHtml(messageSourceText);
+						}
 					}
 				}
 
-				groupSignatureParts << QString::number(bubbleSpec.messageID) << bubbleSpec.bodyHtml << bubbleSpec.replyActor
+				groupSignatureParts << QString::number(bubbleSpec.messageID)
+									<< QString::number(static_cast< int >(bubbleSpec.displayMode))
+									<< bubbleSpec.bodyHtml << bubbleSpec.transcriptActorLabel
+									<< bubbleSpec.transcriptTimeLabel << bubbleSpec.replyActor
 									<< bubbleSpec.replySnippet << bubbleSpec.actionText
 									<< QString::number(static_cast< int >(bubbleSpec.previewSpec.kind));
 				groupRowSpec.bubbles.push_back(bubbleSpec);
@@ -7669,6 +8692,17 @@ void MainWindow::syncPersistentChatInputState(bool baseEnabled) {
 void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) {
 	const bool showConversationList = hasPersistentChatCapabilities();
 	const bool showMotd             = !m_persistentChatWelcomeText.trimmed().isEmpty();
+	const bool compactRoomHeader =
+		target.valid && !target.serverLog && !target.directMessage && !target.legacyTextPath
+		&& (target.scope == MumbleProto::TextChannel || target.scope == MumbleProto::Channel);
+	const bool compactRailSections = compactRoomHeader;
+
+	if (QVBoxLayout *headerLayout = qobject_cast< QVBoxLayout * >(m_persistentChatHeaderFrame
+																	 ? m_persistentChatHeaderFrame->layout()
+																	 : nullptr)) {
+		headerLayout->setContentsMargins(8, compactRoomHeader ? 1 : 2, 8, compactRoomHeader ? 1 : 2);
+		headerLayout->setSpacing(compactRoomHeader ? 0 : 1);
+	}
 
 	if (m_persistentChatHeaderEyebrow) {
 		QString eyebrow = tr("Text");
@@ -7682,6 +8716,7 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 			eyebrow = tr("Room");
 		}
 		m_persistentChatHeaderEyebrow->setText(eyebrow);
+		m_persistentChatHeaderEyebrow->setVisible(!compactRoomHeader);
 	}
 
 	if (m_persistentChatHeaderTitle) {
@@ -7699,11 +8734,11 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	} else if (!target.valid) {
 		subtitle = target.label;
 	} else if (target.serverLog) {
-		subtitle = tr("Server log, connection status, notices, and client diagnostics.");
+		subtitle = tr("Connection, notices, and diagnostics.");
 	} else if (target.legacyTextPath) {
-		subtitle = tr("Classic server chat in one shared flow.");
+		subtitle = tr("Classic server chat.");
 	} else if (target.directMessage) {
-		subtitle = tr("Classic direct chat without persistent history yet.");
+		subtitle = tr("Classic direct chat.");
 	} else if (target.scope == MumbleProto::Aggregate) {
 		subtitle = !target.statusMessage.trimmed().isEmpty() ? target.statusMessage
 															 : tr("Combined activity is retired in the new text room list.");
@@ -7716,11 +8751,9 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 			subtitle = tr("Legacy server-wide chat is retired in the new text room list.");
 		}
 	} else if (target.scope == MumbleProto::TextChannel && target.channel) {
-		subtitle = !target.description.trimmed().isEmpty()
-					   ? target.description
-					   : tr("Linked to %1.").arg(persistentTextAclChannelLabel(target.channel));
+		subtitle = QString();
 	} else if (target.scope == MumbleProto::Channel && target.channel) {
-		subtitle = tr("History shared with %1.").arg(persistentTextAclChannelLabel(target.channel));
+		subtitle = QString();
 	} else if (!target.statusMessage.trimmed().isEmpty()) {
 		subtitle = target.statusMessage;
 	} else if (!target.description.trimmed().isEmpty()) {
@@ -7731,27 +8764,29 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 
 	if (m_persistentChatHeaderSubtitle) {
 		m_persistentChatHeaderSubtitle->setText(subtitle);
+		m_persistentChatHeaderSubtitle->setVisible(!subtitle.trimmed().isEmpty());
 	}
 	if (m_persistentChatHeaderFrame) {
-		m_persistentChatHeaderFrame->setVisible(true);
+		m_persistentChatHeaderFrame->setVisible(!compactRoomHeader);
 	}
 	if (m_serverNavigatorTextChannelsMotdFrame && m_serverNavigatorTextChannelsMotdTitle
 		&& m_serverNavigatorTextChannelsMotdBody && m_serverNavigatorTextChannelsMotdToggleButton) {
 		const bool showMotdBody = showMotd && !m_persistentChatMotdHidden;
 		m_serverNavigatorTextChannelsMotdFrame->setVisible(showMotd);
 		if (showMotd) {
-			const QString teaserText = persistentChatPlainTextSummary(m_persistentChatWelcomeText, 96);
+			const QString teaserText = persistentChatPlainTextSummary(m_persistentChatWelcomeText, 44);
 			m_serverNavigatorTextChannelsMotdTitle->setText(tr("Server note"));
 			m_serverNavigatorTextChannelsMotdBody->setVisible(true);
 			m_serverNavigatorTextChannelsMotdBody->setText(showMotdBody
 															 ? persistentChatContentHtml(m_persistentChatWelcomeText)
 															 : QString::fromLatin1("<span>%1</span>")
 																   .arg(teaserText.toHtmlEscaped()));
+			m_serverNavigatorTextChannelsMotdBody->setWordWrap(showMotdBody);
 			m_serverNavigatorTextChannelsMotdBody->setTextInteractionFlags(showMotdBody ? Qt::TextBrowserInteraction
 																					   : Qt::NoTextInteraction);
 			m_serverNavigatorTextChannelsMotdBody->setToolTip(showMotdBody ? QString() : teaserText);
-			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 96 : 0);
-			m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(showMotdBody ? QWIDGETSIZE_MAX : 24);
+			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 48 : 0);
+			m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(showMotdBody ? QWIDGETSIZE_MAX : 18);
 			m_serverNavigatorTextChannelsMotdBody->updateGeometry();
 			if (showMotdBody) {
 				static const int motdRefreshDelaysMs[] = { 0, 150, 600, 1800, 4500 };
@@ -7767,18 +8802,18 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 
 	if (m_serverNavigatorVoiceSectionEyebrow) {
 		m_serverNavigatorVoiceSectionEyebrow->setText(tr("Rooms"));
-		m_serverNavigatorVoiceSectionEyebrow->setVisible(true);
+		m_serverNavigatorVoiceSectionEyebrow->setVisible(!compactRailSections);
 	}
 	if (m_serverNavigatorVoiceSectionSubtitle) {
 		m_serverNavigatorVoiceSectionSubtitle->setVisible(false);
 		m_serverNavigatorVoiceSectionSubtitle->setText(tr("Voice rooms, people, and text rooms"));
 	}
 	if (m_serverNavigatorTextChannelsEyebrow) {
-		m_serverNavigatorTextChannelsEyebrow->setVisible(showConversationList);
+		m_serverNavigatorTextChannelsEyebrow->setVisible(showConversationList && !compactRailSections);
 		m_serverNavigatorTextChannelsEyebrow->setText(tr("Text"));
 	}
 	if (m_serverNavigatorTextChannelsTitle) {
-		m_serverNavigatorTextChannelsTitle->setVisible(showConversationList);
+		m_serverNavigatorTextChannelsTitle->setVisible(false);
 		m_serverNavigatorTextChannelsTitle->setText(tr("Text rooms"));
 	}
 	if (m_serverNavigatorTextChannelsSubtitle) {
@@ -7817,21 +8852,31 @@ void MainWindow::updateWindowTitle() {
 }
 
 void MainWindow::updateServerNavigatorChrome() {
-	if (!m_serverNavigatorHeaderFrame || !m_serverNavigatorTitle || !m_serverNavigatorSubtitle || !m_serverNavigatorFooter) {
+	if (!m_serverNavigatorHeaderFrame || !m_serverNavigatorTitle || !m_serverNavigatorSubtitle || !m_serverNavigatorFooter
+		|| !m_serverNavigatorFooterFrame || !m_serverNavigatorFooterPresenceButton || !m_serverNavigatorFooterAvatar
+		|| !m_serverNavigatorFooterName || !m_serverNavigatorFooterPresence) {
 		return;
 	}
 
 	if (Global::get().uiSession == 0 || !Global::get().sh) {
 		m_serverNavigatorEyebrow->setText(tr("Voice"));
 		m_serverNavigatorTitle->setText(tr("Join a server"));
-		m_serverNavigatorSubtitle->setText(tr("Rooms, people, and live speaking state"));
-		m_serverNavigatorFooter->setText(tr("Open Server to reconnect or browse saved favorites."));
-		m_serverNavigatorHeaderFrame->setVisible(true);
+		m_serverNavigatorSubtitle->setText(tr("Rooms, people, and live state"));
+		m_serverNavigatorFooterPresenceButton->hide();
+		m_serverNavigatorFooter->setTextFormat(Qt::PlainText);
+		m_serverNavigatorFooter->setText(tr("Disconnected\nOpen Server"));
 		m_serverNavigatorFooter->setVisible(true);
+		m_serverNavigatorHeaderFrame->setVisible(true);
+		m_serverNavigatorFooterFrame->setVisible(true);
+		closeServerNavigatorUserMenu();
 		return;
 	}
 
 	const PersistentChatTarget chatTarget = currentPersistentChatTarget();
+	const bool compactRoomShell =
+		hasPersistentChatCapabilities() && chatTarget.valid && !chatTarget.serverLog && !chatTarget.directMessage
+		&& !chatTarget.legacyTextPath
+		&& (chatTarget.scope == MumbleProto::TextChannel || chatTarget.scope == MumbleProto::Channel);
 	QString host;
 	QString username;
 	QString password;
@@ -7841,10 +8886,12 @@ void MainWindow::updateServerNavigatorChrome() {
 	const QString serverLabel =
 		port == 0 || port == DEFAULT_MUMBLE_PORT ? host : tr("%1:%2").arg(host).arg(port);
 
+	const ClientUser *selfUser = ClientUser::get(Global::get().uiSession);
 	QString eyebrow = tr("Voice");
 	QString title = serverLabel;
 	QString subtitle = serverLabel;
-	QString footer = tr("Connected to %1").arg(serverLabel);
+	QString footer = tr("Connected\n%1").arg(serverLabel);
+	bool showCompactFooter = false;
 
 	if (hasPersistentChatCapabilities() && chatTarget.valid && !chatTarget.legacyTextPath) {
 		eyebrow = tr("Live context");
@@ -7882,36 +8929,285 @@ void MainWindow::updateServerNavigatorChrome() {
 		footer = tr("Connected to %1").arg(serverLabel);
 	}
 
-	m_serverNavigatorHeaderFrame->setVisible(true);
+	if (selfUser) {
+		const bool idle = isUserIdle(selfUser->uiSession);
+		const QString presenceText = Global::get().s.bDeaf ? tr("Deafened")
+											 : (Global::get().s.bMute ? tr("Muted") : (idle ? tr("Away") : tr("Online")));
+		QColor avatarBackground = palette().color(QPalette::Highlight);
+		QColor avatarText       = palette().color(QPalette::HighlightedText);
+		QColor nameColor        = palette().color(QPalette::Text);
+		QColor presenceColor    = palette().color(QPalette::Mid);
+		QColor presenceRingColor = palette().color(QPalette::Window);
+		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+			avatarBackground = alphaColor(tokens->accent, 0.34);
+			avatarText       = tokens->text;
+			nameColor        = tokens->text;
+			presenceRingColor = tokens->mantle;
+			presenceColor    = Global::get().s.bDeaf ? mixColors(tokens->rosewater, tokens->red, 0.48)
+								 : (Global::get().s.bMute ? mixColors(tokens->peach, tokens->yellow, 0.36)
+													  : (idle ? mixColors(tokens->yellow, tokens->text, 0.22)
+															 : mixColors(tokens->green, tokens->text, 0.12)));
+		} else if (m_serverNavigatorContentFrame) {
+			presenceRingColor = m_serverNavigatorContentFrame->palette().color(QPalette::Window);
+			if (idle && !Global::get().s.bMute && !Global::get().s.bDeaf) {
+				presenceColor = QColor(207, 155, 65);
+			}
+		}
+
+		const QString selfName = selfUser->qsName.trimmed().isEmpty() ? tr("You") : selfUser->qsName.trimmed();
+		const QString initial  = selfName.left(1).toUpper();
+		m_serverNavigatorFooterAvatar->setPixmap(serverNavigatorSelfAvatarPixmap(
+			initial, m_serverNavigatorFooterAvatar->size(), avatarBackground, avatarText, presenceColor, presenceRingColor));
+		m_serverNavigatorFooterName->setText(selfName);
+		m_serverNavigatorFooterPresence->setText(presenceText);
+		m_serverNavigatorFooterName->setStyleSheet(
+			QString::fromLatin1("color:%1;").arg(nameColor.name(QColor::HexArgb)));
+		m_serverNavigatorFooterPresence->setStyleSheet(
+			QString::fromLatin1("color:%1;").arg(presenceColor.name(QColor::HexArgb)));
+		showCompactFooter = true;
+	}
+
+	m_serverNavigatorHeaderFrame->setVisible(!compactRoomShell);
 	m_serverNavigatorEyebrow->setText(eyebrow);
 	m_serverNavigatorTitle->setText(title);
 	m_serverNavigatorSubtitle->setText(subtitle);
+	m_serverNavigatorFooterPresenceButton->setVisible(showCompactFooter);
+	m_serverNavigatorFooter->setTextFormat(Qt::PlainText);
 	m_serverNavigatorFooter->setText(footer);
-	m_serverNavigatorFooter->setVisible(!footer.isEmpty());
+	m_serverNavigatorFooter->setVisible(!showCompactFooter && !footer.isEmpty());
+	m_serverNavigatorFooterFrame->setVisible(showCompactFooter || !footer.isEmpty());
+	if (!showCompactFooter) {
+		closeServerNavigatorUserMenu();
+	} else {
+		syncServerNavigatorUserMenu();
+	}
+}
+
+void MainWindow::syncServerNavigatorUserMenu() {
+	if (!m_serverNavigatorFooterPresenceButton) {
+		return;
+	}
+
+	if (!m_serverNavigatorUserMenuPopup) {
+		auto *popup = new ServerNavigatorUserMenuPopup(this);
+		popup->hide();
+		m_serverNavigatorUserMenuPopup = popup;
+
+		connect(popup->presenceButton(ServerNavigatorPresenceState::Online), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			AudioInputPtr ai = Global::get().ai;
+			if (ai) {
+				// Mirror the existing global-shortcut behavior so an explicit
+				// "Online" choice can return the local client from idle.
+				if (ai->activityState == AudioInput::ActivityStateIdle) {
+					ai->activityState = AudioInput::ActivityStateReturnedFromIdle;
+				}
+				ai->tIdle.restart();
+			}
+			if (Global::get().s.bDeaf) {
+				setAudioDeaf(false);
+			}
+			if (Global::get().s.bMute) {
+				setAudioMute(false);
+			}
+		});
+		connect(popup->presenceButton(ServerNavigatorPresenceState::Away), &QPushButton::clicked, this, [popup]() {
+			if (QPushButton *button = popup->presenceButton(ServerNavigatorPresenceState::Away)) {
+				QToolTip::showText(button->mapToGlobal(QPoint(button->width() / 2, button->height())),
+								   QObject::tr("Away is shown automatically when you are idle."), button);
+			}
+		});
+		connect(popup->presenceButton(ServerNavigatorPresenceState::Muted), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			if (Global::get().s.bDeaf) {
+				setAudioDeaf(false);
+			}
+			if (!Global::get().s.bMute) {
+				setAudioMute(true);
+			}
+		});
+		connect(popup->presenceButton(ServerNavigatorPresenceState::Deafened), &QPushButton::clicked, this,
+				[this]() {
+					closeServerNavigatorUserMenu();
+					if (!Global::get().s.bDeaf) {
+						setAudioDeaf(true);
+					}
+				});
+		connect(popup->muteButton(), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			if (qaAudioMute) {
+				qaAudioMute->trigger();
+			}
+		});
+		connect(popup->deafButton(), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			if (qaAudioDeaf) {
+				qaAudioDeaf->trigger();
+			}
+		});
+		connect(popup->settingsButton(), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			if (qaConfigDialog) {
+				qaConfigDialog->trigger();
+			}
+		});
+		connect(popup->disconnectButton(), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			if (qaServerDisconnect && qaServerDisconnect->isEnabled()) {
+				qaServerDisconnect->trigger();
+			} else if (Global::get().uiSession != 0 && Global::get().sh) {
+				disconnectFromServer();
+			}
+		});
+	}
+
+	const ClientUser *selfUser = ClientUser::get(Global::get().uiSession);
+	auto *popup = static_cast< ServerNavigatorUserMenuPopup * >(m_serverNavigatorUserMenuPopup.data());
+	if (!popup || !selfUser || !m_serverNavigatorFooterPresenceButton->isVisible()) {
+		closeServerNavigatorUserMenu();
+		return;
+	}
+
+	const bool idle = isUserIdle(selfUser->uiSession);
+	ServerNavigatorPresenceDisplay display;
+	display.currentState = Global::get().s.bDeaf	   ? ServerNavigatorPresenceState::Deafened
+						  : (Global::get().s.bMute ? ServerNavigatorPresenceState::Muted
+												   : (idle ? ServerNavigatorPresenceState::Away
+														   : ServerNavigatorPresenceState::Online));
+	display.name  = selfUser->qsName.trimmed().isEmpty() ? tr("You") : selfUser->qsName.trimmed();
+	display.label = serverNavigatorPresenceStateLabel(display.currentState);
+	display.textColor = palette().color(QPalette::Text);
+	display.mutedTextColor = palette().color(QPalette::Mid);
+	display.avatarBackgroundColor = palette().color(QPalette::Highlight);
+	display.avatarTextColor = palette().color(QPalette::HighlightedText);
+	display.presenceColor = palette().color(QPalette::Highlight);
+	display.onlineColor = QColor(74, 186, 122);
+	display.awayColor = QColor(239, 159, 39);
+	display.mutedStateColor = QColor(219, 156, 64);
+	display.deafenedColor = QColor(226, 75, 74);
+	display.presenceRingColor = palette().color(QPalette::Window);
+	display.panelColor = palette().color(QPalette::Window);
+	display.borderColor = alphaColor(palette().color(QPalette::Mid), 0.38);
+	display.hoverColor = alphaColor(palette().color(QPalette::Highlight), 0.10);
+	display.selectedColor = alphaColor(palette().color(QPalette::Highlight), 0.14);
+	display.dividerColor = alphaColor(palette().color(QPalette::Mid), 0.28);
+	display.dangerColor = QColor(214, 92, 92);
+	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+		display.textColor = tokens->text;
+		display.mutedTextColor = tokens->textMuted;
+		display.avatarBackgroundColor = alphaColor(tokens->accent, 0.34);
+		display.avatarTextColor = tokens->text;
+		display.onlineColor = mixColors(tokens->green, tokens->text, 0.12);
+		display.awayColor = mixColors(tokens->yellow, tokens->text, 0.22);
+		display.mutedStateColor = mixColors(tokens->peach, tokens->yellow, 0.36);
+		display.deafenedColor = mixColors(tokens->rosewater, tokens->red, 0.48);
+		display.presenceRingColor = tokens->mantle;
+		display.panelColor = alphaColor(tokens->surface0, 0.985);
+		display.borderColor = tokens->surface1;
+		display.hoverColor = alphaColor(tokens->surface1, 0.64);
+		display.dividerColor = tokens->surface1;
+		display.dangerColor = mixColors(tokens->red, tokens->rosewater, 0.20);
+		display.presenceColor = serverNavigatorPresenceStateColor(display, display.currentState);
+		display.selectedColor = alphaColor(display.presenceColor, 0.20);
+	} else if (idle && !Global::get().s.bMute && !Global::get().s.bDeaf) {
+		display.awayColor = QColor(207, 155, 65);
+		display.presenceColor = display.awayColor;
+		display.selectedColor = alphaColor(display.presenceColor, 0.16);
+	} else {
+		display.presenceColor = serverNavigatorPresenceStateColor(display, display.currentState);
+	}
+
+	popup->sync(display, qaAudioMute && qaAudioMute->isChecked(), qaAudioDeaf && qaAudioDeaf->isChecked(),
+				qaConfigDialog != nullptr, Global::get().uiSession != 0 && Global::get().sh);
+	if (popup->isVisible()) {
+		positionServerNavigatorUserMenu();
+	}
+}
+
+void MainWindow::positionServerNavigatorUserMenu() {
+	auto *popup = static_cast< ServerNavigatorUserMenuPopup * >(m_serverNavigatorUserMenuPopup.data());
+	if (!popup || !m_serverNavigatorFooterPresenceButton || !m_serverNavigatorFooterPresenceButton->isVisible()) {
+		return;
+	}
+
+	popup->adjustSize();
+	const QPoint anchorTopLeft = m_serverNavigatorFooterPresenceButton->mapTo(this, QPoint(0, 0));
+	const QRect anchorRect(anchorTopLeft, m_serverNavigatorFooterPresenceButton->size());
+	const int x = qBound(8, anchorRect.right() - popup->width() + 22, width() - popup->width() - 8);
+	const int y = qMax(8, anchorRect.top() - popup->height() + 10);
+	const int arrowCenter = qBound(20, anchorRect.right() - x - 18, popup->width() - 20);
+	popup->setArrowCenterX(arrowCenter);
+	popup->move(x, y);
+	popup->raise();
+}
+
+void MainWindow::toggleServerNavigatorUserMenu() {
+	auto *popup = static_cast< ServerNavigatorUserMenuPopup * >(m_serverNavigatorUserMenuPopup.data());
+	if (popup && popup->isVisible()) {
+		closeServerNavigatorUserMenu();
+		return;
+	}
+
+	syncServerNavigatorUserMenu();
+	popup = static_cast< ServerNavigatorUserMenuPopup * >(m_serverNavigatorUserMenuPopup.data());
+	if (!popup) {
+		return;
+	}
+
+	positionServerNavigatorUserMenu();
+	popup->show();
+	popup->raise();
+	if (QPushButton *focusButton = popup->preferredFocusButton()) {
+		focusButton->setFocus();
+	}
+	qApp->installEventFilter(this);
+}
+
+void MainWindow::closeServerNavigatorUserMenu() {
+	if (m_serverNavigatorUserMenuPopup) {
+		m_serverNavigatorUserMenuPopup->hide();
+	}
+	qApp->removeEventFilter(this);
 }
 
 void MainWindow::updateToolbar() {
+	if (!qtIconToolbar) {
+		return;
+	}
+
 	bool layoutIsCustom = Global::get().s.wlWindowLayout == Settings::LayoutCustom;
 	qtIconToolbar->setMovable(layoutIsCustom && !Global::get().s.bLockLayout);
 
-	// Update the toolbar so the movable flag takes effect.
+	// Avoid detaching the toolbar during startup. Qt serializes toolbar-area
+	// topology into saveState(), and mutating a restored custom toolbar layout
+	// here can produce a state blob that later crashes in
+	// QToolBarAreaLayoutInfo::sizeHint().
+	const Qt::ToolBarArea currentArea = toolBarArea(qtIconToolbar);
 	if (layoutIsCustom) {
-		// Update the toolbar, but keep it in place.
-		addToolBar(toolBarArea(qtIconToolbar), qtIconToolbar);
-	} else {
-		// Update the toolbar, and ensure it is at the top of the window.
+		if (currentArea == Qt::NoToolBarArea) {
+			addToolBar(Qt::TopToolBarArea, qtIconToolbar);
+		}
+		return;
+	}
+
+	if (currentArea != Qt::TopToolBarArea) {
 		addToolBar(Qt::TopToolBarArea, qtIconToolbar);
 	}
 }
 
 void MainWindow::updatePersistentChatSendButton() {
-	if (!m_persistentChatSendButton || !qteChat) {
+	if (!qteChat) {
 		return;
 	}
 
 	const bool hasUserText =
 		qteChat->isEnabled() && !qteChat->isShowingDefaultText() && !qteChat->toPlainText().trimmed().isEmpty();
-	m_persistentChatSendButton->setEnabled(hasUserText);
+	if (m_persistentChatSendButton) {
+		m_persistentChatSendButton->setEnabled(hasUserText);
+	}
+	if (m_persistentChatAttachButton) {
+		m_persistentChatAttachButton->setEnabled(qteChat->isEnabled() && Global::get().bAllowHTML);
+	}
 }
 
 void MainWindow::updateFavoriteButton() {
@@ -8103,6 +9399,35 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 				wheelEvent->accept();
 				return true;
 			}
+		}
+	}
+
+	if (m_serverNavigatorUserMenuPopup && m_serverNavigatorUserMenuPopup->isVisible() && event) {
+		const auto widgetContainsTarget = [watched](QWidget *root) {
+			QWidget *widget = qobject_cast< QWidget * >(watched);
+			while (widget) {
+				if (widget == root) {
+					return true;
+				}
+				widget = widget->parentWidget();
+			}
+			return false;
+		};
+
+		if (event->type() == QEvent::MouseButtonPress) {
+			if (!widgetContainsTarget(m_serverNavigatorUserMenuPopup.data())
+				&& !(m_serverNavigatorFooterPresenceButton
+					 && widgetContainsTarget(m_serverNavigatorFooterPresenceButton))) {
+				closeServerNavigatorUserMenu();
+			}
+		} else if (event->type() == QEvent::KeyPress) {
+			QKeyEvent *keyEvent = static_cast< QKeyEvent * >(event);
+			if (keyEvent->key() == Qt::Key_Escape) {
+				closeServerNavigatorUserMenu();
+				return true;
+			}
+		} else if (event->type() == QEvent::Hide && watched == m_serverNavigatorUserMenuPopup.data()) {
+			closeServerNavigatorUserMenu();
 		}
 	}
 
@@ -9051,9 +10376,15 @@ void MainWindow::setupView(bool toggle_minimize) {
 	if (!showit) {
 		qdwLog->setVisible(false);
 		qdwChat->setVisible(false);
-		qtIconToolbar->setVisible(false);
+		if (qtIconToolbar) {
+			qtIconToolbar->setVisible(false);
+		}
 	}
 	menuBar()->setVisible(showit);
+	if (qtIconToolbar) {
+		qtIconToolbar->toggleViewAction()->setChecked(showit);
+		qtIconToolbar->setVisible(showit);
+	}
 
 	if (showit) {
 		qdwMinimalViewNote->hide();
@@ -11518,7 +12849,11 @@ void MainWindow::qtvUserCurrentChanged(const QModelIndex &, const QModelIndex &)
 	bool useVoiceTree = false;
 	if (hasPersistentChatCapabilities() && pmModel) {
 		const QModelIndex currentIndex = qtvUsers ? qtvUsers->currentIndex() : QModelIndex();
-		if (currentIndex.isValid()) {
+		const bool treeOwnsChatTarget =
+			m_persistentChatTargetUsesVoiceTree
+			|| (qtvUsers
+				&& (qtvUsers->hasFocus() || (qtvUsers->viewport() && qtvUsers->viewport()->hasFocus())));
+		if (treeOwnsChatTarget && currentIndex.isValid()) {
 			useVoiceTree = pmModel->getChannel(currentIndex) != nullptr;
 			if (!useVoiceTree && m_persistentChatTargetUsesVoiceTree && pmModel->getUser(currentIndex)) {
 				useVoiceTree = true;
@@ -11532,6 +12867,7 @@ void MainWindow::qtvUserCurrentChanged(const QModelIndex &, const QModelIndex &)
 
 void MainWindow::on_persistentChatScopeChanged(int) {
 	setPersistentChatTargetUsesVoiceTree(false);
+	updateServerNavigatorChrome();
 
 	QPointer< MainWindow > guardedThis(this);
 	QMetaObject::invokeMethod(
@@ -11562,13 +12898,13 @@ void MainWindow::updateChatBar(bool forcePersistentChatReload) {
 		qteChat->setDefaultText(tr("<div>Read-only activity</div>"), true);
 		renderServerLogView(true);
 	} else if (target.legacyTextPath && target.directMessage && target.user) {
-		qteChat->setDefaultText(tr("<div>Reply to %1</div>").arg(target.user->qsName.toHtmlEscaped()));
+		qteChat->setDefaultText(tr("<div>Write to %1...</div>").arg(target.user->qsName.toHtmlEscaped()));
 		refreshPersistentChatView(forcePersistentChatReload);
 	} else if (target.legacyTextPath && target.channel) {
-		qteChat->setDefaultText(tr("<div>Reply in %1</div>").arg(target.channel->qsName.toHtmlEscaped()));
+		qteChat->setDefaultText(tr("<div>Write in %1...</div>").arg(target.channel->qsName.toHtmlEscaped()));
 		refreshPersistentChatView(forcePersistentChatReload);
 	} else if (target.directMessage && target.user) {
-		qteChat->setDefaultText(tr("<div>Reply to %1</div>").arg(target.user->qsName.toHtmlEscaped()));
+		qteChat->setDefaultText(tr("<div>Write to %1...</div>").arg(target.user->qsName.toHtmlEscaped()));
 		clearPersistentChatView(tr("Direct messages still use the classic text message path and do not have persistent "
 								   "history yet."),
 							 tr("Direct messages"), { tr("Classic chat still handles direct messages") });
@@ -11580,17 +12916,17 @@ void MainWindow::updateChatBar(bool forcePersistentChatReload) {
 							 tr("Server-wide chat is unavailable"), { tr("Choose a text room or voice room chat instead") });
 	} else if (target.readOnly) {
 		qteChat->setDefaultText(
-			tr("<div>Choose a conversation to reply</div><div><small>This conversation is read-only</small></div>"),
+			tr("<div>Choose a conversation to write in</div><div><small>This conversation is read-only</small></div>"),
 			true);
 		refreshPersistentChatView(forcePersistentChatReload);
 	} else if (target.scope == MumbleProto::TextChannel) {
-		qteChat->setDefaultText(tr("<div>Reply in %1</div>").arg(target.label.toHtmlEscaped()), true);
+		qteChat->setDefaultText(tr("<div>Write in %1...</div>").arg(target.label.toHtmlEscaped()), true);
 		refreshPersistentChatView(forcePersistentChatReload);
 	} else if (target.channel) {
-		qteChat->setDefaultText(tr("<div>Reply in %1</div>").arg(target.channel->qsName.toHtmlEscaped()));
+		qteChat->setDefaultText(tr("<div>Write in %1...</div>").arg(target.channel->qsName.toHtmlEscaped()));
 		refreshPersistentChatView(forcePersistentChatReload);
 	} else {
-		qteChat->setDefaultText(tr("<div>Reply</div>"), true);
+		qteChat->setDefaultText(tr("<div>Write...</div>"), true);
 		refreshPersistentChatView(forcePersistentChatReload);
 	}
 

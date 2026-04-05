@@ -7,6 +7,7 @@
 #define MUMBLE_MUMBLE_CUSTOMELEMENTS_H_
 
 #include <QtCore/QObject>
+#include <QtCore/QUrl>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QTextBrowser>
 #include <QtWidgets/QTextEdit>
@@ -27,6 +28,10 @@ public:
 	bool isScrolledToBottom();
 	void resetViewportChrome();
 	QTextCursor imageCursorAt(const QPoint &position) const;
+	QSize minimumSizeHint() const Q_DECL_OVERRIDE;
+	QSize sizeHint() const Q_DECL_OVERRIDE;
+	bool hasHeightForWidth() const Q_DECL_OVERRIDE;
+	int heightForWidth(int width) const Q_DECL_OVERRIDE;
 
 signals:
 	void imageActivated(const QTextCursor &cursor);
@@ -36,6 +41,7 @@ protected:
 	void mouseReleaseEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 	void mouseDoubleClickEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
 	void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
+	QSize viewportSizeHint() const Q_DECL_OVERRIDE;
 	void wheelEvent(QWheelEvent *event) Q_DECL_OVERRIDE;
 };
 
@@ -74,7 +80,8 @@ public:
 	unsigned int completeAtCursor();
 	void resetViewportChrome();
 	bool isShowingDefaultText() const;
-signals:
+	bool sendImagesFromUrls(const QList< QUrl > &urls);
+	signals:
 	void tabPressed(void);
 	void backtabPressed(void);
 	void ctrlSpacePressed(void);

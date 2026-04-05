@@ -60,7 +60,9 @@ class QListWidget;
 class QListWidgetItem;
 class QMenu;
 class QTimer;
+class QPushButton;
 class QToolButton;
+class QWidget;
 
 namespace Search {
 class SearchDialog;
@@ -174,6 +176,10 @@ public:
 	void setupPersistentChatDock();
 	void setupServerNavigator();
 	void updateServerNavigatorChrome();
+	void syncServerNavigatorUserMenu();
+	void positionServerNavigatorUserMenu();
+	void toggleServerNavigatorUserMenu();
+	void closeServerNavigatorUserMenu();
 	void refreshCustomChromeStyles();
 	void refreshServerNavigatorStyles();
 	void refreshServerNavigatorMotdHeight();
@@ -363,6 +369,7 @@ protected:
 	QWidget *m_serverNavigatorContainer = nullptr;
 	QFrame *m_serverNavigatorHeaderFrame = nullptr;
 	QFrame *m_serverNavigatorContentFrame = nullptr;
+	QFrame *m_serverNavigatorFooterFrame = nullptr;
 	QLabel *m_serverNavigatorEyebrow = nullptr;
 	QLabel *m_serverNavigatorTitle = nullptr;
 	QLabel *m_serverNavigatorSubtitle = nullptr;
@@ -378,6 +385,11 @@ protected:
 	QLabel *m_serverNavigatorTextChannelsMotdBody = nullptr;
 	QToolButton *m_serverNavigatorTextChannelsMotdToggleButton = nullptr;
 	QLabel *m_serverNavigatorFooter = nullptr;
+	QPushButton *m_serverNavigatorFooterPresenceButton = nullptr;
+	QLabel *m_serverNavigatorFooterAvatar = nullptr;
+	QLabel *m_serverNavigatorFooterName = nullptr;
+	QLabel *m_serverNavigatorFooterPresence = nullptr;
+	QPointer< QWidget > m_serverNavigatorUserMenuPopup;
 	QWidget *m_persistentChatContainer = nullptr;
 	QFrame *m_persistentChatHeaderFrame = nullptr;
 	QLabel *m_persistentChatHeaderEyebrow = nullptr;
@@ -405,6 +417,7 @@ protected:
 	QLabel *m_persistentChatReplyLabel = nullptr;
 	QLabel *m_persistentChatReplySnippet = nullptr;
 	QToolButton *m_persistentChatReplyCancelButton = nullptr;
+	QToolButton *m_persistentChatAttachButton = nullptr;
 	QToolButton *m_persistentChatSendButton = nullptr;
 	QString m_persistentChatWelcomeText;
 	bool m_persistentChatMotdHidden = false;

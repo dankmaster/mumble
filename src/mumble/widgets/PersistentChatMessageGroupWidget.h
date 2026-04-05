@@ -23,10 +23,16 @@ class QHBoxLayout;
 class QToolButton;
 class QVBoxLayout;
 
+enum class PersistentChatDisplayMode {
+	Bubble,
+	CompactTranscript
+};
+
 struct PersistentChatGroupHeaderSpec {
 	bool selfAuthored           = false;
 	bool aggregateScope         = false;
 	bool systemMessage          = false;
+	PersistentChatDisplayMode displayMode = PersistentChatDisplayMode::Bubble;
 	QString actorLabel;
 	QColor actorColor;
 	QColor avatarForegroundColor;
@@ -58,6 +64,7 @@ struct PersistentChatPreviewSpec {
 struct PersistentChatBubbleSpec {
 	unsigned int messageID = 0;
 	unsigned int threadID  = 0;
+	PersistentChatDisplayMode displayMode = PersistentChatDisplayMode::Bubble;
 	QString bodyHtml;
 	QString previewKey;
 	QVector< QPair< QUrl, QImage > > imageResources;
@@ -75,6 +82,31 @@ struct PersistentChatBubbleSpec {
 	QString actionText;
 	MumbleProto::ChatScope actionScope = MumbleProto::Channel;
 	unsigned int actionScopeID         = 0;
+	QString transcriptActorLabel;
+	QColor transcriptActorColor;
+	QString transcriptTimeLabel;
+};
+
+enum class PersistentChatConversationLaneAnchor {
+	Leading,
+	Trailing,
+	Center
+};
+
+struct PersistentChatConversationLaneMetrics {
+	PersistentChatConversationLaneAnchor anchor = PersistentChatConversationLaneAnchor::Leading;
+	int outerLeadingInset    = 0;
+	int outerTrailingInset   = 0;
+	int verticalInset        = 0;
+	int leadingPresenceSlotWidth = 0;
+	int trailingPresenceSlotWidth = 0;
+	int conversationLaneWidth = 0;
+	int bubbleMinWidth       = 0;
+	int bubbleMaxWidth       = 0;
+	int previewMinWidth      = 0;
+	int previewMaxWidth      = 0;
+	bool showLeadingAvatar   = false;
+	bool showTrailingAvatar  = false;
 };
 
 class PersistentChatMessageGroupWidget : public QWidget {
@@ -93,11 +125,14 @@ public:
 	unsigned int firstMessageID() const;
 	unsigned int lastMessageID() const;
 	unsigned int lastThreadID() const;
+	bool hasHeightForWidth() const override;
+	int heightForWidth(int width) const override;
 	QSize sizeHint() const override;
 	QSize minimumSizeHint() const override;
 
 signals:
 	void measuredHeightChanged(int height);
+	void contentUpdated();
 	void replyRequested(unsigned int messageID);
 	void scopeJumpRequested(MumbleProto::ChatScope scope, unsigned int scopeID);
 	void logContextMenuRequested(LogTextBrowser *browser, const QPoint &position);
@@ -111,7 +146,11 @@ protected:
 
 private:
 	bool hasActiveBubble() const;
+	int measuredHeightForWidth(int width) const;
 	int measuredHeight() const;
+	PersistentChatConversationLaneMetrics conversationLaneMetricsForWidth(int width) const;
+	void applyConversationLaneMetrics(const PersistentChatConversationLaneMetrics &metrics);
+	void updateBubbleClusterShapes();
 	void reevaluateRowActive();
 	void setRowActive(bool active);
 	void syncMeasuredHeight();
@@ -132,15 +171,22 @@ private:
 
 	QHBoxLayout *m_rowLayout = nullptr;
 	QWidget *m_leadingSpacer = nullptr;
+	QWidget *m_leadingPresenceSlot = nullptr;
+	QWidget *m_trailingSpacer = nullptr;
 	QWidget *m_contentColumn = nullptr;
-	QWidget *m_avatarFrame   = nullptr;
-	QLabel *m_avatarFallbackLabel = nullptr;
+	QWidget *m_leadingAvatarFrame = nullptr;
+	QWidget *m_trailingPresenceSlot = nullptr;
+	QWidget *m_trailingAvatarFrame = nullptr;
 	QWidget *m_headerWidget  = nullptr;
 	QHBoxLayout *m_headerLayout = nullptr;
+	QWidget *m_headerLeadingSpacer = nullptr;
 	QLabel *m_actorLabel     = nullptr;
 	QLabel *m_timeLabel      = nullptr;
 	QToolButton *m_scopeButton = nullptr;
+	QWidget *m_headerTrailingSpacer = nullptr;
 	QVBoxLayout *m_bubblesLayout = nullptr;
+	PersistentChatConversationLaneMetrics m_laneMetrics;
+	PersistentChatDisplayMode m_displayMode = PersistentChatDisplayMode::Bubble;
 	bool m_selfAuthored      = false;
 	bool m_rowActive         = false;
 };

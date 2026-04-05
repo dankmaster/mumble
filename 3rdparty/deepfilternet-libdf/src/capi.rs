@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use crossbeam_channel::TryRecvError;
-use ndarray::prelude::*;
+use tract_core::ndarray::prelude::*;
 
 use crate::logging::*;
 use crate::tract::*;

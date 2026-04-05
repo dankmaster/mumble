@@ -66,7 +66,7 @@ namespace {
 		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
 			colors.surfaceColor         = tokens->mantle;
 			colors.hoverColor           = tokens->surface0;
-			colors.currentRoomTintColor = uiThemeColorWithAlpha(tokens->green, 0.08);
+			colors.currentRoomTintColor = uiThemeColorWithAlpha(tokens->green, 0.06);
 			colors.currentRoomBorderColor = tokens->green;
 			colors.textColor            = tokens->text;
 			colors.mutedTextColor       = tokens->overlay0;
@@ -86,7 +86,7 @@ namespace {
 		colors.surfaceColor         = mixRowColors(baseColor, alternateColor, darkTheme ? 0.74 : 0.14);
 		colors.hoverColor           = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.04 : 0.03);
 		colors.currentRoomTintColor =
-			QColor::fromRgbF(0.25f, 0.68f, 0.46f, darkTheme ? 0.08f : 0.10f);
+			QColor::fromRgbF(0.25f, 0.68f, 0.46f, darkTheme ? 0.07f : 0.09f);
 		colors.currentRoomBorderColor = QColor::fromRgb(darkTheme ? 114 : 54, darkTheme ? 217 : 168, darkTheme ? 153 : 97);
 		colors.textColor            = textColor;
 		colors.mutedTextColor       = mixRowColors(textColor, windowColor, darkTheme ? 0.38 : 0.28);
@@ -236,7 +236,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	const QColor secondaryTextColor = colors.mutedTextColor;
 	const UserView *view = qobject_cast< const UserView * >(opt.widget);
 
-	QRect contentRect = option.rect.adjusted(isChannel ? 12 : 24, 1, -12, -1);
+	QRect contentRect = option.rect.adjusted(isChannel ? 10 : 18, 1, -10, -1);
 	const int statusIconsWidth = static_cast< int >(statusIcons.size() * m_iconTotalDimension);
 	int iconRight = contentRect.right();
 
@@ -246,6 +246,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	}
 	const bool showInlineStatus = !isChannel && !isListener && (muted || deafened);
 	const int inlineStatusWidth = showInlineStatus ? 14 : 0;
+	static const QIcon s_voiceRoomIcon(QLatin1String("skin:priority_speaker.svg"));
 
 	QFont secondaryFont(opt.font);
 	secondaryFont.setPointSizeF(std::max(secondaryFont.pointSizeF() - 0.5, 8.0));
@@ -269,7 +270,15 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	painter->setRenderHint(QPainter::Antialiasing, true);
 
 	int x = contentRect.left();
-	if (!isChannel) {
+	if (isChannel) {
+		if (!isRoot) {
+			const QRect voiceIconRect(x, contentRect.center().y() - 6, 12, 12);
+			const QColor voiceIconColor = currentLocation ? colors.currentRoomBorderColor : colors.iconTintColor;
+			painter->drawPixmap(voiceIconRect.topLeft(),
+								tintedIconPixmap(s_voiceRoomIcon, voiceIconRect.size(), voiceIconColor));
+			x = voiceIconRect.right() + 7;
+		}
+	} else {
 		const int avatarSize = 20;
 		const QRect avatarRect(x, contentRect.center().y() - (avatarSize / 2), avatarSize, avatarSize);
 		if (talking) {
@@ -323,7 +332,7 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 			}
 		}
 
-		x = avatarRect.right() + 9;
+		x = avatarRect.right() + 8;
 	}
 
 	const QRect textRect(x, contentRect.top(), std::max(20, textRight - x), contentRect.height());
@@ -384,7 +393,7 @@ QSize UserDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelInd
 
 	const int itemKind = index.data(UserModel::NavigatorItemKindRole).toInt();
 	const int minimumHeight =
-		itemKind == UserModel::NavigatorChannelItem ? 32 : (itemKind == UserModel::NavigatorUserItem ? 28 : 28);
+		itemKind == UserModel::NavigatorChannelItem ? 28 : (itemKind == UserModel::NavigatorUserItem ? 24 : 24);
 	return QSize(hint.width(), std::max(hint.height(), minimumHeight));
 }
 
@@ -460,14 +469,15 @@ void UserView::drawRow(QPainter *painter, const QStyleOptionViewItem &option, co
 		const QRect rowRect = option.rect.adjusted(0, 2, -4, -2);
 		if (rowRect.isValid()) {
 			painter->save();
+			painter->setRenderHint(QPainter::Antialiasing, true);
 			painter->setPen(Qt::NoPen);
 			painter->setBrush(rowFillColor);
-			painter->drawRect(rowRect);
+			painter->drawRoundedRect(rowRect, 8.0, 8.0);
 			if (shouldDrawCurrentRoom) {
-				const QRect accentRect(rowRect.left(), rowRect.top(), 2, rowRect.height());
+				const QRect accentRect(rowRect.left(), rowRect.top() + 2, 3, rowRect.height() - 4);
 				painter->setPen(Qt::NoPen);
 				painter->setBrush(colors.currentRoomBorderColor);
-				painter->drawRect(accentRect);
+				painter->drawRoundedRect(accentRect, 1.5, 1.5);
 			}
 			painter->restore();
 		}

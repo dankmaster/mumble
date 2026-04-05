@@ -35,10 +35,17 @@ signals:
 	void contentWidthChanged(int width);
 
 protected:
+	bool eventFilter(QObject *watched, QEvent *event) override;
 	void resizeEvent(QResizeEvent *event) override;
 
 private:
+	void queueSnapToBottom();
+	void updateBottomPinState();
+
 	bool m_stabilizingVisibleContent = false;
+	bool m_keepBottomPinned          = true;
+	bool m_bottomSnapQueued          = false;
+	int m_lastKnownScrollMaximum     = 0;
 };
 
 #endif // MUMBLE_MUMBLE_WIDGETS_PERSISTENTCHATLISTWIDGET_H_

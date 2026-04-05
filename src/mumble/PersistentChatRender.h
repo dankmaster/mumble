@@ -28,17 +28,25 @@ namespace PersistentChatRender {
 		QString name;
 	};
 
+	enum class ConversationLaneRole {
+		OtherAuthored,
+		SelfAuthored,
+		System
+	};
+
 	struct PersistentChatRenderBubble {
 		int messageIndex         = -1;
 		unsigned int messageID   = 0;
 		unsigned int threadID    = 0;
 		QDateTime createdAt;
+		ConversationLaneRole laneRole = ConversationLaneRole::OtherAuthored;
 		bool selfAuthored        = false;
 		bool systemMessage       = false;
 	};
 
 	struct PersistentChatRenderGroup {
 		std::vector< PersistentChatRenderBubble > bubbles;
+		ConversationLaneRole laneRole = ConversationLaneRole::OtherAuthored;
 		bool selfAuthored               = false;
 		bool systemMessage              = false;
 		QDate date;
@@ -57,8 +65,10 @@ namespace PersistentChatRender {
 	bool sameScope(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs);
 	bool isSystemMessage(const MumbleProto::ChatMessage &message);
 	bool isSelfAuthored(const MumbleProto::ChatMessage &message, const SelfIdentity &selfIdentity);
+	ConversationLaneRole laneRoleForMessage(const MumbleProto::ChatMessage &message, const SelfIdentity &selfIdentity);
 	std::vector< PersistentChatRenderGroup > buildGroups(const std::vector< MumbleProto::ChatMessage > &messages,
-														 const SelfIdentity &selfIdentity);
+														 const SelfIdentity &selfIdentity,
+														 bool forceSingleMessageGroups = false);
 } // namespace PersistentChatRender
 
 #endif // MUMBLE_MUMBLE_PERSISTENTCHATRENDER_H_

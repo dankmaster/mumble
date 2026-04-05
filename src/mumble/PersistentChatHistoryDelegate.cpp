@@ -68,13 +68,40 @@ namespace {
 
 		const int measuredWidth = std::max(0, itemWidth);
 		const QVariant explicitHeight = widget->property("persistentChatItemHeight");
-		int measuredHeight            = explicitHeight.isValid() ? explicitHeight.toInt() : widget->sizeHint().height();
+		int measuredHeight = explicitHeight.isValid() ? explicitHeight.toInt() : 0;
+		if (widget->hasHeightForWidth()) {
+			measuredHeight = std::max(measuredHeight, widget->heightForWidth(measuredWidth));
+		}
+		measuredHeight = std::max(measuredHeight, widget->sizeHint().height());
+		measuredHeight = std::max(measuredHeight, widget->minimumSizeHint().height());
 		if (QLayout *layout = widget->layout()) {
+			if (layout->hasHeightForWidth()) {
+				measuredHeight = std::max(measuredHeight, layout->totalHeightForWidth(measuredWidth));
+			}
 			measuredHeight = std::max(measuredHeight, layout->sizeHint().height());
+			measuredHeight = std::max(measuredHeight, layout->minimumSize().height());
 		}
 
-		measuredHeight = std::max(measuredHeight, widget->minimumSizeHint().height());
 		return QSize(measuredWidth, std::max(1, measuredHeight));
+	}
+
+	QWidget *deepestInteractiveChildAt(QWidget *rootWidget, const QPoint &localPos) {
+		if (!rootWidget) {
+			return nullptr;
+		}
+
+		QWidget *targetWidget = rootWidget;
+		QPoint targetLocalPos = localPos;
+		while (QWidget *childWidget = targetWidget->childAt(targetLocalPos)) {
+			if (childWidget->testAttribute(Qt::WA_TransparentForMouseEvents)) {
+				break;
+			}
+
+			targetLocalPos = childWidget->mapFrom(targetWidget, targetLocalPos);
+			targetWidget   = childWidget;
+		}
+
+		return targetWidget;
 	}
 
 	QWidget *createStateWidget(const PersistentChatStateRowSpec &stateRow, QWidget *parent, int width) {
@@ -164,26 +191,41 @@ namespace {
 		return label;
 	}
 
-	QWidget *createDateDividerWidget(const QString &text, QWidget *parent) {
+	QWidget *createDateDividerWidget(const PersistentChatTextRowSpec &textRow, QWidget *parent) {
+		const bool compactTranscript = textRow.displayMode == PersistentChatDisplayMode::CompactTranscript;
 		QWidget *divider = new QWidget(parent);
 		divider->setObjectName(QLatin1String("qwPersistentChatDateDivider"));
 		divider->setAttribute(Qt::WA_StyledBackground, true);
+		divider->setProperty("compactTranscript", compactTranscript);
 		QHBoxLayout *layout = new QHBoxLayout(divider);
-		layout->setContentsMargins(16, 8, 16, 8);
-		layout->setSpacing(12);
+		layout->setContentsMargins(compactTranscript ? 96 : 188, compactTranscript ? 8 : 1,
+								   compactTranscript ? 96 : 188, compactTranscript ? 8 : 1);
+		layout->setSpacing(compactTranscript ? 10 : 6);
 
 		QFrame *leftLine = new QFrame(divider);
 		leftLine->setObjectName(QLatin1String("qfPersistentChatDateDividerLine"));
-		leftLine->setFixedHeight(1);
+		leftLine->setProperty("compactTranscript", compactTranscript);
+		leftLine->setFixedHeight(compactTranscript ? 2 : 1);
 		leftLine->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
-		QLabel *label = new QLabel(text.toUpper(), divider);
+		QLabel *label = new QLabel(textRow.text.toUpper(), divider);
 		label->setObjectName(QLatin1String("qlPersistentChatDateDividerText"));
+		label->setProperty("compactTranscript", compactTranscript);
 		label->setAlignment(Qt::AlignCenter);
+		QFont labelFont = label->font();
+		labelFont.setBold(compactTranscript);
+		labelFont.setPointSizeF(
+			std::max(labelFont.pointSizeF() - (compactTranscript ? 1.4 : 3.8), compactTranscript ? 8.5 : 6.5));
+		label->setFont(labelFont);
+		label->setContentsMargins(0, 0, 0, 0);
+		label->setStyleSheet(compactTranscript
+								 ? QStringLiteral("font-size: 8px; font-weight: 700; letter-spacing: 0.22em;")
+								 : QStringLiteral("font-size: 6px; font-weight: 400; letter-spacing: 0.18em;"));
 
 		QFrame *rightLine = new QFrame(divider);
 		rightLine->setObjectName(QLatin1String("qfPersistentChatDateDividerLine"));
-		rightLine->setFixedHeight(1);
+		rightLine->setProperty("compactTranscript", compactTranscript);
+		rightLine->setFixedHeight(compactTranscript ? 2 : 1);
 		rightLine->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
 		layout->addWidget(leftLine);
@@ -412,6 +454,13 @@ QWidget *PersistentChatHistoryDelegate::widgetForIndex(const QModelIndex &index,
 							emit delegate->sizeHintChanged(persistentIndex);
 						}
 					});
+			connect(groupWidget, &PersistentChatMessageGroupWidget::contentUpdated, this,
+					[delegate, persistentIndex, rowId]() {
+						delegate->invalidateCachedRendering(rowId);
+						if (persistentIndex.isValid()) {
+							emit delegate->sizeHintChanged(persistentIndex);
+						}
+					});
 		}
 
 		cacheEntry.widget->setProperty("persistentChatStylesheet", stylesheet);
@@ -444,7 +493,7 @@ QWidget *PersistentChatHistoryDelegate::createWidgetForRow(const PersistentChatH
 			return button;
 		}
 		case PersistentChatHistoryRowKind::DateDivider:
-			return row.text ? createDateDividerWidget(row.text->text, parent) : nullptr;
+			return row.text ? createDateDividerWidget(*row.text, parent) : nullptr;
 		case PersistentChatHistoryRowKind::UnreadDivider:
 			return row.text
 					   ? createPillWidget(QString::fromLatin1("<strong>%1</strong>").arg(row.text->text.toHtmlEscaped()),
@@ -504,12 +553,21 @@ void PersistentChatHistoryDelegate::syncWidgetLayout(WidgetCacheEntry &cacheEntr
 	cacheEntry.width = measuredWidth;
 	cacheEntry.widget->setFixedWidth(measuredWidth);
 	cacheEntry.widget->ensurePolished();
-	if (QLayout *layout = cacheEntry.widget->layout()) {
-		layout->activate();
+	QSize stabilizedSize(std::max(1, measuredWidth), 1);
+	for (int pass = 0; pass < 3; ++pass) {
+		if (QLayout *layout = cacheEntry.widget->layout()) {
+			layout->activate();
+		}
+		cacheEntry.widget->updateGeometry();
+		cacheEntry.widget->adjustSize();
+		const QSize measuredSize = measuredItemHint(cacheEntry.widget, measuredWidth);
+		cacheEntry.widget->resize(measuredSize);
+		if (measuredSize == stabilizedSize && pass > 0) {
+			break;
+		}
+		stabilizedSize = measuredSize;
 	}
-	cacheEntry.widget->updateGeometry();
-	cacheEntry.widget->adjustSize();
-	cacheEntry.measuredSize = measuredItemHint(cacheEntry.widget, measuredWidth);
+	cacheEntry.measuredSize = stabilizedSize;
 	cacheEntry.widget->resize(cacheEntry.measuredSize);
 	cacheEntry.renderedPixmap = QPixmap();
 	cacheEntry.pixmapDirty    = true;
@@ -603,7 +661,7 @@ bool PersistentChatHistoryDelegate::forwardEditorEvent(QWidget *rootWidget, QEve
 		case QEvent::MouseMove: {
 			const auto *mouseEvent = static_cast< const QMouseEvent * >(event);
 			const QPoint localPos  = mouseEvent->pos() - option.rect.topLeft();
-			QWidget *targetWidget  = rootWidget->childAt(localPos);
+			QWidget *targetWidget  = deepestInteractiveChildAt(rootWidget, localPos);
 			if (!targetWidget) {
 				targetWidget = rootWidget;
 			}
@@ -618,7 +676,7 @@ bool PersistentChatHistoryDelegate::forwardEditorEvent(QWidget *rootWidget, QEve
 		case QEvent::ContextMenu: {
 			const auto *contextEvent = static_cast< const QContextMenuEvent * >(event);
 			const QPoint localPos    = contextEvent->pos() - option.rect.topLeft();
-			QWidget *targetWidget    = rootWidget->childAt(localPos);
+			QWidget *targetWidget    = deepestInteractiveChildAt(rootWidget, localPos);
 			if (!targetWidget) {
 				targetWidget = rootWidget;
 			}

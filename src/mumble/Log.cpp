@@ -1007,8 +1007,11 @@ QVariant LogDocument::loadResource(int type, const QUrl &url) {
 		return QByteArray();
 	}
 
-	// Only accept data URLs, not external resources
-	if (url.isValid() && url.scheme() == QLatin1String("data")) {
+	// Allow inline data URLs plus internal chat image resources that were pre-registered
+	// on the document before setHtml().
+	if (url.isValid() && (url.scheme() == QLatin1String("data")
+						  || url.scheme() == QLatin1String("mumble-chat-image")
+						  || url.scheme() == QLatin1String("mumble-preview"))) {
 		return QTextDocument::loadResource(type, url);
 	}
 

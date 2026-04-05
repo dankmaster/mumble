@@ -25,8 +25,12 @@ namespace {
 
 	bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
 								   const QDateTime &previousCreatedAt, const MumbleProto::ChatMessage &message,
-								   const QDateTime &createdAt) {
+								   const QDateTime &createdAt, bool forceSingleMessageGroups) {
 		if (!previousMessage.has_value()) {
+			return true;
+		}
+
+		if (forceSingleMessageGroups) {
 			return true;
 		}
 
@@ -39,7 +43,7 @@ namespace {
 			return true;
 		}
 
-		if (previousCreatedAt.isValid() && createdAt.isValid() && previousCreatedAt.secsTo(createdAt) > (5 * 60)) {
+		if (previousCreatedAt.isValid() && createdAt.isValid() && previousCreatedAt.secsTo(createdAt) > (8 * 60)) {
 			return true;
 		}
 
@@ -113,8 +117,18 @@ namespace PersistentChatRender {
 		return !selfIdentity.name.isEmpty() && message.has_actor_name() && u8(message.actor_name()) == selfIdentity.name;
 	}
 
+	ConversationLaneRole laneRoleForMessage(const MumbleProto::ChatMessage &message, const SelfIdentity &selfIdentity) {
+		if (isSystemMessage(message)) {
+			return ConversationLaneRole::System;
+		}
+
+		return isSelfAuthored(message, selfIdentity) ? ConversationLaneRole::SelfAuthored
+													 : ConversationLaneRole::OtherAuthored;
+	}
+
 	std::vector< PersistentChatRenderGroup > buildGroups(const std::vector< MumbleProto::ChatMessage > &messages,
-														 const SelfIdentity &selfIdentity) {
+														 const SelfIdentity &selfIdentity,
+														 bool forceSingleMessageGroups) {
 		std::vector< PersistentChatRenderGroup > groups;
 		groups.reserve(messages.size());
 
@@ -125,12 +139,15 @@ namespace PersistentChatRender {
 			const MumbleProto::ChatMessage &message = messages[i];
 			const QDateTime createdAt = QDateTime::fromSecsSinceEpoch(
 				static_cast< qint64 >(message.has_created_at() ? message.created_at() : 0));
-			const bool systemMessage = isSystemMessage(message);
-			const bool selfAuthored = !systemMessage && isSelfAuthored(message, selfIdentity);
-			const bool startsGroup  = startsPersistentChatGroup(previousMessage, previousCreatedAt, message, createdAt);
+			const ConversationLaneRole laneRole = laneRoleForMessage(message, selfIdentity);
+			const bool systemMessage = laneRole == ConversationLaneRole::System;
+			const bool selfAuthored = laneRole == ConversationLaneRole::SelfAuthored;
+			const bool startsGroup =
+				startsPersistentChatGroup(previousMessage, previousCreatedAt, message, createdAt, forceSingleMessageGroups);
 
 			if (startsGroup || groups.empty()) {
 				PersistentChatRenderGroup group;
+				group.laneRole      = laneRole;
 				group.selfAuthored  = selfAuthored;
 				group.systemMessage = systemMessage;
 				group.date          = createdAt.isValid() ? createdAt.date() : QDate();
@@ -150,6 +167,7 @@ namespace PersistentChatRender {
 			bubble.messageID     = message.message_id();
 			bubble.threadID      = message.thread_id();
 			bubble.createdAt     = createdAt;
+			bubble.laneRole      = laneRole;
 			bubble.selfAuthored  = selfAuthored;
 			bubble.systemMessage = systemMessage;
 
