@@ -36,8 +36,8 @@
 #include <cmath>
 
 namespace {
-	constexpr int PersistentChatGroupHorizontalPadding = 10;
-	constexpr int PersistentChatGroupVerticalPadding   = 1;
+	constexpr int PersistentChatGroupHorizontalPadding = 8;
+	constexpr int PersistentChatGroupVerticalPadding   = 0;
 	constexpr int PersistentChatAvatarGap              = 1;
 	constexpr int PersistentChatAvatarSize             = 22;
 	constexpr int PersistentChatGroupedBubbleSpacing   = 0;
@@ -47,11 +47,11 @@ namespace {
 	constexpr int PersistentChatEmbeddedBrowserDocumentMargin = 0;
 	constexpr int PersistentChatEmbeddedBrowserHorizontalSlack = 4;
 	constexpr int PersistentChatEmbeddedBrowserVerticalSlack   = 5;
-	constexpr int PersistentChatBubbleHorizontalPadding = 7;
-	constexpr int PersistentChatBubbleVerticalPadding   = 1;
+	constexpr int PersistentChatBubbleHorizontalPadding = 6;
+	constexpr int PersistentChatBubbleVerticalPadding   = 0;
 	constexpr int PersistentChatBubbleContentSpacing    = 0;
-	constexpr int PersistentChatConversationLaneMinWidth = 180;
-	constexpr int PersistentChatConversationLaneMaxWidth = 332;
+	constexpr int PersistentChatConversationLaneMinWidth = 176;
+	constexpr int PersistentChatConversationLaneMaxWidth = 312;
 	constexpr int PersistentChatConversationLaneReserve = PersistentChatAvatarSize + PersistentChatAvatarGap;
 	constexpr int PersistentChatCompactTranscriptHorizontalInset = 8;
 	constexpr int PersistentChatCompactTranscriptTimeColumnWidth = 40;
@@ -59,12 +59,12 @@ namespace {
 	constexpr int PersistentChatCompactTranscriptColumnGap = 8;
 	constexpr int PersistentChatCompactTranscriptMinBodyWidth = 144;
 	constexpr int PersistentChatCompactTranscriptPreviewMaxWidth = 276;
-	constexpr int PersistentChatSingleLineBubbleMinWidth = 142;
-	constexpr int PersistentChatSelfAuthoredSingleLineBubbleMinWidth = 194;
+	constexpr int PersistentChatSingleLineBubbleMinWidth = 136;
+	constexpr int PersistentChatSelfAuthoredSingleLineBubbleMinWidth = 186;
 	constexpr qreal PersistentChatBubbleCornerRadius    = 13.0;
 	constexpr qreal PersistentChatBubbleStackCornerRadius = 4.0;
-	constexpr int PersistentChatLinkPreviewMinWidth     = 168;
-	constexpr int PersistentChatLinkPreviewMaxWidth     = 210;
+	constexpr int PersistentChatLinkPreviewMinWidth     = 160;
+	constexpr int PersistentChatLinkPreviewMaxWidth     = 198;
 	constexpr int PersistentChatLinkPreviewPadding      = 3;
 	constexpr int PersistentChatLinkPreviewSpacing      = 2;
 	constexpr int PersistentChatLinkPreviewThumbMinWidth = 36;
@@ -969,20 +969,9 @@ namespace {
 
 			if (persistentChatHtmlHasVisibleContent(bubbleSpec.bodyHtml)) {
 				mumble::chatperf::ScopedDuration bodyBrowserTrace("chat.group.bubble.create_body_browser");
-				const int singleLineMinimumBodyWidth = compactTranscript
-														  ? 0
-														  : std::max(0, m_laneMetrics.bubbleMinWidth
-																			 - (PersistentChatBubbleHorizontalPadding * 2));
-				m_bodyWidget = createCompactPlainTextLabel(bubbleSpec.bodyHtml, bodyContentWidth, bubbleSpec.copyText,
-														   singleLineMinimumBodyWidth,
-														   compactTranscript ? m_transcriptContentColumn
-																		   : static_cast< QWidget * >(m_surface));
-				if (!m_bodyWidget) {
-					m_bodyBrowser = createEmbeddedBrowser(bubbleSpec.bodyHtml, bodyContentWidth, m_baseStylesheet,
-														  bubbleSpec.imageResources, bubbleSpec.copyText,
-														  singleLineMinimumBodyWidth);
-					m_bodyWidget = m_bodyBrowser;
-				}
+				m_bodyBrowser = createEmbeddedBrowser(bubbleSpec.bodyHtml, bodyContentWidth, m_baseStylesheet,
+													  bubbleSpec.imageResources, bubbleSpec.copyText);
+				m_bodyWidget = m_bodyBrowser;
 			}
 			if (m_bodyBrowser) {
 				m_bodyBrowser->setObjectName(QLatin1String("qtePersistentChatBodyBrowser"));
@@ -1293,24 +1282,22 @@ namespace {
 			}
 
 			const bool compactTranscript = m_displayMode == PersistentChatDisplayMode::CompactTranscript && !m_systemMessage;
-			const bool singleLineBubble =
-				!compactTranscript && !m_systemMessage && !m_replyFrame && !m_previewContainer && m_bodyWidget
-				&& m_bodyWidget->property("persistentChatSingleLineBody").toBool();
 			if (m_surfaceLayout) {
 				const int horizontalPadding =
 					(compactTranscript || m_systemMessage) ? 0 : PersistentChatBubbleHorizontalPadding;
 				const int verticalPadding =
-					(compactTranscript || m_systemMessage) ? 0 : (singleLineBubble ? 0 : PersistentChatBubbleVerticalPadding);
+					(compactTranscript || m_systemMessage) ? 0 : PersistentChatBubbleVerticalPadding;
 				m_surfaceLayout->setContentsMargins(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding);
 			}
-			const int minimumBubbleWidth =
-				(compactTranscript ? 0 : singleLineBubble ? m_laneMetrics.bubbleMinWidth : 0);
+			const bool singleLineBubble =
+				!compactTranscript && !m_systemMessage && !m_replyFrame && !m_previewContainer && m_bodyWidget
+				&& m_bodyWidget->property("persistentChatSingleLineBody").toBool();
 			m_surface->setProperty("singleLineBubble", singleLineBubble);
 			m_surface->setProperty("clusterSingle", m_clusterPosition == PersistentChatBubbleClusterPosition::Single);
 			m_surface->setProperty("clusterTop", m_clusterPosition == PersistentChatBubbleClusterPosition::Top);
 			m_surface->setProperty("clusterMiddle", m_clusterPosition == PersistentChatBubbleClusterPosition::Middle);
 			m_surface->setProperty("clusterBottom", m_clusterPosition == PersistentChatBubbleClusterPosition::Bottom);
-			m_surface->setMinimumWidth(minimumBubbleWidth);
+			m_surface->setMinimumWidth(0);
 			m_surface->setMinimumHeight(0);
 			m_surface->style()->unpolish(m_surface);
 			m_surface->style()->polish(m_surface);

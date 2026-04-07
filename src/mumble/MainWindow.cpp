@@ -3329,7 +3329,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorContainer = new QWidget(this);
 	m_serverNavigatorContainer->setObjectName(QLatin1String("qwServerNavigator"));
 	m_serverNavigatorContainer->setAttribute(Qt::WA_StyledBackground, true);
-	m_serverNavigatorContainer->setFixedWidth(176);
+	m_serverNavigatorContainer->setFixedWidth(182);
 	m_serverNavigatorContainer->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
 	QVBoxLayout *layout = new QVBoxLayout(m_serverNavigatorContainer);
@@ -3340,7 +3340,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorContentFrame->setObjectName(QLatin1String("qfServerNavigatorContent"));
 	m_serverNavigatorContentFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QVBoxLayout *contentLayout = new QVBoxLayout(m_serverNavigatorContentFrame);
-	contentLayout->setContentsMargins(6, 4, 6, 6);
+	contentLayout->setContentsMargins(5, 4, 5, 6);
 	contentLayout->setSpacing(2);
 
 	m_serverNavigatorHeaderFrame = new QFrame(m_serverNavigatorContentFrame);
@@ -3383,7 +3383,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsMotdFrame->setAttribute(Qt::WA_StyledBackground, true);
 	m_serverNavigatorTextChannelsMotdFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *textChannelsMotdLayout = new QVBoxLayout(m_serverNavigatorTextChannelsMotdFrame);
-	textChannelsMotdLayout->setContentsMargins(6, 5, 6, 5);
+	textChannelsMotdLayout->setContentsMargins(5, 5, 5, 5);
 	textChannelsMotdLayout->setSpacing(2);
 
 	QHBoxLayout *textChannelsMotdHeaderLayout = new QHBoxLayout();
@@ -3544,12 +3544,12 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorFooterPresenceButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QHBoxLayout *footerPresenceLayout = new QHBoxLayout(m_serverNavigatorFooterPresenceButton);
 	footerPresenceLayout->setContentsMargins(0, 0, 0, 0);
-	footerPresenceLayout->setSpacing(8);
+	footerPresenceLayout->setSpacing(7);
 
 	m_serverNavigatorFooterAvatar = new QLabel(m_serverNavigatorFooterPresenceButton);
 	m_serverNavigatorFooterAvatar->setObjectName(QLatin1String("qlServerNavigatorFooterAvatar"));
 	m_serverNavigatorFooterAvatar->setAlignment(Qt::AlignCenter);
-	m_serverNavigatorFooterAvatar->setFixedSize(24, 24);
+	m_serverNavigatorFooterAvatar->setFixedSize(22, 22);
 
 	QWidget *footerInfo = new QWidget(m_serverNavigatorFooterPresenceButton);
 	QVBoxLayout *footerInfoLayout = new QVBoxLayout(footerInfo);
@@ -3686,7 +3686,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHeaderFrame->setObjectName(QLatin1String("qfPersistentChatHeader"));
 
 	QVBoxLayout *headerLayout = new QVBoxLayout(m_persistentChatHeaderFrame);
-	headerLayout->setContentsMargins(8, 2, 8, 2);
+	headerLayout->setContentsMargins(7, 1, 7, 1);
 	headerLayout->setSpacing(0);
 
 	m_persistentChatHeaderEyebrow = new QLabel(tr("Text"), m_persistentChatHeaderFrame);
@@ -3771,8 +3771,8 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatReplyFrame->setObjectName(QLatin1String("qfPersistentChatReply"));
 	m_persistentChatReplyFrame->setAttribute(Qt::WA_StyledBackground, true);
 	QHBoxLayout *replyLayout = new QHBoxLayout(m_persistentChatReplyFrame);
-	replyLayout->setContentsMargins(10, 6, 10, 6);
-	replyLayout->setSpacing(6);
+	replyLayout->setContentsMargins(8, 5, 8, 5);
+	replyLayout->setSpacing(5);
 	QVBoxLayout *replyTextLayout = new QVBoxLayout();
 	replyTextLayout->setContentsMargins(0, 0, 0, 0);
 	replyTextLayout->setSpacing(1);
@@ -3808,7 +3808,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatComposerFrame->setAttribute(Qt::WA_StyledBackground, true);
 	m_persistentChatComposerFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 	QVBoxLayout *composerLayout = new QVBoxLayout(m_persistentChatComposerFrame);
-	composerLayout->setContentsMargins(8, 0, 8, 2);
+	composerLayout->setContentsMargins(7, 0, 7, 1);
 	composerLayout->setSpacing(0);
 	composerLayout->addWidget(m_persistentChatReplyFrame);
 
@@ -3816,10 +3816,10 @@ void MainWindow::setupPersistentChatDock() {
 	composerInputRow->setObjectName(QLatin1String("qwPersistentChatComposerInputRow"));
 	composerInputRow->setAttribute(Qt::WA_StyledBackground, true);
 	composerInputRow->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-	composerInputRow->setMinimumHeight(30);
+	composerInputRow->setMinimumHeight(28);
 	QHBoxLayout *composerInputLayout = new QHBoxLayout(composerInputRow);
-	composerInputLayout->setContentsMargins(8, 0, 5, 0);
-	composerInputLayout->setSpacing(4);
+	composerInputLayout->setContentsMargins(6, 0, 4, 0);
+	composerInputLayout->setSpacing(3);
 	composerInputLayout->addWidget(qteChat, 1);
 
 	const QSize composerIconSize(16, 16);
@@ -3835,7 +3835,7 @@ void MainWindow::setupPersistentChatDock() {
 		PersistentChatComposerGlyph::Attach, composerIconSize, composerIconColor, composerIconHoverColor,
 		composerIconDisabledColor));
 	m_persistentChatAttachButton->setIconSize(composerIconSize);
-	m_persistentChatAttachButton->setFixedSize(24, 24);
+	m_persistentChatAttachButton->setFixedSize(22, 22);
 	m_persistentChatAttachButton->setCursor(Qt::PointingHandCursor);
 	m_persistentChatAttachButton->setFocusPolicy(Qt::NoFocus);
 	composerInputLayout->addWidget(m_persistentChatAttachButton, 0, Qt::AlignVCenter);
@@ -3848,7 +3848,7 @@ void MainWindow::setupPersistentChatDock() {
 		PersistentChatComposerGlyph::Send, composerIconSize, composerIconColor, composerIconHoverColor,
 		composerIconDisabledColor));
 	m_persistentChatSendButton->setIconSize(composerIconSize);
-	m_persistentChatSendButton->setFixedSize(24, 24);
+	m_persistentChatSendButton->setFixedSize(22, 22);
 	m_persistentChatSendButton->setCursor(Qt::PointingHandCursor);
 	m_persistentChatSendButton->setFocusPolicy(Qt::NoFocus);
 	composerInputLayout->addWidget(m_persistentChatSendButton, 0, Qt::AlignVCenter);
@@ -4183,6 +4183,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 
 	const QPalette navPalette = m_serverNavigatorContainer->palette();
 	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+		const QColor railSeamColor = alphaColor(tokens->surface1, 0.56);
 		if (m_persistentChatChannelList) {
 			QPalette listPalette = m_persistentChatChannelList->palette();
 			listPalette.setColor(QPalette::Window, tokens->mantle);
@@ -4223,7 +4224,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			QString::fromLatin1(
 				"QWidget#qwServerNavigator {"
 				" background-color: %1;"
-				" border-left: 1px solid %2;"
+				" border-left: 1px solid %9;"
 				"}"
 				"QFrame#qfServerNavigatorHeader {"
 				" background-color: transparent;"
@@ -4368,7 +4369,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 				"}")
 				.arg(qssColor(tokens->mantle), qssColor(tokens->surface1), qssColor(tokens->overlay0),
 					 qssColor(tokens->text), qssColor(tokens->subtext0), qssColor(tokens->surface0),
-					 qssColor(tokens->accent), qssColor(tokens->accentHover));
+					 qssColor(tokens->accent), qssColor(tokens->accentHover), qssColor(railSeamColor));
 		m_serverNavigatorContainer->setStyleSheet(serverNavigatorStyle);
 		refreshServerNavigatorMotdHeight();
 		return;
@@ -4410,10 +4411,11 @@ void MainWindow::refreshServerNavigatorStyles() {
 	QPalette navContainerPalette = m_serverNavigatorContainer->palette();
 	navContainerPalette.setColor(QPalette::Window, chrome.cardColor);
 	m_serverNavigatorContainer->setPalette(navContainerPalette);
+	const QColor railSeamColor = alphaColor(chrome.borderColor, 0.60);
 	QString serverNavigatorStyle = QString::fromLatin1(
 			"QWidget#qwServerNavigator {"
 			" background-color: %1;"
-			" border-left: 1px solid %6;"
+			" border-left: 1px solid %10;"
 			"}"
 			"QFrame#qfServerNavigatorHeader {"
 			" background-color: transparent;"
@@ -4626,6 +4628,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 			" background-color: transparent;"
 			" color: %4;"
 			"}");
+	serverNavigatorStyle.replace(QStringLiteral("%10"), railSeamColor.name());
 	serverNavigatorStyle.replace(QStringLiteral("%9"), chrome.selectedTextColor.name());
 	serverNavigatorStyle.replace(QStringLiteral("%8"), chrome.hoverColor.name());
 	serverNavigatorStyle.replace(QStringLiteral("%6"), chrome.dividerColor.name());
@@ -4737,15 +4740,15 @@ void MainWindow::refreshPersistentChatStyles() {
 									  "QMenuBar {"
 									  " background-color: %1;"
 									  " border: none;"
-									  " padding: 0px 4px 0px 0px;"
+									  " padding: 0px 3px 0px 0px;"
 									  " color: %2;"
 									  "}"
 									  "QMenuBar::item {"
 									  " background: transparent;"
 									  " border-radius: 3px;"
-									  " font-size: 11px;"
-									  " margin: 0px 1px;"
-									  " padding: 2px 5px;"
+									  " font-size: 10px;"
+									  " margin: 0px;"
+									  " padding: 1px 4px;"
 									  " color: %2;"
 									  "}"
 									  "QMenuBar::item:selected {"
@@ -4770,21 +4773,21 @@ void MainWindow::refreshPersistentChatStyles() {
 										   qssColor(tokens->surface0), qssColor(tokens->surface1)));
 		}
 		if (qtIconToolbar) {
-			qtIconToolbar->setIconSize(QSize(14, 14));
+			qtIconToolbar->setIconSize(QSize(13, 13));
 			qtIconToolbar->setStyleSheet(
 				QString::fromLatin1(
 					"QToolBar {"
 					" background-color: %1;"
 					" border: none;"
-					" spacing: 1px;"
+					" spacing: 0px;"
 					" padding: 0px;"
 					"}"
 					"QToolBar::separator { background: %2; width: 1px; margin: 2px 3px; }"
 					"QToolBar QToolButton {"
 					" border: none;"
-					" border-radius: 3px;"
+					" border-radius: 2px;"
 					" background: transparent;"
-					" padding: 1px;"
+					" padding: 0px;"
 					" margin: 0px;"
 					"}"
 					"QToolBar QToolButton:hover { background: %3; }"
@@ -4793,10 +4796,10 @@ void MainWindow::refreshPersistentChatStyles() {
 					"QToolBar QComboBox {"
 					" background: %3;"
 					" border: 1px solid %2;"
-					" border-radius: 6px;"
+					" border-radius: 5px;"
 					" color: %5;"
-					" min-height: 18px;"
-					" padding: 0px 6px;"
+					" min-height: 16px;"
+					" padding: 0px 5px;"
 					" margin-left: 2px;"
 					"}"
 					"QToolBar QComboBox:hover { border-color: %6; }"
@@ -5075,12 +5078,12 @@ void MainWindow::refreshPersistentChatStyles() {
 				"QWidget#qwPersistentChatComposerInputRow {"
 				" background: %6;"
 				" border: 1px solid %2;"
-				" border-radius: 9px;"
+				" border-radius: 8px;"
 				" padding: 0px;"
 				"}"
 				"QFrame#qfPersistentChatReply {"
 				" border: none;"
-				" border-radius: 9px;"
+				" border-radius: 8px;"
 				" background-color: %6;"
 				"}"
 				"QLabel#qlPersistentChatReplyLabel {"
@@ -5094,10 +5097,10 @@ void MainWindow::refreshPersistentChatStyles() {
 				" border: none;"
 				" border-radius: 6px;"
 				" background-color: transparent;"
-				" min-width: 24px;"
-				" min-height: 24px;"
-				" max-width: 24px;"
-				" max-height: 24px;"
+				" min-width: 22px;"
+				" min-height: 22px;"
+				" max-width: 22px;"
+				" max-height: 22px;"
 				" padding: 0px;"
 				"}"
 				"QToolButton#qtbPersistentChatAttach:hover {"
@@ -5110,10 +5113,10 @@ void MainWindow::refreshPersistentChatStyles() {
 				" border: none;"
 				" border-radius: 6px;"
 				" background-color: transparent;"
-				" min-width: 24px;"
-				" min-height: 24px;"
-				" max-width: 24px;"
-				" max-height: 24px;"
+				" min-width: 22px;"
+				" min-height: 22px;"
+				" max-width: 22px;"
+				" max-height: 22px;"
 				" padding: 0px;"
 				"}"
 				"QToolButton#qtbPersistentChatSend:hover {"
@@ -5322,9 +5325,9 @@ void MainWindow::refreshPersistentChatStyles() {
 				" border-radius: 0px;"
 				" background-color: transparent;"
 				" color: %7;"
-				" min-height: 28px;"
-				" max-height: 84px;"
-				" padding: 4px 0px;"
+				" min-height: 26px;"
+				" max-height: 72px;"
+				" padding: 3px 0px;"
 				"}"
 				"ChatbarTextEdit#qteChat:focus {"
 				" border: none;"
@@ -5422,14 +5425,14 @@ void MainWindow::refreshPersistentChatStyles() {
 								  "QMenuBar {"
 								  " background-color: %1;"
 								  " border: none;"
-								  " padding: 0px 4px 0px 0px;"
+								  " padding: 0px 3px 0px 0px;"
 								  "}"
 								  "QMenuBar::item {"
 								  " background: transparent;"
 								  " border-radius: 3px;"
-								  " font-size: 11px;"
-								  " margin: 0px 1px;"
-								  " padding: 2px 5px;"
+								  " font-size: 10px;"
+								  " margin: 0px;"
+								  " padding: 1px 4px;"
 								  "}"
 								  "QMenuBar::item:selected {"
 								  " background: %2;"
@@ -5443,16 +5446,16 @@ void MainWindow::refreshPersistentChatStyles() {
 									   chrome.selectedTextColor.name()));
 	}
 	if (qtIconToolbar) {
-		qtIconToolbar->setIconSize(QSize(14, 14));
+		qtIconToolbar->setIconSize(QSize(13, 13));
 		qtIconToolbar->setStyleSheet(
 			QString::fromLatin1(
-				"QToolBar { background-color: %1; border: none; spacing: 1px; padding: 0px; }"
+				"QToolBar { background-color: %1; border: none; spacing: 0px; padding: 0px; }"
 				"QToolBar::separator { background: transparent; width: 1px; margin: 2px 3px; }"
 				"QToolBar QToolButton {"
 				" border: none;"
-				" border-radius: 3px;"
+				" border-radius: 2px;"
 				" background: transparent;"
-				" padding: 1px;"
+				" padding: 0px;"
 				" margin: 0px;"
 				"}"
 				"QToolBar QToolButton:hover { background: %2; }"
@@ -5460,10 +5463,10 @@ void MainWindow::refreshPersistentChatStyles() {
 				"QToolBar QComboBox {"
 				" background: %4;"
 				" border: 1px solid %5;"
-				" border-radius: 9px;"
+				" border-radius: 8px;"
 				" color: %6;"
-				" min-height: 18px;"
-				" padding: 0px 6px;"
+				" min-height: 16px;"
+				" padding: 0px 5px;"
 				" margin-left: 2px;"
 				"}"
 				"QToolBar QComboBox:hover { border-color: %2; }"
@@ -5756,12 +5759,12 @@ void MainWindow::refreshPersistentChatStyles() {
 			"QWidget#qwPersistentChatComposerInputRow {"
 			" background: %4;"
 			" border: 1px solid %1;"
-			" border-radius: 9px;"
+			" border-radius: 8px;"
 			" padding: 0px;"
 			"}"
 			"QFrame#qfPersistentChatReply {"
 			" border: none;"
-			" border-radius: 9px;"
+			" border-radius: 8px;"
 			" background-color: %10;"
 			"}"
 			"QLabel#qlPersistentChatReplyLabel {"
@@ -5775,10 +5778,10 @@ void MainWindow::refreshPersistentChatStyles() {
 			" border: none;"
 			" border-radius: 6px;"
 			" background-color: transparent;"
-			" min-width: 24px;"
-			" min-height: 24px;"
-			" max-width: 24px;"
-			" max-height: 24px;"
+			" min-width: 22px;"
+			" min-height: 22px;"
+			" max-width: 22px;"
+			" max-height: 22px;"
 			" padding: 0px;"
 			"}"
 			"QToolButton#qtbPersistentChatAttach:hover {"
@@ -5791,10 +5794,10 @@ void MainWindow::refreshPersistentChatStyles() {
 			" border: none;"
 			" border-radius: 6px;"
 			" background-color: transparent;"
-			" min-width: 24px;"
-			" min-height: 24px;"
-			" max-width: 24px;"
-			" max-height: 24px;"
+			" min-width: 22px;"
+			" min-height: 22px;"
+			" max-width: 22px;"
+			" max-height: 22px;"
 			" padding: 0px;"
 			"}"
 			"QToolButton#qtbPersistentChatSend:hover {"
@@ -6003,9 +6006,9 @@ void MainWindow::refreshPersistentChatStyles() {
 			" border-radius: 0px;"
 			" background-color: transparent;"
 			" color: %6;"
-			" min-height: 28px;"
-			" max-height: 84px;"
-			" padding: 4px 0px;"
+			" min-height: 26px;"
+			" max-height: 72px;"
+			" padding: 3px 0px;"
 			"}"
 			"ChatbarTextEdit#qteChat:focus {"
 			" border: none;"
@@ -8700,7 +8703,7 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	if (QVBoxLayout *headerLayout = qobject_cast< QVBoxLayout * >(m_persistentChatHeaderFrame
 																	 ? m_persistentChatHeaderFrame->layout()
 																	 : nullptr)) {
-		headerLayout->setContentsMargins(8, compactRoomHeader ? 1 : 2, 8, compactRoomHeader ? 1 : 2);
+		headerLayout->setContentsMargins(7, 0, 7, compactRoomHeader ? 0 : 1);
 		headerLayout->setSpacing(compactRoomHeader ? 0 : 1);
 	}
 

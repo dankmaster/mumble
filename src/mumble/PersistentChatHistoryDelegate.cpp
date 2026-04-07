@@ -504,7 +504,7 @@ QWidget *PersistentChatHistoryDelegate::createWidgetForRow(const PersistentChatH
 				return nullptr;
 			}
 
-			auto *groupWidget = new PersistentChatMessageGroupWidget(std::max(240, width - 18), applicationStyleSheet(),
+			auto *groupWidget = new PersistentChatMessageGroupWidget(std::max(232, width - 22), applicationStyleSheet(),
 																	 parent);
 			groupWidget->setHeader(row.messageGroup->header, row.messageGroup->avatarFallbackText);
 			for (const PersistentChatBubbleSpec &bubble : row.messageGroup->bubbles) {
