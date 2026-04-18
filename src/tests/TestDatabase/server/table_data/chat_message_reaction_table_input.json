@@ -1,0 +1,13 @@
+{
+	"v6": {},
+	"v17": {
+		"table_name": "chat_message_reactions",
+		"column_names": [
+			"server_id",
+			"message_id",
+			"actor_user_id",
+			"emoji"
+		],
+		"rows": []
+	}
+}

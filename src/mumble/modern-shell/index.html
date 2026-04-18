@@ -35,6 +35,9 @@
 					<button id="disconnect-button" class="icon-button" type="button" title="Disconnect" aria-label="Disconnect">
 						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path><circle cx="12" cy="12" r="9"></circle></svg>
 					</button>
+					<button id="layout-switch-button" class="icon-button" type="button" title="Switch to classic layout" aria-label="Switch to classic layout">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="7" height="14" rx="1.5"></rect><rect x="13.5" y="5" width="7" height="14" rx="1.5"></rect><path d="M10.5 12h3"></path><path d="M12.5 10l2 2-2 2"></path></svg>
+					</button>
 					<button id="settings-button" class="icon-button" type="button" title="Settings" aria-label="Settings">
 						<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 01-2.8-2.8l.1-.1A1.6 1.6 0 004.6 15a1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 012.8-2.8l.1.1A1.6 1.6 0 009 4.6a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0019.4 9a1.6 1.6 0 001.5 1h.1a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"></path></svg>
 					</button>
@@ -47,6 +50,7 @@
 		</header>
 
 		<div class="shell-frame">
+			<div id="utility-rail-backdrop" class="utility-rail-backdrop hidden" aria-hidden="true"></div>
 			<section class="conversation-pane">
 				<header class="conversation-header">
 					<div class="scope-copy">
@@ -74,6 +78,15 @@
 				<button id="jump-latest-button" class="chip-button jump-latest-button hidden" type="button">Jump to latest</button>
 				<form id="composer-form" class="composer-bar">
 					<div class="composer-shell">
+						<div id="composer-reply-bar" class="composer-reply-bar hidden">
+							<div class="composer-reply-copy">
+								<div id="composer-reply-label" class="composer-reply-label">Replying</div>
+								<div id="composer-reply-snippet" class="composer-reply-snippet"></div>
+							</div>
+							<button id="composer-reply-cancel-button" class="icon-button composer-reply-cancel-button" type="button" title="Cancel reply" aria-label="Cancel reply">
+								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path></svg>
+							</button>
+						</div>
 						<textarea id="composer-input" rows="1" placeholder="Write a message"></textarea>
 						<div class="composer-actions">
 							<span id="composer-hint" class="composer-hint">Persistent room history stays with the selected room.</span>
@@ -89,14 +102,20 @@
 			</section>
 
 			<aside class="utility-rail">
+				<header class="utility-rail-header">
+					<p class="utility-rail-title">Room Browser</p>
+					<button id="rail-close-button" class="icon-button utility-rail-close-button" type="button" title="Close room browser" aria-label="Close room browser">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path></svg>
+					</button>
+				</header>
 				<div class="utility-scroll">
-					<section class="utility-card note-card">
+					<section class="utility-card note-card hidden">
 						<div class="section-heading">
-							<span class="section-label">Server note</span>
+							<span class="section-label">MOTD</span>
 							<button id="note-toggle-button" class="linkish-button" type="button">Open</button>
 						</div>
-						<p id="server-title" class="note-title">Modern Layout</p>
-						<p id="server-subtitle" class="note-body">Waiting for bridge state.</p>
+						<p id="server-title" class="note-title">Mumble</p>
+						<p id="server-subtitle" class="note-body">Waiting for message of the day.</p>
 					</section>
 
 					<section class="utility-card room-card-block">
@@ -116,7 +135,7 @@
 					</section>
 				</div>
 
-				<section id="self-card" class="self-card">
+				<section id="self-card" class="self-card" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
 					<div class="self-avatar" id="self-avatar">M</div>
 					<div class="self-copy">
 						<p id="self-name" class="self-name">You</p>
@@ -130,7 +149,22 @@
 		</div>
 	</div>
 
+	<div id="self-menu-popover" class="self-menu-popover hidden" role="dialog" aria-hidden="true"></div>
 	<div id="context-menu" class="context-menu hidden" role="menu" aria-hidden="true"></div>
+	<div id="image-viewer-layer" class="image-viewer-layer hidden" aria-hidden="true">
+		<div id="image-viewer-backdrop" class="image-viewer-backdrop"></div>
+		<section id="image-viewer-window" class="image-viewer-window" role="dialog" aria-modal="true" aria-label="Image viewer">
+			<header id="image-viewer-header" class="image-viewer-header">
+				<div id="image-viewer-title" class="image-viewer-title">Image</div>
+				<button id="image-viewer-close-button" class="icon-button image-viewer-close-button" type="button" title="Close image" aria-label="Close image">
+					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path></svg>
+				</button>
+			</header>
+			<div class="image-viewer-body">
+				<img id="image-viewer-image" class="image-viewer-image" alt="" draggable="false">
+			</div>
+		</section>
+	</div>
 
 	<script src="./app.js" defer></script>
 </body>

@@ -86,6 +86,44 @@ VolumeSliderWidgetAction::VolumeSliderWidgetAction(QWidget *parent)
 	setDefaultWidget(m_widget.get());
 }
 
+int VolumeSliderWidgetAction::sliderValue() const {
+	return m_volumeSlider ? m_volumeSlider->value() : 0;
+}
+
+int VolumeSliderWidgetAction::sliderMinimum() const {
+	return m_volumeSlider ? m_volumeSlider->minimum() : 0;
+}
+
+int VolumeSliderWidgetAction::sliderMaximum() const {
+	return m_volumeSlider ? m_volumeSlider->maximum() : 0;
+}
+
+int VolumeSliderWidgetAction::sliderStep() const {
+	return m_volumeSlider ? m_volumeSlider->singleStep() : 1;
+}
+
+bool VolumeSliderWidgetAction::sliderFinalOnRelease() const {
+	return true;
+}
+
+QString VolumeSliderWidgetAction::sliderAccessibleName() const {
+	return m_volumeSlider ? m_volumeSlider->accessibleName() : QString();
+}
+
+QString VolumeSliderWidgetAction::sliderSuffix() const {
+	return QStringLiteral(" dB");
+}
+
+QString VolumeSliderWidgetAction::sliderHint() const {
+	return m_volumeSlider ? m_volumeSlider->toolTip() : QString();
+}
+
+void VolumeSliderWidgetAction::setSliderAccessibleName(const QString &name) {
+	if (m_volumeSlider) {
+		m_volumeSlider->setAccessibleName(name);
+	}
+}
+
 void VolumeSliderWidgetAction::updateLabelValue(bool checkMouseButtons) {
 	if (checkMouseButtons && MumbleApplication::instance()->mouseButtons() != Qt::NoButton) {
 		// Do not update the label while the user is dragging the slider.

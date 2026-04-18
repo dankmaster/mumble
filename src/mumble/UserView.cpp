@@ -48,7 +48,9 @@ namespace {
 		QColor avatarBorderColor;
 		QColor iconTintColor;
 		QColor speakingColor;
+		QColor whisperColor;
 		QColor idleColor;
+		QColor priorityColor;
 		QColor dangerColor;
 		QColor presenceCutoutColor;
 		QColor branchColor;
@@ -76,7 +78,9 @@ namespace {
 			colors.avatarBorderColor    = tokens->surface1;
 			colors.iconTintColor        = tokens->overlay0;
 			colors.speakingColor        = tokens->green;
+			colors.whisperColor         = tokens->teal;
 			colors.idleColor            = tokens->yellow;
+			colors.priorityColor        = mixRowColors(tokens->yellow, tokens->text, 0.18);
 			colors.dangerColor          = tokens->red;
 			colors.presenceCutoutColor  = tokens->mantle;
 			colors.branchColor          = tokens->subtext0;
@@ -96,7 +100,9 @@ namespace {
 		colors.avatarBorderColor    = mixRowColors(colors.surfaceColor, textColor, darkTheme ? 0.18 : 0.10);
 		colors.iconTintColor        = mixRowColors(colors.textColor, windowColor, darkTheme ? 0.20 : 0.10);
 		colors.speakingColor        = QColor::fromRgb(darkTheme ? 114 : 54, darkTheme ? 217 : 168, darkTheme ? 153 : 97);
+		colors.whisperColor         = QColor::fromRgb(darkTheme ? 88 : 66, darkTheme ? 184 : 142, darkTheme ? 211 : 188);
 		colors.idleColor            = QColor::fromRgb(darkTheme ? 230 : 190, darkTheme ? 176 : 120, darkTheme ? 96 : 70);
+		colors.priorityColor        = QColor::fromRgb(darkTheme ? 247 : 204, darkTheme ? 205 : 156, darkTheme ? 112 : 68);
 		colors.dangerColor          = QColor::fromRgb(darkTheme ? 231 : 188, darkTheme ? 92 : 64, darkTheme ? 101 : 72);
 		colors.presenceCutoutColor  = colors.surfaceColor;
 		colors.branchColor          = colors.mutedTextColor;
@@ -186,6 +192,41 @@ namespace {
 		painter.fillRect(pixmap.rect(), color);
 		return pixmap;
 	}
+
+	QColor talkingRingColor(const NavigatorRowPalette &colors, Settings::TalkState talkState) {
+		switch (talkState) {
+			case Settings::Whispering:
+				return colors.whisperColor;
+			case Settings::Shouting:
+				return colors.idleColor;
+			case Settings::MutedTalking:
+				return colors.dangerColor;
+			case Settings::Talking:
+			default:
+				return colors.speakingColor;
+		}
+	}
+
+	struct NavigatorStateBadge {
+		QString label;
+		QColor toneColor;
+	};
+
+	QVector< NavigatorStateBadge > navigatorStateBadges(const NavigatorRowPalette &colors, bool talking, bool idle,
+															bool muted, bool deafened) {
+		QVector< NavigatorStateBadge > badges;
+		if (!talking && idle) {
+			badges.push_back({ QObject::tr("AFK"), colors.idleColor });
+		}
+
+		if (deafened) {
+			badges.push_back({ QObject::tr("Deafened"), colors.dangerColor });
+		} else if (muted) {
+			badges.push_back({ QObject::tr("Muted"), mixRowColors(colors.idleColor, colors.dangerColor, 0.24) });
+		}
+
+		return badges;
+	}
 }
 
 UserDelegate::UserDelegate(QObject *p) : QStyledItemDelegate(p) {
@@ -222,12 +263,16 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	const bool idle = index.data(UserModel::NavigatorIdleRole).toBool();
 	const bool muted = index.data(UserModel::NavigatorMutedRole).toBool();
 	const bool deafened = index.data(UserModel::NavigatorDeafenedRole).toBool();
+	const bool prioritySpeaker = index.data(UserModel::NavigatorPrioritySpeakerRole).toBool();
 	const bool isChannel  = itemKind == UserModel::NavigatorChannelItem;
 	const bool isListener = itemKind == UserModel::NavigatorListenerItem;
 	const bool hasChildren = index.model() && index.model()->hasChildren(index);
 	const bool isRoot = isChannel && !index.parent().isValid();
-	const bool talking =
-		!isChannel && !isListener && static_cast< Settings::TalkState >(talkState) != Settings::Passive;
+	const Settings::TalkState resolvedTalkState =
+		!isChannel && !isListener ? static_cast< Settings::TalkState >(talkState) : Settings::Passive;
+	const bool talking = resolvedTalkState != Settings::Passive;
+	const QVector< NavigatorStateBadge > stateBadges =
+		navigatorStateBadges(colors, talking, idle, muted, deafened);
 	const QColor primaryTextColor =
 		isChannel
 			? ((currentLocation || isRoot || linkedLocation || occupancy > 0 || hasChildren) ? colors.textColor
@@ -244,16 +289,27 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	if (itemKind == UserModel::NavigatorChannelItem && Global::get().s.bShowUserCount) {
 		occupancyText = occupantLabel(occupancy);
 	}
-	const bool showInlineStatus = !isChannel && !isListener && (muted || deafened);
-	const int inlineStatusWidth = showInlineStatus ? 14 : 0;
 	static const QIcon s_voiceRoomIcon(QLatin1String("skin:priority_speaker.svg"));
 
 	QFont secondaryFont(opt.font);
 	secondaryFont.setPointSizeF(std::max(secondaryFont.pointSizeF() - 0.5, 8.0));
 	QFontMetrics secondaryMetrics(secondaryFont);
+	QFont badgeFont(secondaryFont);
+	badgeFont.setBold(true);
+	badgeFont.setPointSizeF(std::max(badgeFont.pointSizeF() - 0.6, 7.0));
+	QFontMetrics badgeMetrics(badgeFont);
+	const int badgeHeight = 14;
 	int occupancyWidth = 0;
 	if (!occupancyText.isEmpty()) {
 		occupancyWidth = secondaryMetrics.horizontalAdvance(occupancyText);
+	}
+	int badgeClusterWidth = 0;
+	for (int i = 0; i < stateBadges.size(); ++i) {
+		const int badgeWidth = badgeMetrics.horizontalAdvance(stateBadges.at(i).label) + 12;
+		badgeClusterWidth += badgeWidth;
+		if (i + 1 < stateBadges.size()) {
+			badgeClusterWidth += 4;
+		}
 	}
 	int textRight = contentRect.right();
 	if (statusIconsWidth > 0) {
@@ -262,8 +318,8 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 	if (occupancyWidth > 0) {
 		textRight -= occupancyWidth + 8;
 	}
-	if (inlineStatusWidth > 0) {
-		textRight -= inlineStatusWidth + 6;
+	if (badgeClusterWidth > 0) {
+		textRight -= badgeClusterWidth + 8;
 	}
 
 	painter->save();
@@ -282,16 +338,25 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 		const int avatarSize = 20;
 		const QRect avatarRect(x, contentRect.center().y() - (avatarSize / 2), avatarSize, avatarSize);
 		if (talking) {
-			const qreal glowOutset = view && view->presencePulseExpanded() ? 3.0 : 1.0;
+			const QColor ringColor = talkingRingColor(colors, resolvedTalkState);
+			const qreal glowOutset = view && view->presencePulseExpanded() ? 3.2 : 1.4;
 			const QColor glowColor =
-				alphaColor(colors.speakingColor, view && view->presencePulseExpanded() ? 0.14 : 0.26);
+				alphaColor(ringColor, view && view->presencePulseExpanded() ? 0.18 : 0.30);
 			painter->setPen(QPen(glowColor, view && view->presencePulseExpanded() ? 2.0 : 3.0));
 			painter->setBrush(Qt::NoBrush);
 			const QRectF glowRect = QRectF(avatarRect).adjusted(-glowOutset, -glowOutset, glowOutset, glowOutset);
 			painter->drawEllipse(glowRect);
+
+			if (prioritySpeaker) {
+				const QRectF priorityRingRect = QRectF(avatarRect).adjusted(-2.7, -2.7, 2.7, 2.7);
+				painter->setPen(QPen(alphaColor(colors.priorityColor, 0.92), 1.6));
+				painter->setBrush(Qt::NoBrush);
+				painter->drawEllipse(priorityRingRect);
+			}
 		}
 
-		painter->setPen(QPen(talking ? colors.speakingColor : colors.avatarBorderColor, talking ? 2.0 : 1.0));
+		painter->setPen(QPen(talking ? talkingRingColor(colors, resolvedTalkState) : colors.avatarBorderColor,
+							 talking ? 2.0 : 1.0));
 		painter->setBrush(colors.avatarFillColor);
 		painter->drawEllipse(avatarRect);
 		if (!avatarImage.isNull()) {
@@ -317,10 +382,10 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 							  avatarFallback.isEmpty() ? QStringLiteral("?") : avatarFallback);
 		}
 
-		if (!talking) {
+		if (!talking && stateBadges.isEmpty()) {
 			const QRect statusDotRect(avatarRect.right() - 6, avatarRect.bottom() - 6, 8, 8);
 			painter->setPen(QPen(colors.presenceCutoutColor, 2.0));
-			painter->setBrush(idle ? colors.idleColor : colors.speakingColor);
+			painter->setBrush(colors.speakingColor);
 			painter->drawEllipse(statusDotRect);
 		}
 
@@ -352,14 +417,20 @@ void UserDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, 
 
 	const int titleWidth = titleMetrics.horizontalAdvance(titleText);
 	int titleRight = textRect.left() + titleWidth;
-	if (showInlineStatus) {
-		static const QIcon muteIcon(QLatin1String("skin:muted_server.svg"));
-		static const QIcon deafIcon(QLatin1String("skin:deafened_server.svg"));
-		const QRect inlineStatusRect(titleRight + 6, contentRect.center().y() - 6, 12, 12);
-		const QIcon &audioStateIcon = deafened ? deafIcon : muteIcon;
-		painter->drawPixmap(inlineStatusRect.topLeft(),
-							tintedIconPixmap(audioStateIcon, inlineStatusRect.size(), colors.dangerColor));
-		titleRight = inlineStatusRect.right();
+	if (!stateBadges.isEmpty()) {
+		int badgeLeft = titleRight + 8;
+		painter->setFont(badgeFont);
+		for (const NavigatorStateBadge &badge : stateBadges) {
+			const int badgeWidth = badgeMetrics.horizontalAdvance(badge.label) + 12;
+			const QRect badgeRect(badgeLeft, contentRect.center().y() - (badgeHeight / 2), badgeWidth, badgeHeight);
+			painter->setPen(QPen(alphaColor(badge.toneColor, 0.62), 1.0));
+			painter->setBrush(alphaColor(badge.toneColor, 0.14));
+			painter->drawRoundedRect(badgeRect, 6.0, 6.0);
+			painter->setPen(badge.toneColor);
+			painter->drawText(badgeRect.adjusted(0, -1, 0, 0), Qt::AlignCenter, badge.label);
+			badgeLeft = badgeRect.right() + 5;
+		}
+		painter->setFont(titleFont);
 	}
 	if (!occupancyText.isEmpty()) {
 		const int occupancyLeft = std::min(textRect.right() - occupancyWidth, titleRight + 8);

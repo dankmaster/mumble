@@ -29,6 +29,12 @@ namespace {
 		const unsigned int scopeID         = state.has_scope_id() ? state.scope_id() : 0;
 		return PersistentChatScopeKey::fromScope(scope, scopeID);
 	}
+
+	PersistentChatScopeKey scopeKeyFromReactionState(const MumbleProto::ChatReactionState &state) {
+		const MumbleProto::ChatScope scope = state.has_scope() ? state.scope() : MumbleProto::Channel;
+		const unsigned int scopeID         = state.has_scope_id() ? state.scope_id() : 0;
+		return PersistentChatScopeKey::fromScope(scope, scopeID);
+	}
 }
 
 PersistentChatController::PersistentChatController(QObject *parent) : QObject(parent) {
@@ -183,6 +189,33 @@ bool PersistentChatController::applyEmbedState(const MumbleProto::ChatEmbedState
 		message.clear_embeds();
 		for (const MumbleProto::ChatEmbedRef &embed : state.embeds()) {
 			*message.add_embeds() = embed;
+		}
+		return true;
+	}
+
+	return false;
+}
+
+bool PersistentChatController::applyReactionState(const MumbleProto::ChatReactionState &state) {
+	if (!state.has_thread_id() || !state.has_message_id()) {
+		return false;
+	}
+
+	const PersistentChatScopeKey key = scopeKeyFromReactionState(state);
+	PersistentChatStore::ScopeState *scopeState = m_store.scopeState(key);
+	if (!scopeState) {
+		return false;
+	}
+
+	for (int i = 0; i < scopeState->snapshot.messages.size(); ++i) {
+		MumbleProto::ChatMessage &message = scopeState->snapshot.messages[i];
+		if (message.thread_id() != state.thread_id() || message.message_id() != state.message_id()) {
+			continue;
+		}
+
+		message.clear_reactions();
+		for (const MumbleProto::ChatReactionAggregate &reaction : state.reactions()) {
+			*message.add_reactions() = reaction;
 		}
 		return true;
 	}

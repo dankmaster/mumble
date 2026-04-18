@@ -19,6 +19,7 @@ namespace server {
 				   && lhs.authorSession == rhs.authorSession
 				   && lhs.authorName == rhs.authorName
 				   && lhs.bodyText == rhs.bodyText && lhs.bodyFormat == rhs.bodyFormat
+				   && lhs.reactions == rhs.reactions
 				   && toEpochSeconds(lhs.createdAt) == toEpochSeconds(rhs.createdAt)
 				   && toEpochSeconds(lhs.editedAt) == toEpochSeconds(rhs.editedAt)
 				   && toEpochSeconds(lhs.deletedAt) == toEpochSeconds(rhs.deletedAt);

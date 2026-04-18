@@ -1,0 +1,14 @@
+{
+	"v6": {
+		"table_name": "chat_message_attachments",
+		"column_names": [
+			"server_id",
+			"message_id",
+			"asset_id",
+			"display_order",
+			"filename",
+			"inline_safe"
+		],
+		"rows": []
+	}
+}

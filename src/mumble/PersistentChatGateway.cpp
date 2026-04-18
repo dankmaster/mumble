@@ -48,6 +48,15 @@ void PersistentChatGateway::send(MumbleProto::ChatScope scope, unsigned int scop
 	m_serverHandler->sendChatMessage(scope, scopeID, body, bodyFormat, replyToMessageID);
 }
 
+void PersistentChatGateway::toggleReaction(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+										   unsigned int messageID, const QString &emoji, bool active) {
+	if (!isReady() || messageID == 0 || emoji.trimmed().isEmpty()) {
+		return;
+	}
+
+	m_serverHandler->sendChatReactionToggle(scope, scopeID, threadID, messageID, emoji, active);
+}
+
 void PersistentChatGateway::markRead(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int lastReadMessageID) {
 	if (!isReady() || lastReadMessageID == 0) {
 		return;

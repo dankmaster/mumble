@@ -1531,6 +1531,7 @@ void MainWindow::msgContextAction(const MumbleProto::ContextAction &) {
 void MainWindow::msgContextActionModify(const MumbleProto::ContextActionModify &msg) {
 	if (msg.has_operation() && msg.operation() == MumbleProto::ContextActionModify_Operation_Remove) {
 		removeContextAction(msg);
+		queueModernShellSnapshotSync();
 		return;
 	}
 
@@ -1547,6 +1548,7 @@ void MainWindow::msgContextActionModify(const MumbleProto::ContextActionModify &
 		qlUserActions.append(a);
 	if (ctx & MumbleProto::ContextActionModify_Context_Channel)
 		qlChannelActions.append(a);
+	queueModernShellSnapshotSync();
 }
 
 /// Helper method for removing a context action.
@@ -1861,6 +1863,13 @@ void MainWindow::msgChatAssetChunk(const MumbleProto::ChatAssetChunk &msg) {
 
 void MainWindow::msgChatEmbedState(const MumbleProto::ChatEmbedState &msg) {
 	handlePersistentChatEmbedState(msg);
+}
+
+void MainWindow::msgChatReactionToggle(const MumbleProto::ChatReactionToggle &) {
+}
+
+void MainWindow::msgChatReactionState(const MumbleProto::ChatReactionState &msg) {
+	handlePersistentChatReactionState(msg);
 }
 
 void MainWindow::msgScreenShareCreate(const MumbleProto::ScreenShareCreate &) {

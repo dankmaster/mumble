@@ -32,8 +32,10 @@ public:
 
 private:
 	ConnectDetails m_details;
+	QString m_serverSafeUsernameSuggestion;
 
 	void connectSignals();
+	void refreshInvalidUsernameSuggestion();
 
 private slots:
 	void initiateReconnect();

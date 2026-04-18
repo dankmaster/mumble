@@ -13,6 +13,17 @@
 			"edited_at",
 			"deleted_at"
 		],
+		"column_types": [
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"TEXT",
+			"BIGINT",
+			"BIGINT",
+			"BIGINT"
+		],
 		"rows": []
 	},
 	"v14": {
@@ -29,6 +40,18 @@
 			"edited_at",
 			"deleted_at"
 		],
+		"column_types": [
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"VARCHAR(255)",
+			"TEXT",
+			"BIGINT",
+			"BIGINT",
+			"BIGINT"
+		],
 		"rows": []
 	},
 	"v15": {
@@ -42,6 +65,37 @@
 			"author_session",
 			"author_name",
 			"body",
+			"created_at",
+			"edited_at",
+			"deleted_at"
+		],
+		"column_types": [
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"INTEGER",
+			"VARCHAR(255)",
+			"TEXT",
+			"BIGINT",
+			"BIGINT",
+			"BIGINT"
+		],
+		"rows": []
+	},
+	"v16": {
+		"table_name": "chat_messages",
+		"column_names": [
+			"server_id",
+			"message_id",
+			"thread_id",
+			"reply_to_message_id",
+			"author_user_id",
+			"author_session",
+			"author_name",
+			"body_text",
+			"body_format",
 			"created_at",
 			"edited_at",
 			"deleted_at"

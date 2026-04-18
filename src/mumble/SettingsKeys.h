@@ -203,6 +203,7 @@ const SettingsKey MODERN_MINIMAL_VIEW_GEOMETRY_KEY     = { "minimal_view_window_
 const SettingsKey MODERN_WINDOW_STATE_KEY              = { "window_state_modern" };
 const SettingsKey MODERN_MINIMAL_VIEW_STATE_KEY        = { "minimal_view_window_state_modern" };
 const SettingsKey CONFIG_GEOMETRY_KEY                  = { "config_geometry" };
+const SettingsKey IMAGE_PREVIEW_GEOMETRY_KEY           = { "image_preview_geometry" };
 const SettingsKey WINDOW_LAYOUT_KEY                    = { "window_layout" };
 const SettingsKey OVERLAY_HEADER_STATE                 = { "overlay_header_state" };
 const SettingsKey SERVER_FILTER_MODE_KEY               = { "server_filter_mode" };

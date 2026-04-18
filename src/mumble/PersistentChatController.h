@@ -36,6 +36,7 @@ public:
 	bool requestOlderForActiveScope();
 	bool markActiveScopeRead();
 	bool applyEmbedState(const MumbleProto::ChatEmbedState &state);
+	bool applyReactionState(const MumbleProto::ChatReactionState &state);
 
 signals:
 	void activeSnapshotChanged();

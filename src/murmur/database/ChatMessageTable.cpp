@@ -104,6 +104,9 @@ namespace server {
 			::mdb::Index threadMessageIndex(std::string(NAME) + "_thread_messages",
 											{ column::server_id, column::thread_id, column::message_id });
 			addIndex(threadMessageIndex, false);
+			::mdb::Index replyLookupIndex(std::string(NAME) + "_reply_lookup",
+										  { column::server_id, column::reply_to_message_id });
+			addIndex(replyLookupIndex, false);
 		}
 
 		void ChatMessageTable::addMessage(const DBChatMessage &message) {
@@ -170,6 +173,57 @@ namespace server {
 															  + " to thread with ID " + std::to_string(message.threadID)
 															  + " on server with ID "
 															  + std::to_string(message.serverID)));
+			}
+		}
+
+		std::optional< DBChatMessage > ChatMessageTable::getMessage(unsigned int serverID, unsigned int messageID) {
+			try {
+				soci::row row;
+				::mdb::TransactionHolder transaction = ensureTransaction();
+				soci::statement stmt = (m_sql.prepare
+										  << "SELECT \"" << column::thread_id << "\", \"" << column::author_user_id
+										  << "\", \"" << column::reply_to_message_id << "\", \"" << column::author_session
+										  << "\", \"" << column::author_name << "\", \"" << column::body_text
+										  << "\", \"" << column::body_format << "\", \"" << column::created_at
+										  << "\", \"" << column::edited_at << "\", \"" << column::deleted_at
+										  << "\" FROM \"" << NAME << "\" WHERE \"" << column::server_id
+										  << "\" = :serverID AND \"" << column::message_id << "\" = :messageID",
+									  soci::use(serverID), soci::use(messageID), soci::into(row));
+
+				stmt.execute(true);
+				if (!stmt.got_data()) {
+					transaction.commit();
+					return std::nullopt;
+				}
+
+				DBChatMessage message(serverID, messageID, static_cast< unsigned int >(row.get< int >(0)));
+				if (row.get_indicator(1) == soci::i_ok) {
+					message.authorUserID = static_cast< unsigned int >(row.get< int >(1));
+				}
+				if (row.get_indicator(2) == soci::i_ok) {
+					message.replyToMessageID = static_cast< unsigned int >(row.get< int >(2));
+				}
+				if (row.get_indicator(3) == soci::i_ok) {
+					message.authorSession = static_cast< unsigned int >(row.get< int >(3));
+				}
+				if (row.get_indicator(4) == soci::i_ok) {
+					message.authorName = row.get< std::string >(4);
+				}
+				message.bodyText = row.get< std::string >(5);
+				message.bodyFormat = static_cast< ChatMessageBodyFormat >(row.get< int >(6));
+				message.createdAt =
+					std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(7)));
+				message.editedAt =
+					std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(8)));
+				message.deletedAt =
+					std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(9)));
+
+				transaction.commit();
+				return message;
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::AccessException("Failed at getting chat message with ID "
+															  + std::to_string(messageID) + " on server with ID "
+															  + std::to_string(serverID)));
 			}
 		}
 

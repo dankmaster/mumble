@@ -8,13 +8,14 @@
 
 class ClientUser;
 
+#include "VolumeAdjustmentController.h"
 #include "VolumeSliderWidgetAction.h"
 
 class UserLocalVolumeSlider : public VolumeSliderWidgetAction {
 	Q_OBJECT
 
 	/// The session ID for the user that the widget is changing the volume for.
-	unsigned int m_clientSession;
+	unsigned int m_clientSession = 0;
 
 public:
 	UserLocalVolumeSlider(QWidget *parent = nullptr);
@@ -25,7 +26,6 @@ public:
 private slots:
 	void on_VolumeSlider_valueChanged(int value) override;
 	void on_VolumeSlider_changeCompleted() override;
-	void on_VolumeSlider_sliderReleased();
 };
 
 #endif

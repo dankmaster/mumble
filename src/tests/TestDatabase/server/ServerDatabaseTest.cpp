@@ -176,7 +176,7 @@ public:
 		// Clear up everything that we have created in our test case
 		try {
 			this->destroyTables();
-		} catch (const ::mdb::Exception &e) {
+		} catch (const std::exception &e) {
 			std::cerr << "Exception encountered while destroying tables:" << std::endl;
 			mumble::printExceptionMessage(std::cerr, e, 2);
 		}

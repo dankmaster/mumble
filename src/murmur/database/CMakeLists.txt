@@ -16,6 +16,7 @@ add_library(mumble_server_database STATIC
 	"DBChannelListener.cpp"
 	"DBChatThread.cpp"
 	"DBChatMessage.cpp"
+	"DBChatMessageReaction.cpp"
 	"DBChatReadState.cpp"
 	"DBTextChannel.cpp"
 	"ACLCompat.cpp"
@@ -40,6 +41,7 @@ add_library(mumble_server_database STATIC
 	"ChatAssetTable.cpp"
 	"ChatMessageAttachmentTable.cpp"
 	"ChatMessageEmbedTable.cpp"
+	"ChatMessageReactionTable.cpp"
 	"TextChannelTable.cpp"
 )
 

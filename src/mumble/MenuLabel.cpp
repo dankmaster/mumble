@@ -13,6 +13,10 @@ MenuLabel::MenuLabel(const QString &text, QObject *parent) : QWidgetAction(paren
 	setMenuRole(QAction::NoRole);
 }
 
+QString MenuLabel::text() const {
+	return m_text;
+}
+
 QWidget *MenuLabel::createWidget(QWidget *parent) {
 	QWidget *widget = new QWidget(parent);
 

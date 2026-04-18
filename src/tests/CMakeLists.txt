@@ -28,6 +28,7 @@ if (static)
 endif()
 
 if(client)
+	add_subdirectory("TestModernShellMenuSerializer")
 	add_subdirectory("TestXMLTools")
 	if(NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "FreeBSD")
 		# For some reason Qt segfaults when executing this test on FreeBSD without a display (even when using the offscreen plugin)

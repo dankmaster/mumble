@@ -81,6 +81,7 @@ class TestUserModelNavigator : public QObject {
 private slots:
 	void exposesChannelKindOccupancyAndCurrentLocation();
 	void exposesUserFallbackAndTalkState();
+	void exposesFriendAndAuthenticatedIndicators();
 	void exposesLinkedChannelsAndListenerKind();
 };
 
@@ -122,6 +123,27 @@ void TestUserModelNavigator::exposesUserFallbackAndTalkState() {
 	QCOMPARE(model->data(userIndex, UserModel::NavigatorTalkStateRole).toInt(),
 			 static_cast< int >(Settings::Talking));
 	QVERIFY(model->data(userIndex, UserModel::NavigatorCurrentLocationRole).toBool());
+}
+
+void TestUserModelNavigator::exposesFriendAndAuthenticatedIndicators() {
+	ensureGlobalState();
+
+	auto *model = new TestableUserModel();
+	Channel *root = Channel::get(Mumble::ROOT_CHANNEL_ID);
+	Channel *lobby = attachChannel(1006, QStringLiteral("Lobby"), root);
+	ClientUser *self = attachUser(*model, 2005, QStringLiteral("Self User"), lobby);
+	ClientUser *friendUser = attachUser(*model, 2006, QStringLiteral("Alice Example"), lobby);
+	friendUser->qsFriendName = QStringLiteral("Favorite Alice");
+	friendUser->iId          = 77;
+	Global::get().uiSession  = self->uiSession;
+
+	const QModelIndex userIndex = model->index(friendUser);
+	const QList< QVariant > statusIcons =
+		model->data(userIndex, UserModel::NavigatorStatusIconsRole).toList();
+
+	QCOMPARE(model->data(userIndex, UserModel::NavigatorTitleRole).toString(),
+			 QStringLiteral("Alice Example (Favorite Alice)"));
+	QCOMPARE(statusIcons.size(), 2);
 }
 
 void TestUserModelNavigator::exposesLinkedChannelsAndListenerKind() {

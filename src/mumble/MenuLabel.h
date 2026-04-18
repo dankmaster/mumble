@@ -16,6 +16,7 @@ class MenuLabel : public QWidgetAction {
 
 public:
 	MenuLabel(const QString &text, QObject *parent = nullptr);
+	QString text() const;
 
 protected:
 	QWidget *createWidget(QWidget *parent) override;

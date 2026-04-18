@@ -33,6 +33,8 @@
 #include "Utils.h"
 #include "Global.h"
 
+#include <QDateTime>
+#include <QFile>
 #include <QPainter>
 #include <QtCore/QtEndian>
 #include <QtGui/QImageReader>
@@ -67,6 +69,55 @@
 // Init ServerHandler::nextConnectionID
 int ServerHandler::nextConnectionID = -1;
 QMutex ServerHandler::nextConnectionIDMutex;
+
+namespace {
+	bool connectTraceEnabled() {
+		static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
+		return enabled;
+	}
+
+	void appendServerHandlerTrace(const QString &message) {
+		if (!connectTraceEnabled()) {
+			return;
+		}
+
+		QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
+		if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
+			return;
+		}
+
+		const QByteArray line = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8() + " SH "
+								+ message.toUtf8() + '\n';
+		traceFile.write(line);
+		traceFile.flush();
+	}
+
+	QString utf8Hex(const QString &value) {
+		return QString::fromLatin1(value.toUtf8().toHex());
+	}
+
+	QString codePointList(const QString &value) {
+		QStringList codePoints;
+		const QList< uint > unicode = value.toUcs4();
+		codePoints.reserve(unicode.size());
+		for (uint codePoint : unicode) {
+			codePoints << QString::fromLatin1("U+%1").arg(codePoint, 0, 16);
+		}
+
+		return codePoints.join(QLatin1Char(','));
+	}
+
+	QString sslErrorsSummary(const QList< QSslError > &errors) {
+		QStringList summaries;
+		summaries.reserve(errors.size());
+		for (const QSslError &error : errors) {
+			summaries << QString::fromLatin1("%1:%2")
+							 .arg(QString::number(static_cast< int >(error.error())), error.errorString());
+		}
+
+		return summaries.join(QLatin1String(" | "));
+	}
+} // namespace
 
 ServerHandlerMessageEvent::ServerHandlerMessageEvent(const QByteArray &msg, Mumble::Protocol::TCPMessageType type,
 													 bool flush)
@@ -555,6 +606,14 @@ void ServerHandler::setSslErrors(const QList< QSslError > &errors) {
 
 	qscCert                      = connection->peerCertificateChain();
 	QList< QSslError > newErrors = errors;
+	const QString actualDigest =
+		qscCert.isEmpty() ? QString()
+						  : QString::fromLatin1(qscCert.at(0).digest(QCryptographicHash::Sha1).toHex());
+	const QString storedDigest = database->getDigest(qsHostName, usPort);
+	appendServerHandlerTrace(QStringLiteral("setSslErrors host=%1 port=%2 certs=%3 stored_digest=%4 actual_digest=%5 "
+											"errors=%6")
+								 .arg(qsHostName, QString::number(usPort), QString::number(qscCert.size()), storedDigest,
+									  actualDigest, sslErrorsSummary(errors)));
 
 #ifdef Q_OS_WIN
 	bool bRevalidate = false;
@@ -580,6 +639,7 @@ void ServerHandler::setSslErrors(const QList< QSslError > &errors) {
 			}
 		}
 		if (newErrors.isEmpty()) {
+			appendServerHandlerTrace(QStringLiteral("setSslErrors proceed-anyway reason=win-revalidate-cleared"));
 			connection->proceedAnyway();
 			return;
 		}
@@ -587,12 +647,14 @@ void ServerHandler::setSslErrors(const QList< QSslError > &errors) {
 #endif
 
 	bStrong = false;
-	if ((qscCert.size() > 0)
-		&& (QString::fromLatin1(qscCert.at(0).digest(QCryptographicHash::Sha1).toHex())
-			== database->getDigest(qsHostName, usPort)))
+	if ((qscCert.size() > 0) && (actualDigest == storedDigest)) {
+		appendServerHandlerTrace(QStringLiteral("setSslErrors proceed-anyway reason=stored-digest-match"));
 		connection->proceedAnyway();
-	else
+	} else {
+		appendServerHandlerTrace(QStringLiteral("setSslErrors store-errors remaining=%1")
+									 .arg(sslErrorsSummary(newErrors)));
 		qlErrors = newErrors;
+	}
 }
 
 void ServerHandler::sendPing() {
@@ -817,6 +879,10 @@ void ServerHandler::serverConnectionConnected() {
 		const QSslCertificate &qsc = qscCert.first();
 		qbaDigest                  = sha1(qsc.publicKey().toDer());
 		bUdp                       = database->getUdp(qbaDigest);
+		appendServerHandlerTrace(QStringLiteral("serverConnectionConnected host=%1 port=%2 cert_digest=%3 pubkey_digest=%4")
+									 .arg(qsHostName, QString::number(usPort),
+										  QString::fromLatin1(qsc.digest(QCryptographicHash::Sha1).toHex()),
+										  QString::fromLatin1(qbaDigest.toHex())));
 	} else {
 		// Shouldn't reach this
 		qCritical("Server must have a certificate. Dropping connection");
@@ -848,6 +914,10 @@ void ServerHandler::serverConnectionConnected() {
 	MumbleProto::Authenticate mpa;
 	mpa.set_username(u8(qsUserName));
 	mpa.set_password(u8(qsPassword));
+	appendServerHandlerTrace(QStringLiteral("authenticate host=%1 port=%2 username=%3 username_utf8=%4 "
+											"username_codepoints=%5 password_len=%6")
+								 .arg(qsHostName, QString::number(usPort), qsUserName, utf8Hex(qsUserName),
+									  codePointList(qsUserName), QString::number(qsPassword.size())));
 
 	QStringList tokens = database->getTokens(qbaDigest);
 	for (const QString &qs : tokens) {
@@ -929,6 +999,10 @@ void ServerHandler::setConnectionInfo(const QString &host, unsigned short port, 
 	usPort     = port;
 	qsUserName = username;
 	qsPassword = pw;
+	appendServerHandlerTrace(QStringLiteral("setConnectionInfo host=%1 port=%2 username=%3 username_utf8=%4 "
+											"username_codepoints=%5 password_len=%6")
+								 .arg(qsHostName, QString::number(usPort), qsUserName, utf8Hex(qsUserName),
+									  codePointList(qsUserName), QString::number(qsPassword.size())));
 }
 
 void ServerHandler::getConnectionInfo(QString &host, unsigned short &port, QString &username, QString &pw) const {
@@ -1099,6 +1173,24 @@ void ServerHandler::sendChatMessage(MumbleProto::ChatScope scope, unsigned int s
 		message.set_reply_to_message_id(replyToMessageID.value());
 	}
 	sendMessage(message);
+}
+
+void ServerHandler::sendChatReactionToggle(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+										   unsigned int messageID, const QString &emoji, bool active) {
+	if (messageID == 0 || emoji.trimmed().isEmpty()) {
+		return;
+	}
+
+	MumbleProto::ChatReactionToggle toggle;
+	toggle.set_scope(scope);
+	toggle.set_scope_id(scopeID);
+	if (threadID > 0) {
+		toggle.set_thread_id(threadID);
+	}
+	toggle.set_message_id(messageID);
+	toggle.set_emoji(u8(emoji.trimmed()));
+	toggle.set_active(active);
+	sendMessage(toggle);
 }
 
 void ServerHandler::upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,

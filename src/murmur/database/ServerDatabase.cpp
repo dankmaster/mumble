@@ -13,6 +13,7 @@
 #include "ChatMessageTable.h"
 #include "ChatMessageAttachmentTable.h"
 #include "ChatMessageEmbedTable.h"
+#include "ChatMessageReactionTable.h"
 #include "ChatReadStateTable.h"
 #include "ChatThreadTable.h"
 #include "TextChannelTable.h"
@@ -52,6 +53,7 @@ namespace server {
 				ChatAssetTable,
 				ChatMessageAttachmentTable,
 				ChatMessageEmbedTable,
+				ChatMessageReactionTable,
 				TextChannelTable,
 				UserPropertyTable,
 				GroupTable,
@@ -125,6 +127,10 @@ namespace server {
 				m_sql, m_backend, getChatMessageTable(), getChatAssetTable()));
 			assert(id == TableIndex::ChatMessageEmbedTable);
 
+			id = addTable(std::make_unique< ChatMessageReactionTable >(
+				m_sql, m_backend, getChatMessageTable(), getUserTable()));
+			assert(id == TableIndex::ChatMessageReactionTable);
+
 			id = addTable(std::make_unique< TextChannelTable >(m_sql, m_backend, getServerTable(), getChannelTable()));
 			assert(id == TableIndex::TextChannelTable);
 
@@ -182,6 +188,7 @@ namespace server {
 		GET_TABLE_IMPL(ChatAssetTable)
 		GET_TABLE_IMPL(ChatMessageAttachmentTable)
 		GET_TABLE_IMPL(ChatMessageEmbedTable)
+		GET_TABLE_IMPL(ChatMessageReactionTable)
 		GET_TABLE_IMPL(TextChannelTable)
 		GET_TABLE_IMPL(UserPropertyTable)
 		GET_TABLE_IMPL(GroupTable)

@@ -9,6 +9,7 @@
 #include "ChatDataTypes.h"
 #include "DBChatMessageAttachment.h"
 #include "DBChatMessageEmbed.h"
+#include "DBChatMessageReaction.h"
 
 #include <chrono>
 #include <optional>
@@ -31,6 +32,7 @@ namespace server {
 			ChatMessageBodyFormat bodyFormat               = ChatMessageBodyFormat::PlainText;
 			std::vector< DBChatMessageAttachment > attachments = {};
 			std::vector< DBChatMessageEmbed > embeds       = {};
+			std::vector< DBChatMessageReaction > reactions = {};
 			std::chrono::system_clock::time_point createdAt = {};
 			std::chrono::system_clock::time_point editedAt  = {};
 			std::chrono::system_clock::time_point deletedAt = {};

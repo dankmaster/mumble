@@ -18,6 +18,15 @@ class VolumeSliderWidgetAction : public QWidgetAction {
 
 public:
 	VolumeSliderWidgetAction(QWidget *parent = nullptr);
+	int sliderValue() const;
+	int sliderMinimum() const;
+	int sliderMaximum() const;
+	int sliderStep() const;
+	bool sliderFinalOnRelease() const;
+	QString sliderAccessibleName() const;
+	QString sliderSuffix() const;
+	QString sliderHint() const;
+	void setSliderAccessibleName(const QString &name);
 
 protected:
 	qt_unique_ptr< QWidget > m_widget;

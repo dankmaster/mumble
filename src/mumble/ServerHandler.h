@@ -192,6 +192,8 @@ public:
 	void sendChatMessage(MumbleProto::ChatScope scope, unsigned int scopeID, const QString &message_,
 						 MumbleProto::ChatBodyFormat bodyFormat = MumbleProto::ChatBodyFormatPlainText,
 						 std::optional< unsigned int > replyToMessageID = std::nullopt);
+	void sendChatReactionToggle(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+								unsigned int messageID, const QString &emoji, bool active);
 	void upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
 						   unsigned int aclChannelID, unsigned int position, bool create);
 	void removeTextChannel(unsigned int textChannelID);

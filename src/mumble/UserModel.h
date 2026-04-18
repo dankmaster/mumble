@@ -116,7 +116,8 @@ public:
 		NavigatorTalkStateRole,
 		NavigatorIdleRole,
 		NavigatorMutedRole,
-		NavigatorDeafenedRole
+		NavigatorDeafenedRole,
+		NavigatorPrioritySpeakerRole
 	};
 
 	enum NavigatorItemKind {

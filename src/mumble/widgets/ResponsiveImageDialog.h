@@ -10,6 +10,7 @@
 #include <QtWidgets/QDialog>
 
 class QLabel;
+class QMoveEvent;
 class QScrollArea;
 
 class ResponsiveImageDialog : public QDialog {
@@ -21,6 +22,7 @@ public:
 protected:
 	bool event(QEvent *event) override;
 	bool eventFilter(QObject *watched, QEvent *event) override;
+	void moveEvent(QMoveEvent *event) override;
 	void resizeEvent(QResizeEvent *event) override;
 	void showEvent(QShowEvent *event) override;
 	void keyPressEvent(QKeyEvent *event) override;
@@ -28,6 +30,7 @@ protected:
 private:
 	void applyWindowChrome();
 	void adjustInitialSize();
+	void rememberGeometry();
 	void updatePixmap(bool preserveViewportCenter = false);
 	void setZoomFactor(qreal zoomFactor, bool preserveViewportCenter = true);
 	void zoomBy(qreal factor);

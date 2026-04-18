@@ -606,6 +606,13 @@ QVariant UserModel::data(const QModelIndex &idx, int role) const {
 
 		return p->bDeaf || p->bSelfDeaf;
 	}
+	if (role == UserModel::NavigatorPrioritySpeakerRole) {
+		if (!p || item->isListener) {
+			return false;
+		}
+
+		return p->bPrioritySpeaker;
+	}
 
 	if (p) {
 		switch (role) {

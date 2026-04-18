@@ -1,0 +1,24 @@
+{
+	"v6": {
+		"table_name": "chat_assets",
+		"column_names": [
+			"server_id",
+			"asset_id",
+			"owner_user_id",
+			"owner_session",
+			"preview_asset_id",
+			"sha256",
+			"storage_key",
+			"mime",
+			"byte_size",
+			"kind",
+			"width",
+			"height",
+			"duration_ms",
+			"retention_class",
+			"created_at",
+			"last_accessed_at"
+		],
+		"rows": []
+	}
+}

@@ -5,6 +5,7 @@
 
 #include "ResponsiveImageDialog.h"
 
+#include "Global.h"
 #include "UiTheme.h"
 
 #include <QtCore/QDateTime>
@@ -100,7 +101,11 @@ ResponsiveImageDialog::ResponsiveImageDialog(const QPixmap &pixmap, QWidget *par
 	m_scrollArea->setWidget(m_label);
 
 	grabGesture(Qt::PinchGesture);
-	adjustInitialSize();
+	if (!Global::get().s.qbaImagePreviewGeometry.isEmpty() && !restoreGeometry(Global::get().s.qbaImagePreviewGeometry)) {
+		adjustInitialSize();
+	} else if (Global::get().s.qbaImagePreviewGeometry.isEmpty()) {
+		adjustInitialSize();
+	}
 	updatePixmap();
 }
 
@@ -158,14 +163,21 @@ bool ResponsiveImageDialog::eventFilter(QObject *watched, QEvent *event) {
 	return QDialog::eventFilter(watched, event);
 }
 
+void ResponsiveImageDialog::moveEvent(QMoveEvent *event) {
+	QDialog::moveEvent(event);
+	rememberGeometry();
+}
+
 void ResponsiveImageDialog::resizeEvent(QResizeEvent *event) {
 	QDialog::resizeEvent(event);
+	rememberGeometry();
 	updatePixmap(true);
 }
 
 void ResponsiveImageDialog::showEvent(QShowEvent *event) {
 	QDialog::showEvent(event);
 	applyWindowChrome();
+	rememberGeometry();
 	updatePixmap(true);
 }
 
@@ -176,6 +188,14 @@ void ResponsiveImageDialog::keyPressEvent(QKeyEvent *event) {
 	}
 
 	QDialog::keyPressEvent(event);
+}
+
+void ResponsiveImageDialog::rememberGeometry() {
+	if (!isVisible() || isMinimized() || isMaximized() || isFullScreen()) {
+		return;
+	}
+
+	Global::get().s.qbaImagePreviewGeometry = saveGeometry();
 }
 
 void ResponsiveImageDialog::applyWindowChrome() {

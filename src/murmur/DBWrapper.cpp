@@ -35,6 +35,7 @@
 #include "murmur/database/ChatAssetTable.h"
 #include "murmur/database/ChatMessageAttachmentTable.h"
 #include "murmur/database/ChatMessageEmbedTable.h"
+#include "murmur/database/ChatMessageReactionTable.h"
 #include "murmur/database/ChatReadStateTable.h"
 #include "murmur/database/ChatThreadTable.h"
 #include "murmur/database/TextChannelTable.h"
@@ -47,6 +48,7 @@
 #include "murmur/database/DBChatMessage.h"
 #include "murmur/database/DBChatAsset.h"
 #include "murmur/database/DBChatMessageAttachment.h"
+#include "murmur/database/DBChatMessageReaction.h"
 #include "murmur/database/DBChatReadState.h"
 #include "murmur/database/DBChatThread.h"
 #include "murmur/database/DBTextChannel.h"
@@ -1179,6 +1181,7 @@ std::vector< ::msdb::DBChatMessage > DBWrapper::getChatMessages(unsigned int ser
 		message.attachments =
 			m_serverDB.getChatMessageAttachmentTable().getAttachments(serverID, message.messageID);
 		message.embeds = m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, message.messageID);
+		message.reactions = m_serverDB.getChatMessageReactionTable().getReactions(serverID, message.messageID);
 	}
 
 	return messages;
@@ -1201,9 +1204,29 @@ std::vector< ::msdb::DBChatMessage > DBWrapper::getChatMessagesBefore(unsigned i
 		message.attachments =
 			m_serverDB.getChatMessageAttachmentTable().getAttachments(serverID, message.messageID);
 		message.embeds = m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, message.messageID);
+		message.reactions = m_serverDB.getChatMessageReactionTable().getReactions(serverID, message.messageID);
 	}
 
 	return messages;
+
+	WRAPPER_END
+}
+
+std::optional< ::msdb::DBChatMessage > DBWrapper::getChatMessage(unsigned int serverID, unsigned int messageID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(messageID);
+
+	std::optional< ::msdb::DBChatMessage > message = m_serverDB.getChatMessageTable().getMessage(serverID, messageID);
+	if (message) {
+		message->attachments =
+			m_serverDB.getChatMessageAttachmentTable().getAttachments(serverID, message->messageID);
+		message->embeds = m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, message->messageID);
+		message->reactions = m_serverDB.getChatMessageReactionTable().getReactions(serverID, message->messageID);
+	}
+
+	return message;
 
 	WRAPPER_END
 }
@@ -1304,6 +1327,31 @@ std::vector< ::msdb::DBChatMessageEmbed > DBWrapper::getChatMessageEmbeds(unsign
 	assertValidID(messageID);
 
 	return m_serverDB.getChatMessageEmbedTable().getEmbeds(serverID, messageID);
+
+	WRAPPER_END
+}
+
+std::vector< ::msdb::DBChatMessageReaction > DBWrapper::getChatMessageReactions(unsigned int serverID,
+																				 unsigned int messageID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(messageID);
+
+	return m_serverDB.getChatMessageReactionTable().getReactions(serverID, messageID);
+
+	WRAPPER_END
+}
+
+void DBWrapper::setChatMessageReactionActive(unsigned int serverID, unsigned int messageID, unsigned int actorUserID,
+											 const std::string &emoji, bool active) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(messageID);
+	assertValidID(actorUserID);
+
+	m_serverDB.getChatMessageReactionTable().setReactionActive(serverID, messageID, actorUserID, emoji, active);
 
 	WRAPPER_END
 }

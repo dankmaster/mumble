@@ -9,8 +9,25 @@
 	let noteExpanded = false;
 	let openMenuId = null;
 	let railCollapsed = false;
+	let compactViewport = false;
 	let contextMenuState = null;
 	let unreadDetachedMessages = 0;
+	let selfMenuOpen = false;
+	let openReactionPickerMessageId = null;
+	let keepMessageListPinnedToBottom = true;
+	let pendingBottomPinFrames = 0;
+	let pendingBottomPinHandle = 0;
+	let footerAlignmentFrame = 0;
+	let messageListMutationObserver = null;
+	let dragState = null;
+	let imageViewerDragState = null;
+	let imageViewerResizeObserver = null;
+
+	const imageViewerStorageKey = "mumble-modern-image-viewer";
+	const imageViewerMinWidth = 280;
+	const imageViewerMinHeight = 220;
+	const imageViewerViewportMargin = 12;
+	const compactRailBreakpointPx = 940;
 
 	const refs = {
 		appShell: document.querySelector(".app-shell"),
@@ -18,6 +35,10 @@
 		brandSubtitle: document.getElementById("brand-subtitle"),
 		menuBar: document.getElementById("menu-bar"),
 		railToggleButton: document.getElementById("rail-toggle-button"),
+		utilityRail: document.querySelector(".utility-rail"),
+		utilityRailBackdrop: document.getElementById("utility-rail-backdrop"),
+		railCloseButton: document.getElementById("rail-close-button"),
+		noteCard: document.querySelector(".note-card"),
 		serverEyebrow: document.getElementById("server-eyebrow"),
 		serverTitle: document.getElementById("server-title"),
 		serverSubtitle: document.getElementById("server-subtitle"),
@@ -26,6 +47,7 @@
 		compatPill: document.getElementById("compat-pill"),
 		connectButton: document.getElementById("connect-button"),
 		disconnectButton: document.getElementById("disconnect-button"),
+		layoutSwitchButton: document.getElementById("layout-switch-button"),
 		settingsButton: document.getElementById("settings-button"),
 		muteButton: document.getElementById("mute-button"),
 		deafButton: document.getElementById("deaf-button"),
@@ -42,18 +64,83 @@
 		messageList: document.getElementById("message-list"),
 		jumpLatestButton: document.getElementById("jump-latest-button"),
 		composerForm: document.getElementById("composer-form"),
+		composerShell: document.querySelector(".composer-shell"),
+		composerReplyBar: document.getElementById("composer-reply-bar"),
+		composerReplyLabel: document.getElementById("composer-reply-label"),
+		composerReplySnippet: document.getElementById("composer-reply-snippet"),
+		composerReplyCancelButton: document.getElementById("composer-reply-cancel-button"),
 		composerInput: document.getElementById("composer-input"),
 		composerHint: document.getElementById("composer-hint"),
 		attachButton: document.getElementById("attach-button"),
 		sendButton: document.getElementById("send-button"),
 		loadOlderButton: document.getElementById("load-older-button"),
 		markReadButton: document.getElementById("mark-read-button"),
+		selfCard: document.getElementById("self-card"),
 		selfCardSettingsButton: document.getElementById("self-card-settings-button"),
 		selfAvatar: document.getElementById("self-avatar"),
 		selfName: document.getElementById("self-name"),
 		selfStatus: document.getElementById("self-status"),
-		contextMenu: document.getElementById("context-menu")
+		selfMenu: document.getElementById("self-menu-popover"),
+		contextMenu: document.getElementById("context-menu"),
+		imageViewerLayer: document.getElementById("image-viewer-layer"),
+		imageViewerBackdrop: document.getElementById("image-viewer-backdrop"),
+		imageViewerWindow: document.getElementById("image-viewer-window"),
+		imageViewerHeader: document.getElementById("image-viewer-header"),
+		imageViewerTitle: document.getElementById("image-viewer-title"),
+		imageViewerCloseButton: document.getElementById("image-viewer-close-button"),
+		imageViewerImage: document.getElementById("image-viewer-image")
 	};
+	const starterReactionEmoji = ["👍", "❤️", "😂", "😮", "😢", "🎉", "👀", "🔥"];
+	let imageViewerState = loadImageViewerState();
+
+	function viewportMatchesCompactRail() {
+		return window.innerWidth <= compactRailBreakpointPx;
+	}
+
+	function applyRailPresentation() {
+		const railOpen = !railCollapsed;
+		refs.appShell.classList.toggle("is-compact-layout", compactViewport);
+		refs.appShell.classList.toggle("rail-is-collapsed", railCollapsed);
+		refs.railToggleButton.classList.toggle("is-active", railOpen);
+		refs.railToggleButton.textContent = compactViewport && railOpen ? "Close" : "Rooms";
+		refs.railToggleButton.title = compactViewport && railOpen ? "Close room browser" : "Open room browser";
+		refs.railToggleButton.setAttribute("aria-label", compactViewport && railOpen ? "Close room browser" : "Open room browser");
+		refs.railToggleButton.setAttribute("aria-expanded", railOpen ? "true" : "false");
+		refs.utilityRail.setAttribute("aria-hidden", compactViewport && !railOpen ? "true" : "false");
+		refs.utilityRailBackdrop.classList.toggle("hidden", !(compactViewport && railOpen));
+		refs.utilityRailBackdrop.setAttribute("aria-hidden", compactViewport && railOpen ? "false" : "true");
+	}
+
+	function setRailCollapsed(nextCollapsed) {
+		const normalized = !!nextCollapsed;
+		if (railCollapsed === normalized) {
+			applyRailPresentation();
+			return;
+		}
+
+		railCollapsed = normalized;
+		if (!railCollapsed) {
+			hideContextMenu();
+			hideSelfMenu();
+		}
+		applyRailPresentation();
+	}
+
+	function syncCompactRailState(force) {
+		const nextCompactViewport = viewportMatchesCompactRail();
+		if (force || nextCompactViewport !== compactViewport) {
+			compactViewport = nextCompactViewport;
+			railCollapsed = compactViewport ? true : false;
+		}
+		applyRailPresentation();
+	}
+
+	function dismissCompactRailAfterAction() {
+		if (!compactViewport || railCollapsed) {
+			return;
+		}
+		setRailCollapsed(true);
+	}
 
 	function notifyBridge(method) {
 		if (!modernBridge || typeof modernBridge[method] !== "function") {
@@ -198,6 +285,290 @@
 		}
 	}
 
+	function eventElementTarget(event) {
+		if (!event || !event.target) {
+			return null;
+		}
+
+		if (event.target.nodeType === Node.ELEMENT_NODE) {
+			return event.target;
+		}
+
+		return event.target.parentElement || null;
+	}
+
+	function anchorFromEvent(event) {
+		const target = eventElementTarget(event);
+		if (!target || typeof target.closest !== "function") {
+			return null;
+		}
+
+		return target.closest("a[href]");
+	}
+
+	function imageFromEvent(event) {
+		const target = eventElementTarget(event);
+		if (!target || typeof target.closest !== "function") {
+			return null;
+		}
+
+		const image = target.closest("img");
+		if (!image || !refs.messageList || !refs.messageList.contains(image)) {
+			return null;
+		}
+
+		return image;
+	}
+
+	function handleAnchorActivation(event) {
+		const image = imageFromEvent(event);
+		if (image && anchorFromEvent(event)) {
+			event.preventDefault();
+			event.stopPropagation();
+			hideContextMenu();
+			hideSelfMenu();
+			openImageViewerFromElement(image);
+			return;
+		}
+
+		if (!modernBridge || typeof modernBridge.activateLink !== "function") {
+			return;
+		}
+
+		const anchor = anchorFromEvent(event);
+		if (!anchor) {
+			return;
+		}
+
+		const href = String(anchor.href || anchor.getAttribute("href") || "").trim();
+		if (!href) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		hideContextMenu();
+		hideSelfMenu();
+		notifyBridge("activateLink", href);
+	}
+
+	function defaultImageViewerState() {
+		const width = Math.min(560, Math.max(imageViewerMinWidth, window.innerWidth - 64));
+		const height = Math.min(400, Math.max(imageViewerMinHeight, window.innerHeight - 88));
+		return {
+			width: Math.round(width),
+			height: Math.round(height),
+			left: Math.round((window.innerWidth - width) / 2),
+			top: Math.max(20, Math.round((window.innerHeight - height) / 2) - 24)
+		};
+	}
+
+	function clampImageViewerState(state) {
+		const fallback = defaultImageViewerState();
+		const requestedWidth = Number(state && state.width);
+		const requestedHeight = Number(state && state.height);
+		const requestedLeft = Number(state && state.left);
+		const requestedTop = Number(state && state.top);
+		const maxWidth = Math.max(220, window.innerWidth - (imageViewerViewportMargin * 2));
+		const maxHeight = Math.max(180, window.innerHeight - (imageViewerViewportMargin * 2));
+		const minWidth = Math.min(imageViewerMinWidth, maxWidth);
+		const minHeight = Math.min(imageViewerMinHeight, maxHeight);
+		const width = Math.round(Math.min(maxWidth, Math.max(minWidth, isFinite(requestedWidth) ? requestedWidth : fallback.width)));
+		const height = Math.round(Math.min(maxHeight, Math.max(minHeight, isFinite(requestedHeight) ? requestedHeight : fallback.height)));
+		const maxLeft = Math.max(imageViewerViewportMargin, window.innerWidth - width - imageViewerViewportMargin);
+		const maxTop = Math.max(imageViewerViewportMargin, window.innerHeight - height - imageViewerViewportMargin);
+		return {
+			width: width,
+			height: height,
+			left: Math.round(Math.min(maxLeft, Math.max(imageViewerViewportMargin, isFinite(requestedLeft) ? requestedLeft : fallback.left))),
+			top: Math.round(Math.min(maxTop, Math.max(imageViewerViewportMargin, isFinite(requestedTop) ? requestedTop : fallback.top)))
+		};
+	}
+
+	function loadImageViewerState() {
+		try {
+			const raw = window.localStorage ? window.localStorage.getItem(imageViewerStorageKey) : "";
+			if (!raw) {
+				return clampImageViewerState(defaultImageViewerState());
+			}
+			return clampImageViewerState(JSON.parse(raw));
+		} catch (error) {
+			return clampImageViewerState(defaultImageViewerState());
+		}
+	}
+
+	function persistImageViewerState() {
+		if (!imageViewerState) {
+			return;
+		}
+
+		try {
+			if (window.localStorage) {
+				window.localStorage.setItem(imageViewerStorageKey, JSON.stringify(imageViewerState));
+			}
+		} catch (error) {}
+	}
+
+	function applyImageViewerGeometry() {
+		if (!refs.imageViewerWindow || !imageViewerState) {
+			return;
+		}
+
+		imageViewerState = clampImageViewerState(imageViewerState);
+		refs.imageViewerWindow.style.width = imageViewerState.width + "px";
+		refs.imageViewerWindow.style.height = imageViewerState.height + "px";
+		refs.imageViewerWindow.style.left = imageViewerState.left + "px";
+		refs.imageViewerWindow.style.top = imageViewerState.top + "px";
+	}
+
+	function stopObservingImageViewerSize() {
+		if (!imageViewerResizeObserver) {
+			return;
+		}
+
+		imageViewerResizeObserver.disconnect();
+		imageViewerResizeObserver = null;
+	}
+
+	function observeImageViewerSize() {
+		if (!refs.imageViewerWindow || typeof ResizeObserver !== "function") {
+			return;
+		}
+
+		stopObservingImageViewerSize();
+		imageViewerResizeObserver = new ResizeObserver(function() {
+			const rect = refs.imageViewerWindow.getBoundingClientRect();
+			const nextState = clampImageViewerState({
+				width: rect.width,
+				height: rect.height,
+				left: imageViewerState ? imageViewerState.left : rect.left,
+				top: imageViewerState ? imageViewerState.top : rect.top
+			});
+			const moved = !imageViewerState || nextState.left !== imageViewerState.left || nextState.top !== imageViewerState.top;
+			const resized = !imageViewerState || nextState.width !== imageViewerState.width || nextState.height !== imageViewerState.height;
+			imageViewerState = nextState;
+			if (moved) {
+				applyImageViewerGeometry();
+			}
+			if (moved || resized) {
+				persistImageViewerState();
+			}
+		});
+		imageViewerResizeObserver.observe(refs.imageViewerWindow);
+	}
+
+	function cancelImageViewerDrag() {
+		if (!imageViewerDragState) {
+			return;
+		}
+
+		imageViewerDragState = null;
+		document.body.classList.remove("image-viewer-dragging");
+		window.removeEventListener("mousemove", trackImageViewerDrag, true);
+		window.removeEventListener("mouseup", finishImageViewerDrag, true);
+	}
+
+	function finishImageViewerDrag() {
+		if (!imageViewerDragState) {
+			return;
+		}
+
+		cancelImageViewerDrag();
+		persistImageViewerState();
+	}
+
+	function trackImageViewerDrag(event) {
+		if (!imageViewerDragState) {
+			return;
+		}
+
+		imageViewerState = clampImageViewerState({
+			width: imageViewerState.width,
+			height: imageViewerState.height,
+			left: imageViewerDragState.startLeft + (event.clientX - imageViewerDragState.startX),
+			top: imageViewerDragState.startTop + (event.clientY - imageViewerDragState.startY)
+		});
+		applyImageViewerGeometry();
+	}
+
+	function beginImageViewerDrag(event) {
+		if (event.button !== 0 || !refs.imageViewerWindow || !refs.imageViewerLayer || refs.imageViewerLayer.classList.contains("hidden")) {
+			return;
+		}
+		const dragTarget = eventElementTarget(event);
+		if (dragTarget && typeof dragTarget.closest === "function" && dragTarget.closest("button")) {
+			return;
+		}
+
+		const rect = refs.imageViewerWindow.getBoundingClientRect();
+		imageViewerDragState = {
+			startX: event.clientX,
+			startY: event.clientY,
+			startLeft: rect.left,
+			startTop: rect.top
+		};
+		document.body.classList.add("image-viewer-dragging");
+		window.addEventListener("mousemove", trackImageViewerDrag, true);
+		window.addEventListener("mouseup", finishImageViewerDrag, true);
+		event.preventDefault();
+	}
+
+	function openImageViewer(source, title) {
+		const normalizedSource = String(source || "").trim();
+		if (!normalizedSource || !refs.imageViewerLayer || !refs.imageViewerImage) {
+			return false;
+		}
+
+		imageViewerState = clampImageViewerState(imageViewerState || defaultImageViewerState());
+		refs.imageViewerTitle.textContent = String(title || "").trim() || "Image";
+		refs.imageViewerImage.src = normalizedSource;
+		refs.imageViewerImage.alt = String(title || "").trim() || "Image";
+		refs.imageViewerLayer.classList.remove("hidden");
+		refs.imageViewerLayer.setAttribute("aria-hidden", "false");
+		applyImageViewerGeometry();
+		observeImageViewerSize();
+		return true;
+	}
+
+	function closeImageViewer() {
+		if (!refs.imageViewerLayer || refs.imageViewerLayer.classList.contains("hidden")) {
+			return;
+		}
+
+		cancelImageViewerDrag();
+		stopObservingImageViewerSize();
+		refs.imageViewerLayer.classList.add("hidden");
+		refs.imageViewerLayer.setAttribute("aria-hidden", "true");
+		refs.imageViewerImage.removeAttribute("src");
+		persistImageViewerState();
+	}
+
+	function openImageViewerFromElement(image) {
+		if (!image) {
+			return false;
+		}
+
+		const source = String(image.currentSrc || image.src || image.getAttribute("src") || "").trim();
+		if (!source) {
+			return false;
+		}
+
+		return openImageViewer(source, image.getAttribute("alt") || "");
+	}
+
+	function handleMessageImageActivation(event) {
+		const image = imageFromEvent(event);
+		if (!image) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		hideContextMenu();
+		hideSelfMenu();
+		openImageViewerFromElement(image);
+	}
+
 	function dayLabelFromMs(createdAtMs) {
 		if (!createdAtMs) {
 			return "";
@@ -267,9 +638,323 @@
 		});
 	}
 
+	function findRoomState(snapshot, scopeToken) {
+		const token = String(scopeToken || "");
+		return (snapshot.voiceRooms || []).concat(snapshot.textRooms || []).find(function(room) {
+			return String(room.token || "") === token;
+		}) || null;
+	}
+
+	function participantStateKey(person) {
+		if (!person) {
+			return "";
+		}
+
+		return String(person.participantKey || person.session || "");
+	}
+
+	function findParticipantState(snapshot, key) {
+		const targetKey = String(key || "");
+		const directMatch = (snapshot.voicePresence || []).concat(snapshot.participants || []).find(function(person) {
+			return participantStateKey(person) === targetKey;
+		});
+		if (directMatch) {
+			return directMatch;
+		}
+
+		for (const room of (snapshot.voiceRooms || [])) {
+			const roomMatch = (room.participants || []).find(function(person) {
+				return participantStateKey(person) === targetKey;
+			});
+			if (roomMatch) {
+				return roomMatch;
+			}
+		}
+
+		return null;
+	}
+
+	function findMessageState(snapshot, messageId) {
+		const targetId = String(messageId || "");
+		return (snapshot.messages || []).find(function(message) {
+			return String(message.messageId || "") === targetId;
+		}) || null;
+	}
+
+	function actionItemsFromActionStates(actionStates, handlers) {
+		return (actionStates || []).map(function(item) {
+			if (!item) {
+				return null;
+			}
+
+			const kind = String(item.kind || "action");
+			if (kind === "separator") {
+				return { kind: "separator", separator: true };
+			}
+
+			if (kind === "label") {
+				return {
+					kind: "label",
+					label: item.label || "",
+					hint: item.hint || ""
+				};
+			}
+
+			if (kind === "slider") {
+				if (!item.id) {
+					return null;
+				}
+
+				return {
+					kind: "slider",
+					id: item.id || "",
+					label: item.label || "Value",
+					enabled: item.enabled !== false,
+					tone: item.tone || "",
+					hint: item.hint || "",
+					value: Number(item.value || 0),
+					min: Number(item.min || 0),
+					max: Number(item.max || 0),
+					step: Number(item.step || 1),
+					suffix: item.suffix || "",
+					finalOnRelease: item.finalOnRelease !== false,
+					onValueChange: function(value, final) {
+						if (handlers && typeof handlers.invokeValueChanged === "function") {
+							handlers.invokeValueChanged(item.id || "", value, final);
+						}
+					}
+				};
+			}
+
+			if (!item.id) {
+				return null;
+			}
+
+			return {
+				kind: "action",
+				label: item.label || "Action",
+				enabled: item.enabled !== false,
+				checked: !!item.checked,
+				tone: item.tone || "",
+				hint: item.hint || "",
+				action: function() {
+					if (handlers && typeof handlers.invokeAction === "function") {
+						handlers.invokeAction(item.id || "");
+					}
+				}
+			};
+		});
+	}
+
+	function actionPanelItemKind(item) {
+		if (!item) {
+			return "";
+		}
+
+		if (item.kind) {
+			return String(item.kind);
+		}
+		if (item.separator) {
+			return "separator";
+		}
+		return "action";
+	}
+
+	function sliderValueLabel(item, value) {
+		const numericValue = Number(value || 0);
+		if (!Number.isFinite(numericValue)) {
+			return "";
+		}
+
+		const prefix = numericValue > 0 ? "+" : "";
+		return prefix + String(numericValue) + String(item && item.suffix ? item.suffix : "");
+	}
+
+	function appendActionPanelItem(container, item, variant, hideOnAction) {
+		const prefix = variant === "menu" ? "menu" : "context-menu";
+		const kind = actionPanelItemKind(item);
+
+		if (!kind) {
+			return;
+		}
+
+		if (kind === "separator") {
+			const separator = document.createElement("div");
+			separator.className = prefix + "-separator";
+			container.appendChild(separator);
+			return;
+		}
+
+		if (kind === "label") {
+			const labelClass = variant === "menu" ? "menu-item-label" : "context-menu-label";
+			const label = document.createElement("div");
+			label.className = prefix + "-label-row";
+			if (item.hint) {
+				label.title = item.hint;
+			}
+			label.innerHTML = "<span class=\"" + labelClass + "\"></span>";
+			label.querySelector("." + labelClass).textContent = item.label || "";
+			container.appendChild(label);
+			return;
+		}
+
+		if (kind === "slider") {
+			const slider = document.createElement("div");
+			slider.className = prefix + "-slider" + (item.tone ? " is-" + item.tone : "");
+			if (item.hint) {
+				slider.title = item.hint;
+			}
+			slider.innerHTML = "<div class=\"" + prefix + "-slider-header\"><span class=\"" + prefix
+				+ "-slider-label\"></span><span class=\"" + prefix + "-slider-value\"></span></div><input class=\""
+				+ prefix + "-slider-input\" type=\"range\">";
+
+			const label = slider.querySelector("." + prefix + "-slider-label");
+			const value = slider.querySelector("." + prefix + "-slider-value");
+			const input = slider.querySelector("." + prefix + "-slider-input");
+			label.textContent = item.label || "Value";
+			value.textContent = sliderValueLabel(item, item.value);
+			input.min = String(item.min);
+			input.max = String(item.max);
+			input.step = String(item.step || 1);
+			input.value = String(item.value || 0);
+			input.disabled = item.enabled === false;
+
+			const emitValue = function(final) {
+				value.textContent = sliderValueLabel(item, input.value);
+				if (typeof item.onValueChange === "function") {
+					item.onValueChange(Number(input.value), final);
+				}
+			};
+
+			input.addEventListener("input", function(event) {
+				event.stopPropagation();
+				emitValue(item.finalOnRelease ? false : true);
+			});
+			if (item.finalOnRelease) {
+				input.addEventListener("change", function(event) {
+					event.stopPropagation();
+					emitValue(true);
+				});
+			}
+			input.addEventListener("pointerdown", function(event) {
+				event.stopPropagation();
+			});
+			input.addEventListener("click", function(event) {
+				event.stopPropagation();
+			});
+			slider.addEventListener("click", function(event) {
+				event.stopPropagation();
+			});
+
+			container.appendChild(slider);
+			return;
+		}
+
+		const button = document.createElement("button");
+		button.type = "button";
+		const labelClass = variant === "menu" ? "menu-item-label" : "context-menu-label";
+		const stateClass = variant === "menu" ? "menu-item-state" : "context-menu-state";
+		button.className = prefix + "-item"
+			+ (item.checked ? " is-checked" : "")
+			+ (item.tone ? " is-" + item.tone : "");
+		button.disabled = item.enabled === false;
+		if (item.hint) {
+			button.title = item.hint;
+		}
+		button.innerHTML = "<span class=\"" + labelClass + "\"></span><span class=\"" + stateClass + "\"></span>";
+		button.querySelector("." + labelClass).textContent = item.label || "Action";
+		button.querySelector("." + stateClass).textContent = item.checked ? "On" : "";
+		button.addEventListener("click", function(event) {
+			event.stopPropagation();
+			if (hideOnAction) {
+				if (variant === "menu") {
+					openMenuId = null;
+					syncSnapshot();
+				} else {
+					hideContextMenu();
+				}
+			}
+			if (item.enabled === false || typeof item.action !== "function") {
+				return;
+			}
+			item.action();
+		});
+		container.appendChild(button);
+	}
+
+	function presenceStatusIconSvg(kind) {
+		switch (String(kind || "")) {
+			case "friend":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3.8l2.55 5.18 5.72.83-4.13 4.03.98 5.69L12 16.83l-5.12 2.7.98-5.69-4.13-4.03 5.72-.83z\"></path></svg>";
+			case "authenticated":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3l6 2.5V11c0 4-2.56 7.28-6 8.5-3.44-1.22-6-4.5-6-8.5V5.5z\"></path><path d=\"M9.3 11.8l1.8 1.8 3.6-3.9\"></path></svg>";
+			case "listener":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5a4 4 0 014 4v3.5\"></path><path d=\"M12 19a4.5 4.5 0 01-4.5-4.5V11a4.5 4.5 0 019 0\"></path><path d=\"M16.5 10.5a4.5 4.5 0 013 4\"></path></svg>";
+			case "serverDeafened":
+			case "selfDeafened":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11 5L6 9H3v6h3l5 4z\"></path><path d=\"M16 9l5 5\"></path><path d=\"M21 9l-5 5\"></path></svg>";
+			case "serverMuted":
+			case "selfMuted":
+			case "localMuted":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11 5L6 9H3v6h3l5 4z\"></path><path d=\"M15.5 8.5a5 5 0 010 7\"></path></svg>";
+			case "suppressed":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14\"></path><path d=\"M8 8.5h8\"></path><path d=\"M8 15.5h8\"></path></svg>";
+			default:
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"5\"></circle></svg>";
+		}
+	}
+
+	function renderPresenceStatuses(container, statuses) {
+		const visibleStatuses = (statuses || []).filter(function(status) {
+			return !!(status && status.kind);
+		});
+
+		container.innerHTML = "";
+		container.classList.toggle("hidden", !visibleStatuses.length);
+		visibleStatuses.forEach(function(status) {
+			const indicator = document.createElement("span");
+			indicator.className = "presence-status" + (status.tone ? " is-" + status.tone : "");
+			indicator.title = status.label || "";
+			indicator.setAttribute("aria-label", status.label || "");
+			indicator.innerHTML = presenceStatusIconSvg(status.kind);
+			container.appendChild(indicator);
+		});
+	}
+
+	function presenceRowTitle(person) {
+		const parts = [];
+		const detailLabels = [];
+
+		if (person && person.subtitle) {
+			parts.push(person.subtitle);
+		}
+
+		(person && person.statuses ? person.statuses : []).forEach(function(status) {
+			const label = status && status.label ? String(status.label) : "";
+			if (label && detailLabels.indexOf(label) === -1) {
+				detailLabels.push(label);
+			}
+		});
+
+		(person && person.badges ? person.badges : []).forEach(function(badge) {
+			const label = badge ? String(badge) : "";
+			if (label && detailLabels.indexOf(label) === -1) {
+				detailLabels.push(label);
+			}
+		});
+
+		if (detailLabels.length) {
+			parts.push(detailLabels.join(", "));
+		}
+
+		return parts.join(" | ");
+	}
+
 	function renderVoicePresenceStack(people) {
 		refs.voicePresenceStack.innerHTML = "";
-		(people || []).slice(0, 5).forEach(function(person) {
+		(people || []).filter(function(person) {
+			return String(person && person.entryKind || "user") !== "listener";
+		}).slice(0, 5).forEach(function(person) {
 			const avatar = document.createElement("div");
 			avatar.className = "stack-avatar" + (person.isSelf ? " is-self" : "");
 			styleAvatar(avatar, person.label, !!person.isSelf, person.avatarUrl || "");
@@ -278,23 +963,119 @@
 		});
 	}
 
-	function renderPresenceList(container, people) {
+	function clearRoomDropTarget(event) {
+		const target = event.currentTarget || event.target;
+		if (!target || !target.classList) {
+			return;
+		}
+		target.classList.remove("is-drop-target");
+	}
+
+	function handleRoomDragEnter(event) {
+		const target = event.currentTarget;
+		if (!target || !dragState || !target.classList) {
+			return;
+		}
+
+		if (dragState.kind === "participant" || dragState.kind === "room") {
+			event.preventDefault();
+			target.classList.add("is-drop-target");
+		}
+	}
+
+	function handleRoomDragOver(event) {
+		const target = event.currentTarget;
+		if (!target || !dragState || !target.classList) {
+			return;
+		}
+
+		if (dragState.kind === "participant" || dragState.kind === "room") {
+			event.preventDefault();
+			if (event.dataTransfer) {
+				event.dataTransfer.dropEffect = "move";
+			}
+			target.classList.add("is-drop-target");
+		}
+	}
+
+	function renderPresenceList(container, room, people) {
 		const list = document.createElement("div");
 		list.className = "presence-list";
 
 		(people || []).forEach(function(person) {
-			const row = document.createElement("div");
-			row.className = "presence-row" + (person.isSelf ? " is-self" : "");
+			const row = document.createElement("button");
+			row.type = "button";
+			row.className = "presence-row"
+				+ (person.isSelf ? " is-self" : "")
+				+ (person.entryKind === "listener" ? " is-listener" : "");
+			row.dataset.session = person.session ? String(person.session) : "";
+			row.dataset.participantKey = participantStateKey(person);
+			row.dataset.entryKind = String(person.entryKind || "user");
+			row.dataset.canMessage = person.canMessage ? "true" : "false";
+			row.dataset.canJoin = person.canJoin ? "true" : "false";
+			row.dataset.roomToken = room && room.token ? String(room.token) : "";
+			row.dataset.scopeToken = person.scopeToken ? String(person.scopeToken) : (room && room.token ? String(room.token) : "");
+			row.draggable = person.entryKind !== "listener" && !!row.dataset.session;
+			row.classList.toggle("is-disabled",
+				!person.canMessage && !person.canJoin && !((person.actions || []).length));
+			row.title = presenceRowTitle(person);
+
+			const avatar = document.createElement("span");
+			avatar.className = "presence-avatar"
+				+ (person.isSelf ? " is-self" : "")
+				+ (person.entryKind === "listener" ? " is-listener" : "");
+			styleAvatar(avatar, person.label, !!person.isSelf, person.avatarUrl || "");
 
 			const dot = document.createElement("span");
-			dot.className = "presence-dot";
+			dot.className = "presence-dot" + (person.entryKind === "listener" ? " is-listener" : "");
 
 			const label = document.createElement("span");
-			label.className = "presence-name";
-			label.textContent = person.label || "Unknown";
+			label.className = "presence-copy";
+			label.innerHTML = "<span class=\"presence-heading\"><span class=\"presence-name\"></span><span class=\"presence-statuses hidden\"></span></span><span class=\"presence-subtitle\"></span>";
+			label.querySelector(".presence-name").textContent = person.label || "Unknown";
+			renderPresenceStatuses(label.querySelector(".presence-statuses"), person.statuses || []);
+			label.querySelector(".presence-subtitle").textContent = person.subtitle || "";
+			label.querySelector(".presence-subtitle").classList.toggle("hidden", !(person.subtitle || ""));
 
+			row.appendChild(avatar);
 			row.appendChild(dot);
 			row.appendChild(label);
+			row.addEventListener("click", function(event) {
+				event.stopPropagation();
+				if (row.dataset.entryKind === "listener") {
+					return;
+				}
+				if (row.dataset.canMessage === "true") {
+					notifyBridge("messageParticipant", row.dataset.session);
+				} else if (row.dataset.canJoin === "true") {
+					notifyBridge("joinParticipant", row.dataset.session);
+				}
+				dismissCompactRailAfterAction();
+			});
+			row.addEventListener("dragstart", function(event) {
+				if (!row.dataset.session || row.dataset.entryKind === "listener") {
+					event.preventDefault();
+					return;
+				}
+
+				dragState = {
+					kind: "participant",
+					session: row.dataset.session,
+					sourceRoomToken: row.dataset.roomToken || ""
+				};
+				row.classList.add("is-dragging");
+				if (event.dataTransfer) {
+					event.dataTransfer.effectAllowed = "move";
+					event.dataTransfer.setData("text/plain", "participant:" + row.dataset.session);
+				}
+			});
+			row.addEventListener("dragend", function() {
+				row.classList.remove("is-dragging");
+				dragState = null;
+				document.querySelectorAll(".rail-row.is-drop-target").forEach(function(element) {
+					element.classList.remove("is-drop-target");
+				});
+			});
 			list.appendChild(row);
 		});
 
@@ -302,8 +1083,15 @@
 	}
 
 	function buildRoomRow(room, joinable, selectedVoicePresence) {
+		const depthValue = Number(room.depth);
+		const depth = Number.isFinite(depthValue) && depthValue > 0 ? depthValue : 0;
+		const roomPathLabel = room.pathLabel || "";
+		const subtitleText = joinable
+			? ((room.joined || room.selected) ? (roomPathLabel || room.description || "") : "")
+			: (room.description || "");
 		const wrapper = document.createElement("div");
-		wrapper.className = "rail-row-wrapper";
+		wrapper.className = "rail-row-wrapper" + (joinable ? " is-voice-room" : "");
+		wrapper.style.setProperty("--room-depth", String(depth));
 
 		const button = document.createElement("button");
 		button.type = "button";
@@ -313,6 +1101,13 @@
 		button.dataset.scopeToken = room.token || "";
 		button.dataset.canJoin = joinable && !room.joined ? "true" : "false";
 		button.dataset.roomLabel = room.label || "";
+		button.dataset.depth = String(depth);
+		button.dataset.roomType = joinable ? "voice" : "text";
+		button.draggable = !!joinable;
+		if (room.participantSession) {
+			button.dataset.participantSession = String(room.participantSession);
+		}
+		button.title = roomPathLabel || room.description || "";
 
 		const chip = document.createElement("span");
 		chip.className = "kind-chip";
@@ -327,7 +1122,8 @@
 
 		const subtitle = document.createElement("span");
 		subtitle.className = "rail-row-subtitle";
-		subtitle.textContent = room.description || "";
+		subtitle.textContent = subtitleText;
+		subtitle.classList.toggle("hidden", !subtitleText);
 
 		copy.appendChild(title);
 		copy.appendChild(subtitle);
@@ -340,7 +1136,7 @@
 			unread.className = "row-badge";
 			unread.textContent = String(room.unreadCount);
 			meta.appendChild(unread);
-		} else if (room.memberCount > 0) {
+		} else if (!(room.participants || []).length && room.memberCount > 0) {
 			const count = document.createElement("span");
 			count.className = "row-count";
 			count.textContent = String(room.memberCount);
@@ -356,6 +1152,7 @@
 			joinButton.addEventListener("click", function(event) {
 				event.stopPropagation();
 				notifyBridge("joinVoiceChannel", room.token);
+				dismissCompactRailAfterAction();
 			});
 			meta.appendChild(joinButton);
 		}
@@ -365,12 +1162,64 @@
 		button.appendChild(meta);
 		button.addEventListener("click", function() {
 			notifyBridge("selectScope", room.token);
+			dismissCompactRailAfterAction();
+		});
+		button.addEventListener("dblclick", function(event) {
+			if (!joinable) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			notifyBridge("joinVoiceChannel", room.token);
+			dismissCompactRailAfterAction();
+		});
+		button.addEventListener("dragstart", function(event) {
+			if (!joinable || !room.token) {
+				event.preventDefault();
+				return;
+			}
+
+			dragState = {
+				kind: "room",
+				scopeToken: room.token
+			};
+			button.classList.add("is-dragging");
+			if (event.dataTransfer) {
+				event.dataTransfer.effectAllowed = "move";
+				event.dataTransfer.setData("text/plain", "room:" + room.token);
+			}
+		});
+		button.addEventListener("dragend", function() {
+			button.classList.remove("is-dragging");
+			dragState = null;
+			document.querySelectorAll(".rail-row.is-drop-target").forEach(function(element) {
+				element.classList.remove("is-drop-target");
+			});
+		});
+		button.addEventListener("dragenter", handleRoomDragEnter);
+		button.addEventListener("dragover", handleRoomDragOver);
+		button.addEventListener("dragleave", clearRoomDropTarget);
+		button.addEventListener("drop", function(event) {
+			clearRoomDropTarget(event);
+			if (!joinable || !dragState) {
+				return;
+			}
+
+			event.preventDefault();
+			if (dragState.kind === "participant" && dragState.session) {
+				notifyBridge("moveParticipantToChannel", dragState.session, room.token);
+			} else if (dragState.kind === "room" && dragState.scopeToken && dragState.scopeToken !== room.token) {
+				notifyBridge("moveChannelToChannel", dragState.scopeToken, room.token);
+			}
 		});
 
 		wrapper.appendChild(button);
 
-		if (selectedVoicePresence && selectedVoicePresence.length && room.joined) {
-			renderPresenceList(wrapper, selectedVoicePresence);
+		const roomParticipants = joinable
+			? ((room.participants && room.participants.length) ? room.participants : ((room.joined && selectedVoicePresence) || []))
+			: [];
+		if (roomParticipants.length) {
+			renderPresenceList(wrapper, room, roomParticipants);
 		}
 
 		return wrapper;
@@ -387,9 +1236,146 @@
 			return;
 		}
 
+		if (options.rootLabel) {
+			const rootLabel = document.createElement("div");
+			rootLabel.className = "rail-root-label";
+			rootLabel.textContent = options.rootLabel;
+			container.appendChild(rootLabel);
+		}
+
 		rooms.forEach(function(room) {
 			container.appendChild(buildRoomRow(room, options.joinable, options.voicePresence));
 		});
+	}
+
+	function composerCanAttachImages() {
+		const scope = getSnapshot().activeScope || {};
+		return !!scope.canAttachImages && !refs.composerInput.disabled;
+	}
+
+	function isImageFile(file) {
+		if (!file) {
+			return false;
+		}
+
+		const mime = String(file.type || "").toLowerCase();
+		if (mime.indexOf("image/") === 0) {
+			return true;
+		}
+
+		return /\.(png|jpe?g|gif|webp|bmp)$/i.test(String(file.name || ""));
+	}
+
+	function imageFilesFromList(fileList) {
+		return Array.from(fileList || []).filter(isImageFile);
+	}
+
+	function imageFilesFromDataTransfer(dataTransfer) {
+		if (!dataTransfer) {
+			return [];
+		}
+
+		const directFiles = imageFilesFromList(dataTransfer.files);
+		if (directFiles.length) {
+			return directFiles;
+		}
+
+		return Array.from(dataTransfer.items || []).map(function(item) {
+			if (!item || item.kind !== "file" || String(item.type || "").toLowerCase().indexOf("image/") !== 0) {
+				return null;
+			}
+			return typeof item.getAsFile === "function" ? item.getAsFile() : null;
+		}).filter(isImageFile);
+	}
+
+	function hasImageFileTransfer(dataTransfer) {
+		return imageFilesFromDataTransfer(dataTransfer).length > 0;
+	}
+
+	function readFileAsDataUrl(file) {
+		return new Promise(function(resolve, reject) {
+			const reader = new FileReader();
+			reader.onload = function() {
+				resolve(String(reader.result || ""));
+			};
+			reader.onerror = function() {
+				reject(reader.error || new Error("Unable to read image file"));
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+
+	function attachImageDataUrl(dataUrl) {
+		const normalizedDataUrl = String(dataUrl || "");
+		if (!normalizedDataUrl || normalizedDataUrl.indexOf("data:image/") !== 0) {
+			return;
+		}
+
+		notifyBridge("attachImageData", normalizedDataUrl);
+	}
+
+	function attachImageFiles(files) {
+		imageFilesFromList(files).forEach(function(file) {
+			readFileAsDataUrl(file).then(function(dataUrl) {
+				attachImageDataUrl(dataUrl);
+			}).catch(function(error) {
+				console.warn("Unable to attach image file:", error);
+			});
+		});
+	}
+
+	function setComposerImageDropTarget(active) {
+		refs.composerShell.classList.toggle("is-image-drop-target", !!active);
+	}
+
+	function handleComposerImagePaste(event) {
+		if (!composerCanAttachImages()) {
+			return;
+		}
+
+		const imageFiles = imageFilesFromDataTransfer(event.clipboardData);
+		if (!imageFiles.length) {
+			return;
+		}
+
+		event.preventDefault();
+		attachImageFiles(imageFiles);
+	}
+
+	function handleComposerImageDragEnter(event) {
+		if (!composerCanAttachImages() || dragState || !hasImageFileTransfer(event.dataTransfer)) {
+			return;
+		}
+
+		event.preventDefault();
+		setComposerImageDropTarget(true);
+	}
+
+	function handleComposerImageDragOver(event) {
+		if (!composerCanAttachImages() || dragState || !hasImageFileTransfer(event.dataTransfer)) {
+			return;
+		}
+
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = "copy";
+		}
+		setComposerImageDropTarget(true);
+	}
+
+	function clearComposerImageDropTarget() {
+		setComposerImageDropTarget(false);
+	}
+
+	function handleComposerImageDrop(event) {
+		if (!composerCanAttachImages() || dragState || !hasImageFileTransfer(event.dataTransfer)) {
+			return;
+		}
+
+		event.preventDefault();
+		clearComposerImageDropTarget();
+		attachImageFiles(imageFilesFromDataTransfer(event.dataTransfer));
+		refs.composerInput.focus();
 	}
 
 	function renderSystemMessage(message) {
@@ -417,16 +1403,215 @@
 		container.appendChild(reply);
 	}
 
+	function reactionStateForEmoji(message, emoji) {
+		const reactions = (message && message.reactions) || [];
+		for (let index = 0; index < reactions.length; index += 1) {
+			if (String(reactions[index].emoji || "") === String(emoji || "")) {
+				return reactions[index];
+			}
+		}
+		return null;
+	}
+
+	function renderPreviewCard(message) {
+		const preview = message && message.preview;
+		if (!preview || (!preview.url && !preview.title && !preview.description && !preview.thumbnailUrl)) {
+			return null;
+		}
+
+		const card = document.createElement("button");
+		card.type = "button";
+		card.className = "preview-card"
+			+ (preview.loading ? " is-loading" : "")
+			+ (preview.failed ? " is-failed" : "")
+			+ (preview.kind === "image" ? " is-image" : "");
+		card.title = preview.openLabel || "Open link";
+		card.setAttribute("aria-label", preview.openLabel || "Open link");
+		card.addEventListener("click", function(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			if (preview.url) {
+				notifyBridge("activateLink", preview.url);
+			}
+		});
+
+		if (preview.thumbnailUrl) {
+			const media = document.createElement("div");
+			media.className = "preview-card-media";
+			const image = document.createElement("img");
+			image.className = "preview-card-image";
+			image.src = preview.thumbnailUrl;
+			image.alt = preview.title || preview.subtitle || "Preview";
+			media.appendChild(image);
+			card.appendChild(media);
+		} else {
+			const placeholder = document.createElement("div");
+			placeholder.className = "preview-card-media preview-card-media-placeholder";
+			placeholder.textContent = preview.loading ? "Loading" : "Preview";
+			card.appendChild(placeholder);
+		}
+
+		const copy = document.createElement("div");
+		copy.className = "preview-card-copy";
+
+		if (preview.subtitle) {
+			const subtitle = document.createElement("div");
+			subtitle.className = "preview-card-subtitle";
+			subtitle.textContent = preview.subtitle;
+			copy.appendChild(subtitle);
+		}
+
+		const title = document.createElement("div");
+		title.className = "preview-card-title";
+		title.textContent = preview.title || preview.url || "Link preview";
+		copy.appendChild(title);
+
+		if (preview.description) {
+			const description = document.createElement("div");
+			description.className = "preview-card-description";
+			description.textContent = preview.description;
+			copy.appendChild(description);
+		}
+
+		const footer = document.createElement("div");
+		footer.className = "preview-card-footer";
+		footer.textContent = preview.openLabel || "Open link";
+		copy.appendChild(footer);
+
+		card.appendChild(copy);
+		return card;
+	}
+
+	function renderReactionChip(message, reaction) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "reaction-chip" + (reaction.selfReacted ? " is-self" : "");
+		button.innerHTML = "<span class=\"reaction-chip-emoji\"></span><span class=\"reaction-chip-count\"></span>";
+		button.querySelector(".reaction-chip-emoji").textContent = reaction.emoji || "";
+		button.querySelector(".reaction-chip-count").textContent = String(reaction.count || 0);
+		button.addEventListener("click", function(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			openReactionPickerMessageId = null;
+			notifyBridge("toggleReaction", message.messageId, reaction.emoji || "", !reaction.selfReacted);
+		});
+		return button;
+	}
+
+	function renderReactionPicker(message) {
+		if (!message || !message.canReact || openReactionPickerMessageId !== message.messageId) {
+			return null;
+		}
+
+		const picker = document.createElement("div");
+		picker.className = "reaction-picker";
+		starterReactionEmoji.forEach(function(emoji) {
+			const reaction = reactionStateForEmoji(message, emoji);
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "reaction-picker-button" + (reaction && reaction.selfReacted ? " is-self" : "");
+			button.textContent = emoji;
+			button.title = reaction && reaction.selfReacted ? "Remove reaction" : "Add reaction";
+			button.addEventListener("click", function(event) {
+				event.preventDefault();
+				event.stopPropagation();
+				openReactionPickerMessageId = null;
+				notifyBridge("toggleReaction", message.messageId, emoji, !(reaction && reaction.selfReacted));
+			});
+			picker.appendChild(button);
+		});
+		return picker;
+	}
+
+	function renderMessageFooter(message) {
+		const reactions = (message && message.reactions) || [];
+		const canReply = !!(message && message.canReply);
+		const canReact = !!(message && message.canReact);
+		if (!reactions.length && !canReply && !canReact) {
+			return null;
+		}
+
+		const footer = document.createElement("div");
+		footer.className = "bubble-footer";
+
+		if (reactions.length) {
+			const reactionRow = document.createElement("div");
+			reactionRow.className = "reaction-row";
+			reactions.forEach(function(reaction) {
+				reactionRow.appendChild(renderReactionChip(message, reaction));
+			});
+			footer.appendChild(reactionRow);
+		}
+
+		if (canReply || canReact) {
+			const toolbar = document.createElement("div");
+			toolbar.className = "bubble-toolbar";
+
+			if (canReply) {
+				const replyButton = document.createElement("button");
+				replyButton.type = "button";
+				replyButton.className = "bubble-toolbar-button";
+				replyButton.textContent = "Reply";
+				replyButton.addEventListener("click", function(event) {
+					event.preventDefault();
+					event.stopPropagation();
+					openReactionPickerMessageId = null;
+					notifyBridge("startReply", message.messageId);
+				});
+				toolbar.appendChild(replyButton);
+			}
+
+			if (canReact) {
+				const reactionButton = document.createElement("button");
+				reactionButton.type = "button";
+				reactionButton.className = "icon-button bubble-toolbar-button bubble-toolbar-icon reaction-picker-toggle"
+					+ (openReactionPickerMessageId === message.messageId ? " is-active" : "");
+				reactionButton.innerHTML =
+					"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"5\"></circle><path d=\"M12 4v3\"></path><path d=\"M12 17v3\"></path><path d=\"M4 12h3\"></path><path d=\"M17 12h3\"></path></svg>";
+				reactionButton.title = "Add reaction";
+				reactionButton.setAttribute("aria-label", "Add reaction");
+				reactionButton.addEventListener("click", function(event) {
+					event.preventDefault();
+					event.stopPropagation();
+					openReactionPickerMessageId =
+						openReactionPickerMessageId === message.messageId ? null : message.messageId;
+					syncSnapshot();
+				});
+				toolbar.appendChild(reactionButton);
+			}
+
+			footer.appendChild(toolbar);
+		}
+
+		const picker = renderReactionPicker(message);
+		if (picker) {
+			footer.appendChild(picker);
+		}
+
+		return footer;
+	}
+
 	function renderMessageBubble(message) {
 		const bubble = document.createElement("div");
 		bubble.className = "message-bubble" + (message.own ? " is-own" : "");
 		bubble.dataset.bodyText = message.bodyText || "";
+		bubble.dataset.messageId = String(message.messageId || "");
 		appendReplyBlock(bubble, message);
 
 		const body = document.createElement("div");
 		body.className = "bubble-copy";
 		body.innerHTML = message.bodyHtml || escapeHtml(message.bodyText || "");
 		bubble.appendChild(body);
+
+		const previewCard = renderPreviewCard(message);
+		if (previewCard) {
+			bubble.appendChild(previewCard);
+		}
+
+		const footer = renderMessageFooter(message);
+		if (footer) {
+			bubble.appendChild(footer);
+		}
 		return bubble;
 	}
 
@@ -613,6 +1798,8 @@
 			unreadDetachedMessages = 0;
 		}
 
+		keepMessageListPinnedToBottom = metrics.nearBottom || metrics.maxScrollTop <= 0;
+
 		refs.appShell.classList.toggle("chat-has-overflow", metrics.maxScrollTop > 0);
 		refs.appShell.classList.toggle("chat-is-scrolled", metrics.scrollTop > 8);
 		refs.appShell.classList.toggle("chat-is-detached", !metrics.nearBottom);
@@ -620,15 +1807,70 @@
 		return metrics;
 	}
 
+	function scheduleMessageListBottomPin(frameCount) {
+		pendingBottomPinFrames = Math.max(pendingBottomPinFrames, Math.max(1, Number(frameCount) || 1));
+		if (pendingBottomPinHandle) {
+			return;
+		}
+
+		const applyBottomPin = function() {
+			pendingBottomPinHandle = 0;
+			if (pendingBottomPinFrames <= 0) {
+				return;
+			}
+
+			scrollMessageListToBottom("auto");
+			pendingBottomPinFrames -= 1;
+			if (pendingBottomPinFrames > 0 && keepMessageListPinnedToBottom) {
+				pendingBottomPinHandle = requestAnimationFrame(applyBottomPin);
+			}
+		};
+
+		pendingBottomPinHandle = requestAnimationFrame(applyBottomPin);
+		window.setTimeout(function() {
+			if (keepMessageListPinnedToBottom) {
+				scrollMessageListToBottom("auto");
+			}
+		}, 120);
+	}
+
+	function refreshMessageListPinning(frameCount) {
+		if (keepMessageListPinnedToBottom) {
+			scheduleMessageListBottomPin(frameCount || 2);
+			return;
+		}
+
+		requestAnimationFrame(syncScrollState);
+	}
+
+	function ensureMessageListObservers() {
+		if (messageListMutationObserver || typeof MutationObserver !== "function") {
+			return;
+		}
+
+		messageListMutationObserver = new MutationObserver(function() {
+			refreshMessageListPinning(2);
+		});
+		messageListMutationObserver.observe(refs.messageList, {
+			childList: true,
+			subtree: true,
+			characterData: true
+		});
+	}
+
 	function scrollMessageListToBottom(behavior) {
 		unreadDetachedMessages = 0;
+		const targetTop = Math.max(0, refs.messageList.scrollHeight - refs.messageList.clientHeight);
+		refs.messageList.scrollTop = targetTop;
 		if (typeof refs.messageList.scrollTo === "function") {
-			refs.messageList.scrollTo({
-				top: refs.messageList.scrollHeight,
-				behavior: behavior || "smooth"
-			});
-		} else {
-			refs.messageList.scrollTop = refs.messageList.scrollHeight;
+			try {
+				refs.messageList.scrollTo({
+					top: targetTop,
+					behavior: behavior || "smooth"
+				});
+			} catch (error) {
+				refs.messageList.scrollTop = targetTop;
+			}
 		}
 		requestAnimationFrame(syncScrollState);
 	}
@@ -653,6 +1895,12 @@
 
 		if (scopeChanged) {
 			unreadDetachedMessages = 0;
+			openReactionPickerMessageId = null;
+		}
+		if (openReactionPickerMessageId !== null && !messages.some(function(message) {
+			return message && message.messageId === openReactionPickerMessageId;
+		})) {
+			openReactionPickerMessageId = null;
 		}
 
 		if (detachedBeforeRender && freshTailCount > 0) {
@@ -666,6 +1914,12 @@
 			log.innerHTML = scope.serverLogHtml;
 			refs.messageList.appendChild(log);
 			requestAnimationFrame(function() {
+				if (!detachedBeforeRender) {
+					keepMessageListPinnedToBottom = true;
+					scheduleMessageListBottomPin(3);
+					return;
+				}
+
 				if (detachedBeforeRender) {
 					refs.messageList.scrollTop = Math.max(0,
 						refs.messageList.scrollHeight - refs.messageList.clientHeight - distanceFromBottom);
@@ -685,7 +1939,8 @@
 
 		requestAnimationFrame(function() {
 			if (shouldStickToBottom) {
-				scrollMessageListToBottom("auto");
+				keepMessageListPinnedToBottom = true;
+				scheduleMessageListBottomPin(4);
 				return;
 			}
 
@@ -702,14 +1957,26 @@
 	}
 
 	function renderNote(app, scope) {
-		const body = (scope.banner && scope.banner.trim()) || app.serverSubtitle || scope.description || "";
-		refs.serverTitle.textContent = app.serverTitle || "Modern Layout";
-		refs.serverSubtitle.textContent = body;
-		refs.serverSubtitle.classList.toggle("is-collapsed", !noteExpanded && !scope.banner);
-		refs.noteToggleButton.textContent = noteExpanded || scope.banner ? "Hide" : "Open";
+		const motdHtml = String(app.motdHtml || "").trim();
+		const motdSummary = String(app.motdSummary || "").trim();
+		const hasMotd = !!motdHtml;
+		refs.noteCard.classList.toggle("hidden", !hasMotd);
+		if (!hasMotd) {
+			noteExpanded = false;
+			return;
+		}
+
+		const expanded = noteExpanded || !motdSummary;
+		refs.serverTitle.textContent = app.serverTitle || "Mumble";
+		refs.serverSubtitle.innerHTML = expanded ? motdHtml : escapeHtml(motdSummary);
+		refs.serverSubtitle.classList.toggle("is-collapsed", !expanded);
+		refs.serverSubtitle.title = expanded ? "" : motdSummary;
+		refs.noteToggleButton.textContent = expanded ? "Hide" : "Open";
+		refs.noteToggleButton.title = expanded ? "Hide message of the day" : "Open message of the day";
 	}
 
 	function renderSelfCard(app) {
+		refs.selfAvatar.className = "self-avatar";
 		styleAvatar(refs.selfAvatar, app.selfName || "You", true, app.selfAvatarUrl || "");
 		refs.selfName.textContent = app.selfName || "You";
 		refs.selfStatus.textContent = app.selfStatusLabel || "Offline";
@@ -717,6 +1984,11 @@
 		if (app.selfStatusTone) {
 			refs.selfStatus.classList.add("is-" + app.selfStatusTone);
 		}
+		if (app.selfStatusTone) {
+			refs.selfAvatar.classList.add("is-" + app.selfStatusTone);
+		}
+		refs.selfCard.dataset.statusTone = app.selfStatusTone || "";
+		refs.selfCard.setAttribute("aria-expanded", selfMenuOpen ? "true" : "false");
 	}
 
 	function fallbackMenus(app) {
@@ -765,9 +2037,181 @@
 		];
 	}
 
+	function hideSelfMenu() {
+		selfMenuOpen = false;
+		refs.selfMenu.classList.add("hidden");
+		refs.selfMenu.setAttribute("aria-hidden", "true");
+		refs.selfMenu.innerHTML = "";
+		refs.selfCard.setAttribute("aria-expanded", "false");
+	}
+
+	function positionSelfMenu() {
+		if (refs.selfMenu.classList.contains("hidden")) {
+			return;
+		}
+
+		const anchorBounds = refs.selfCard.getBoundingClientRect();
+		const menuBounds = refs.selfMenu.getBoundingClientRect();
+		const left = Math.max(8, Math.min(anchorBounds.right - menuBounds.width + 12, window.innerWidth - menuBounds.width - 8));
+		const top = Math.max(8, anchorBounds.top - menuBounds.height - 12);
+		refs.selfMenu.style.left = left + "px";
+		refs.selfMenu.style.top = top + "px";
+	}
+
+	function renderSelfMenu(snapshot) {
+		const app = snapshot.app || {};
+		const menuState = app.selfMenu || {};
+
+		refs.selfMenu.innerHTML = "";
+
+		const header = document.createElement("div");
+		header.className = "self-menu-header";
+
+		const avatar = document.createElement("div");
+		avatar.className = "self-menu-avatar" + (menuState.statusTone ? " is-" + menuState.statusTone : "");
+		styleAvatar(avatar, menuState.name || app.selfName || "You", true, app.selfAvatarUrl || "");
+
+		const copy = document.createElement("div");
+		copy.className = "self-menu-copy";
+
+		const title = document.createElement("p");
+		title.className = "self-menu-title";
+		title.textContent = menuState.name || app.selfName || "You";
+
+		const status = document.createElement("p");
+		status.className = "self-menu-status" + (menuState.statusTone ? " is-" + menuState.statusTone : "");
+		status.textContent = menuState.statusLabel || app.selfStatusLabel || "Offline";
+
+		copy.appendChild(title);
+		copy.appendChild(status);
+		header.appendChild(avatar);
+		header.appendChild(copy);
+		refs.selfMenu.appendChild(header);
+
+		(menuState.presence || []).forEach(function(item) {
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "self-menu-row is-presence"
+				+ (item.checked ? " is-selected" : "")
+				+ (item.tone ? " is-" + item.tone : "");
+			button.disabled = item.enabled === false;
+			if (item.hint) {
+				button.title = item.hint;
+			}
+
+			const dot = document.createElement("span");
+			dot.className = "self-menu-dot";
+
+			const label = document.createElement("span");
+			label.className = "self-menu-label";
+			label.textContent = item.label || "Status";
+
+			button.appendChild(dot);
+			button.appendChild(label);
+			button.addEventListener("click", function() {
+				hideSelfMenu();
+				if (item.enabled === false) {
+					return;
+				}
+				notifyBridge("invokeAppAction", item.id || "");
+			});
+			refs.selfMenu.appendChild(button);
+		});
+
+		(menuState.actions || []).forEach(function(item) {
+			if (!item || item.kind === "separator") {
+				const separator = document.createElement("div");
+				separator.className = "self-menu-separator";
+				refs.selfMenu.appendChild(separator);
+				return;
+			}
+			if (!item.id) {
+				return;
+			}
+
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "self-menu-row"
+				+ (item.checked ? " is-selected" : "")
+				+ (item.tone ? " is-" + item.tone : "");
+			button.disabled = item.enabled === false;
+
+			const label = document.createElement("span");
+			label.className = "self-menu-label";
+			label.textContent = item.label || "Action";
+
+			button.appendChild(label);
+			button.addEventListener("click", function() {
+				hideSelfMenu();
+				if (item.enabled === false) {
+					return;
+				}
+				notifyBridge("invokeAppAction", item.id || "");
+			});
+			refs.selfMenu.appendChild(button);
+		});
+
+		selfMenuOpen = true;
+		refs.selfMenu.classList.remove("hidden");
+		refs.selfMenu.setAttribute("aria-hidden", "false");
+		refs.selfCard.setAttribute("aria-expanded", "true");
+		positionSelfMenu();
+	}
+
+	function toggleSelfMenu(forceOpen) {
+		const nextOpen = typeof forceOpen === "boolean" ? forceOpen : !selfMenuOpen;
+		if (!nextOpen) {
+			hideSelfMenu();
+			return;
+		}
+
+		hideContextMenu();
+		renderSelfMenu(getSnapshot());
+	}
+
 	function syncComposerHeight() {
 		refs.composerInput.style.height = "0px";
 		refs.composerInput.style.height = Math.min(refs.composerInput.scrollHeight, 160) + "px";
+		scheduleFooterAlignmentSync();
+	}
+
+	function syncFooterAlignment() {
+		footerAlignmentFrame = 0;
+		if (!refs.composerForm || !refs.selfCard) {
+			return;
+		}
+
+		const composerHeight = refs.composerForm.getBoundingClientRect().height;
+		if (!composerHeight) {
+			return;
+		}
+
+		const dpr = window.devicePixelRatio || 1;
+		const snappedHeight = Math.round(composerHeight * dpr) / dpr;
+		refs.appShell.style.setProperty("--footer-row-height", snappedHeight + "px");
+	}
+
+	function scheduleFooterAlignmentSync() {
+		if (footerAlignmentFrame) {
+			cancelAnimationFrame(footerAlignmentFrame);
+		}
+		footerAlignmentFrame = requestAnimationFrame(syncFooterAlignment);
+	}
+
+	function renderComposerReplyState(scope) {
+		const hasReply = !!(scope && scope.hasPendingReply);
+		refs.composerReplyBar.classList.toggle("hidden", !hasReply);
+		refs.composerShell.classList.toggle("has-reply", hasReply);
+		if (!hasReply) {
+			refs.composerReplyLabel.textContent = "Replying";
+			refs.composerReplySnippet.textContent = "";
+			return;
+		}
+
+		refs.composerReplyLabel.textContent = scope.replyActor
+			? "Replying to " + String(scope.replyActor)
+			: "Replying";
+		refs.composerReplySnippet.textContent = scope.replySnippet || "";
 	}
 
 	function syncAmbientState(snapshot) {
@@ -802,22 +2246,12 @@
 				const panel = document.createElement("div");
 				panel.className = "menu-panel";
 
-				menu.items.forEach(function(item) {
-					const itemButton = document.createElement("button");
-					itemButton.type = "button";
-					itemButton.className = "menu-item"
-						+ (item.checked ? " is-checked" : "")
-						+ (item.tone ? " is-" + item.tone : "");
-					itemButton.disabled = item.enabled === false;
-					itemButton.innerHTML = "<span class=\"menu-item-label\"></span><span class=\"menu-item-state\"></span>";
-					itemButton.querySelector(".menu-item-label").textContent = item.label || "Action";
-					itemButton.querySelector(".menu-item-state").textContent = item.checked ? "On" : "";
-					itemButton.addEventListener("click", function(event) {
-						event.stopPropagation();
-						openMenuId = null;
-						notifyBridge("invokeAppAction", item.id);
-					});
-					panel.appendChild(itemButton);
+				actionItemsFromActionStates(menu.items, {
+					invokeAction: function(actionId) {
+						notifyBridge("invokeAppAction", actionId);
+					}
+				}).forEach(function(item) {
+					appendActionPanelItem(panel, item, "menu", true);
 				});
 
 				group.appendChild(panel);
@@ -845,17 +2279,23 @@
 		applyStatePill(refs.layoutPill, app.layoutLabel || "Modern", app.layoutTone || "");
 		applyStatePill(refs.connectionPill, app.connectionLabel || "Disconnected", app.connectionTone || "");
 		applyStatePill(refs.compatPill, app.compatibilityLabel || "Standard server", app.compatibilityTone || "");
+		refs.layoutSwitchButton.disabled = app.canToggleLayout === false;
+		refs.layoutSwitchButton.title = app.layoutSwitchLabel || "Switch layout";
+		refs.layoutSwitchButton.setAttribute("aria-label", app.layoutSwitchLabel || "Switch layout");
 
 		refs.connectButton.disabled = !app.canConnect;
 		refs.disconnectButton.disabled = !app.canDisconnect;
 		refs.muteButton.classList.toggle("is-active", !!app.selfMuted);
 		refs.deafButton.classList.toggle("is-active", !!app.selfDeafened);
-		refs.railToggleButton.classList.toggle("is-active", !railCollapsed);
 		renderMenus((app.menus && app.menus.length) ? app.menus : fallbackMenus(app));
 
 		refs.textRoomCount.textContent = String(textRooms.length);
 		refs.voiceRoomCount.textContent = String(voiceRooms.length);
-		renderRoomList(refs.voiceRoomList, voiceRooms, { joinable: true, voicePresence: voicePresence });
+		renderRoomList(refs.voiceRoomList, voiceRooms, {
+			joinable: true,
+			voicePresence: voicePresence,
+			rootLabel: app.voiceRootLabel || ""
+		});
 		renderRoomList(refs.textRoomList, textRooms, {
 			joinable: false,
 			voicePresence: null,
@@ -868,6 +2308,9 @@
 		renderMessages(snapshot);
 		renderSelfCard(app);
 		syncAmbientState(snapshot);
+		if (selfMenuOpen) {
+			renderSelfMenu(snapshot);
+		}
 
 		refs.scopeBanner.textContent = scope.banner || "";
 		refs.scopeBanner.classList.toggle("hidden", !scope.banner);
@@ -878,7 +2321,8 @@
 		refs.sendButton.disabled = !scope.canSend;
 		refs.composerInput.placeholder = scope.composerPlaceholder || "Write a message";
 		refs.composerHint.textContent = scope.composerHint || "Persistent room history stays with the selected room.";
-		refs.appShell.classList.toggle("rail-is-collapsed", railCollapsed);
+		renderComposerReplyState(scope);
+		applyRailPresentation();
 		syncComposerHeight();
 
 		if (scope.autoMarkRead) {
@@ -887,6 +2331,7 @@
 	}
 
 	function syncSnapshot() {
+		syncCompactRailState(false);
 		render(getSnapshot());
 	}
 
@@ -941,6 +2386,7 @@
 		const snapshot = getSnapshot();
 		const scope = snapshot.activeScope || {};
 		const roomRow = event.target.closest(".rail-row");
+		const presenceRow = event.target.closest(".presence-row");
 		const bubble = event.target.closest(".message-bubble");
 		const composer = event.target.closest("#composer-input");
 		const selfCard = event.target.closest("#self-card");
@@ -971,6 +2417,12 @@
 					label: "Paste",
 					enabled: !input.disabled,
 					action: function() {
+						input.focus();
+						try {
+							if (typeof document.execCommand === "function" && document.execCommand("paste")) {
+								return;
+							}
+						} catch (error) {}
 						if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
 							navigator.clipboard.readText().then(function(text) {
 								if (text) {
@@ -1001,8 +2453,60 @@
 			];
 		}
 
+		if (presenceRow) {
+			const participant = findParticipantState(snapshot, presenceRow.dataset.participantKey || presenceRow.dataset.session);
+			const items = [];
+			if (participant && participant.entryKind !== "listener" && participant.canMessage) {
+				items.push({
+					label: "Open message",
+					enabled: true,
+					action: function() {
+						notifyBridge("messageParticipant", participant.session);
+					}
+				});
+			}
+			if (participant && participant.entryKind !== "listener" && participant.canJoin) {
+				items.push({
+					label: "Join room",
+					enabled: true,
+					action: function() {
+						notifyBridge("joinParticipant", participant.session);
+					}
+				});
+			}
+
+			const participantActionItems = participant
+				? actionItemsFromActionStates(participant.actions, participant.entryKind === "listener"
+					? {
+						invokeAction: function(actionId) {
+							notifyBridge("invokeScopeAction", participant.scopeToken || presenceRow.dataset.scopeToken, actionId);
+						},
+						invokeValueChanged: function(actionId, value, final) {
+							notifyBridge("scopeActionValueChanged",
+								participant.scopeToken || presenceRow.dataset.scopeToken,
+								actionId,
+								value,
+								final);
+						}
+					}
+					: {
+						invokeAction: function(actionId) {
+							notifyBridge("invokeParticipantAction", participant.session, actionId);
+						},
+						invokeValueChanged: function(actionId, value, final) {
+							notifyBridge("participantActionValueChanged", participant.session, actionId, value, final);
+						}
+					})
+				: [];
+			if (items.length && participantActionItems.length) {
+				items.push({ separator: true });
+			}
+			return items.concat(participantActionItems);
+		}
+
 		if (roomRow) {
-			return [
+			const room = findRoomState(snapshot, roomRow.dataset.scopeToken);
+			const items = [
 				{
 					label: "Open room",
 					enabled: !!roomRow.dataset.scopeToken,
@@ -1016,25 +2520,85 @@
 					action: function() {
 						notifyBridge("joinVoiceChannel", roomRow.dataset.scopeToken);
 					}
-				},
-				{
+				}
+			];
+
+			if (room && room.participantSession) {
+				const participantItems = actionItemsFromActionStates(room.participantActions, {
+					invokeAction: function(actionId) {
+						notifyBridge("invokeParticipantAction", room.participantSession, actionId);
+					},
+					invokeValueChanged: function(actionId, value, final) {
+						notifyBridge("participantActionValueChanged", room.participantSession, actionId, value, final);
+					}
+				});
+				if (participantItems.length) {
+					items.push({ separator: true });
+					return items.concat(participantItems);
+				}
+			}
+
+			const roomActionItems = room
+				? actionItemsFromActionStates(room.actions, {
+					invokeAction: function(actionId) {
+						notifyBridge("invokeScopeAction", room.token || roomRow.dataset.scopeToken, actionId);
+					},
+					invokeValueChanged: function(actionId, value, final) {
+						notifyBridge("scopeActionValueChanged", room.token || roomRow.dataset.scopeToken, actionId, value, final);
+					}
+				})
+				: [];
+			if (roomActionItems.length) {
+				items.push({ separator: true });
+				items.push.apply(items, roomActionItems);
+			}
+
+			if (scope.canMarkRead) {
+				items.push({ separator: true });
+				items.push({
 					label: "Mark read",
-					enabled: !!scope.canMarkRead,
+					enabled: true,
 					action: function() {
 						notifyBridge("markRead");
 					}
-				}
-			];
+				});
+			}
+			return items;
 		}
 
 		if (bubble) {
-			return [
+			const message = findMessageState(snapshot, bubble.dataset.messageId);
+			const items = [
 				{
 					label: "Copy message",
 					enabled: !!bubble.dataset.bodyText,
 					action: function() {
 						copyPlainText(bubble.dataset.bodyText);
 					}
+				}
+			];
+			if (message && message.canReply) {
+				items.push({
+					label: "Reply",
+					enabled: true,
+					action: function() {
+						notifyBridge("startReply", message.messageId);
+					}
+				});
+			}
+			if (message && message.canReact) {
+				items.push({
+					label: "Add reaction",
+					enabled: true,
+					action: function() {
+						openReactionPickerMessageId = message.messageId;
+						syncSnapshot();
+					}
+				});
+			}
+			items.push(
+				{
+					separator: true
 				},
 				{
 					label: "Load older",
@@ -1050,33 +2614,12 @@
 						notifyBridge("markRead");
 					}
 				}
-			];
+			);
+			return items;
 		}
 
 		if (selfCard) {
-			return [
-				{
-					label: "Toggle mute",
-					enabled: true,
-					action: function() {
-						notifyBridge("toggleSelfMute");
-					}
-				},
-				{
-					label: "Toggle deaf",
-					enabled: true,
-					action: function() {
-						notifyBridge("toggleSelfDeaf");
-					}
-				},
-				{
-					label: "Settings",
-					enabled: true,
-					action: function() {
-						notifyBridge("openSettings");
-					}
-				}
-			];
+			return [];
 		}
 
 		return [
@@ -1105,26 +2648,29 @@
 	}
 
 	function showContextMenu(items, clientX, clientY) {
-		if (!items.length) {
+		const filteredItems = [];
+		(items || []).forEach(function(item) {
+			const kind = actionPanelItemKind(item);
+			if (!kind) {
+				return;
+			}
+			if (kind === "separator"
+				&& (!filteredItems.length || actionPanelItemKind(filteredItems[filteredItems.length - 1]) === "separator")) {
+				return;
+			}
+			filteredItems.push(item);
+		});
+		if (filteredItems.length && actionPanelItemKind(filteredItems[filteredItems.length - 1]) === "separator") {
+			filteredItems.pop();
+		}
+		if (!filteredItems.length) {
 			hideContextMenu();
 			return;
 		}
 
 		refs.contextMenu.innerHTML = "";
-		items.forEach(function(item) {
-			const button = document.createElement("button");
-			button.type = "button";
-			button.className = "context-menu-item";
-			button.textContent = item.label;
-			button.disabled = item.enabled === false;
-			button.addEventListener("click", function() {
-				hideContextMenu();
-				if (item.enabled === false) {
-					return;
-				}
-				item.action();
-			});
-			refs.contextMenu.appendChild(button);
+		filteredItems.forEach(function(item) {
+			appendActionPanelItem(refs.contextMenu, item, "context", true);
 		});
 
 		refs.contextMenu.classList.remove("hidden");
@@ -1138,27 +2684,61 @@
 	}
 
 	function wireActions() {
+		document.addEventListener("click", handleAnchorActivation, true);
 		refs.connectButton.addEventListener("click", function() { notifyBridge("openConnectDialog"); });
 		refs.disconnectButton.addEventListener("click", function() { notifyBridge("disconnectServer"); });
+		refs.layoutSwitchButton.addEventListener("click", function() { notifyBridge("toggleLayout"); });
 		refs.settingsButton.addEventListener("click", function() { notifyBridge("openSettings"); });
 		refs.muteButton.addEventListener("click", function() { notifyBridge("toggleSelfMute"); });
 		refs.deafButton.addEventListener("click", function() { notifyBridge("toggleSelfDeaf"); });
 		refs.loadOlderButton.addEventListener("click", function() { notifyBridge("loadOlderHistory"); });
 		refs.markReadButton.addEventListener("click", function() { notifyBridge("markRead"); });
 		refs.attachButton.addEventListener("click", function() { notifyBridge("openImagePicker"); });
-		refs.selfCardSettingsButton.addEventListener("click", function() { notifyBridge("openSettings"); });
+		refs.composerReplyCancelButton.addEventListener("click", function() {
+			notifyBridge("cancelReply");
+			refs.composerInput.focus();
+		});
+		refs.selfCard.addEventListener("click", function(event) {
+			if (event.target.closest("#self-card-settings-button")) {
+				return;
+			}
+			toggleSelfMenu();
+		});
+		refs.selfCard.addEventListener("keydown", function(event) {
+			if (event.key === "Enter" || event.key === " ") {
+				event.preventDefault();
+				toggleSelfMenu();
+			}
+		});
+		refs.selfCardSettingsButton.addEventListener("click", function(event) {
+			event.stopPropagation();
+			notifyBridge("openSettings");
+		});
 		refs.noteToggleButton.addEventListener("click", function() {
 			noteExpanded = !noteExpanded;
 			syncSnapshot();
 		});
 		refs.jumpLatestButton.addEventListener("click", function() {
+			keepMessageListPinnedToBottom = true;
 			scrollMessageListToBottom("smooth");
 		});
+		refs.imageViewerBackdrop.addEventListener("click", closeImageViewer);
+		refs.imageViewerCloseButton.addEventListener("click", closeImageViewer);
+		refs.imageViewerHeader.addEventListener("mousedown", beginImageViewerDrag);
+		refs.imageViewerImage.addEventListener("dragstart", function(event) {
+			event.preventDefault();
+		});
 		refs.railToggleButton.addEventListener("click", function() {
-			railCollapsed = !railCollapsed;
-			syncSnapshot();
+			setRailCollapsed(!railCollapsed);
+		});
+		refs.utilityRailBackdrop.addEventListener("click", function() {
+			setRailCollapsed(true);
+		});
+		refs.railCloseButton.addEventListener("click", function() {
+			setRailCollapsed(true);
 		});
 		refs.composerInput.addEventListener("input", syncComposerHeight);
+		refs.composerInput.addEventListener("paste", handleComposerImagePaste);
 		refs.composerForm.addEventListener("submit", function(event) {
 			event.preventDefault();
 			const value = refs.composerInput.value.trim();
@@ -1169,9 +2749,24 @@
 			refs.composerInput.value = "";
 			syncComposerHeight();
 		});
+		[refs.composerForm, refs.messageList].forEach(function(target) {
+			target.addEventListener("dragenter", handleComposerImageDragEnter);
+			target.addEventListener("dragover", handleComposerImageDragOver);
+			target.addEventListener("dragleave", clearComposerImageDropTarget);
+			target.addEventListener("drop", handleComposerImageDrop);
+		});
 		document.addEventListener("click", function(event) {
 			if (!event.target.closest(".context-menu")) {
 				hideContextMenu();
+			}
+			if (!event.target.closest(".self-menu-popover") && !event.target.closest("#self-card")) {
+				hideSelfMenu();
+			}
+			if (!event.target.closest(".reaction-picker") && !event.target.closest(".reaction-picker-toggle")) {
+				if (openReactionPickerMessageId !== null) {
+					openReactionPickerMessageId = null;
+					syncSnapshot();
+				}
 			}
 			if (!event.target.closest(".menu-group") && openMenuId !== null) {
 				openMenuId = null;
@@ -1179,37 +2774,100 @@
 			}
 		});
 		document.addEventListener("contextmenu", function(event) {
+			const contextTarget = eventElementTarget(event);
+			if (contextTarget && typeof contextTarget.closest === "function" && contextTarget.closest(".image-viewer-layer")) {
+				event.preventDefault();
+				return;
+			}
 			if (event.target.closest(".context-menu")) {
+				return;
+			}
+			if (event.target.closest("#self-card")) {
+				event.preventDefault();
+				toggleSelfMenu(true);
 				return;
 			}
 			const items = buildContextMenuItems(event).filter(function(item) {
 				return !!item;
 			});
+			if (!items.length) {
+				hideContextMenu();
+				return;
+			}
 			event.preventDefault();
 			showContextMenu(items, event.clientX, event.clientY);
 		});
 		window.addEventListener("keydown", function(event) {
+			if (event.key === "Escape" && refs.imageViewerLayer && !refs.imageViewerLayer.classList.contains("hidden")) {
+				closeImageViewer();
+				return;
+			}
+			if (event.key === "Escape" && compactViewport && !railCollapsed) {
+				setRailCollapsed(true);
+				return;
+			}
 			if (event.key === "Escape" && openMenuId !== null) {
 				openMenuId = null;
 				syncSnapshot();
 				return;
 			}
+			if (event.key === "Escape" && openReactionPickerMessageId !== null) {
+				openReactionPickerMessageId = null;
+				syncSnapshot();
+				return;
+			}
 			if (event.key === "Escape") {
 				hideContextMenu();
+				hideSelfMenu();
 			}
 		});
-		window.addEventListener("resize", hideContextMenu);
-		window.addEventListener("blur", hideContextMenu);
+		window.addEventListener("resize", function() {
+			syncCompactRailState(false);
+			hideContextMenu();
+			if (selfMenuOpen) {
+				positionSelfMenu();
+			}
+			if (refs.imageViewerLayer && !refs.imageViewerLayer.classList.contains("hidden")) {
+				applyImageViewerGeometry();
+				persistImageViewerState();
+			}
+			refreshMessageListPinning(2);
+			scheduleFooterAlignmentSync();
+		});
+		window.addEventListener("blur", function() {
+			hideContextMenu();
+			hideSelfMenu();
+			clearComposerImageDropTarget();
+		});
+		refs.messageList.addEventListener("load", function(event) {
+			if (!event.target || event.target.tagName !== "IMG") {
+				return;
+			}
+			refreshMessageListPinning(2);
+		}, true);
+		refs.messageList.addEventListener("click", handleMessageImageActivation);
 		refs.messageList.addEventListener("scroll", function() {
 			if (contextMenuState) {
 				hideContextMenu();
 			}
+			if (selfMenuOpen) {
+				hideSelfMenu();
+			}
+			const hadOpenReactionPicker = openReactionPickerMessageId !== null;
+			if (hadOpenReactionPicker) {
+				openReactionPickerMessageId = null;
+			}
 			syncScrollState();
+			if (hadOpenReactionPicker) {
+				syncSnapshot();
+			}
 		});
 	}
 
 	async function boot() {
 		wireActions();
+		ensureMessageListObservers();
+		syncCompactRailState(true);
 		syncComposerHeight();
 		await ensureBridge();
 		syncSnapshot();

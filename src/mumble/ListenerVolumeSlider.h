@@ -6,10 +6,8 @@
 #ifndef MUMBLE_MUMBLE_LISTENERLOCALVOLUMESLIDER_H_
 #define MUMBLE_MUMBLE_LISTENERLOCALVOLUMESLIDER_H_
 
-#include "VolumeAdjustment.h"
+#include "VolumeAdjustmentController.h"
 #include "VolumeSliderWidgetAction.h"
-
-#include <QTimer>
 
 class Channel;
 
@@ -17,22 +15,13 @@ class ListenerVolumeSlider : public VolumeSliderWidgetAction {
 	Q_OBJECT
 
 public:
-	ListenerVolumeSlider(QWidget *parent = nullptr);
+	ListenerVolumeSlider(ListenerVolumeController &controller, QWidget *parent = nullptr);
 
 	/// Must be called before adding this object as an action
 	void setListenedChannel(const Channel &channel);
 
 private:
-	/// The channel of the listener proxy this widget is operating on
-	const Channel *m_channel;
-
-	QTimer m_sendTimer;
-	QTimer m_resetTimer;
-	unsigned int m_currentSendDelay;
-	unsigned int m_cachedChannelID;
-	VolumeAdjustment m_cachedAdjustment;
-
-	void sendToServer();
+	ListenerVolumeController &m_controller;
 
 private slots:
 	void on_VolumeSlider_valueChanged(int value) override;

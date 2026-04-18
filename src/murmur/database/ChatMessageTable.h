@@ -12,6 +12,7 @@
 #include "database/Table.h"
 
 #include <limits>
+#include <optional>
 #include <vector>
 
 namespace soci {
@@ -52,6 +53,7 @@ namespace server {
 			~ChatMessageTable() = default;
 
 			void addMessage(const DBChatMessage &message);
+			std::optional< DBChatMessage > getMessage(unsigned int serverID, unsigned int messageID);
 
 			std::vector< DBChatMessage >
 				getMessages(unsigned int serverID, unsigned int threadID,

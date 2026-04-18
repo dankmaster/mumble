@@ -5,6 +5,7 @@
 
 add_executable(TestPersistentChatController
 	TestPersistentChatController.cpp
+	../../mumble/PersistentChatGateway.h
 	../../mumble/PersistentChatController.cpp
 	../../mumble/PersistentChatStore.cpp
 )

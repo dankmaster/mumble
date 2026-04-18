@@ -59,8 +59,34 @@ void ModernShellBridge::joinVoiceChannel(const QString &scopeToken) {
 	emit voiceJoinRequested(scopeToken.trimmed());
 }
 
+void ModernShellBridge::invokeScopeAction(const QString &scopeToken, const QString &actionId) {
+	emit scopeActionRequested(scopeToken.trimmed(), actionId.trimmed());
+}
+
+void ModernShellBridge::scopeActionValueChanged(const QString &scopeToken, const QString &actionId, const int value,
+												const bool final) {
+	emit scopeActionValueChangedRequested(scopeToken.trimmed(), actionId.trimmed(), value, final);
+}
+
 void ModernShellBridge::sendMessage(const QString &message) {
 	emit messageSendRequested(message);
+}
+
+void ModernShellBridge::startReply(const qulonglong messageId) {
+	emit replyStartRequested(messageId);
+}
+
+void ModernShellBridge::cancelReply() {
+	emit replyCancelRequested();
+}
+
+void ModernShellBridge::toggleReaction(const qulonglong messageId, const QString &emoji, const bool active) {
+	const QString trimmedEmoji = emoji.trimmed();
+	if (messageId == 0 || trimmedEmoji.isEmpty()) {
+		return;
+	}
+
+	emit reactionToggleRequested(messageId, trimmedEmoji, active);
 }
 
 void ModernShellBridge::messageParticipant(const qulonglong session) {
@@ -71,8 +97,21 @@ void ModernShellBridge::joinParticipant(const qulonglong session) {
 	emit participantJoinRequested(session);
 }
 
+void ModernShellBridge::moveParticipantToChannel(const qulonglong session, const QString &scopeToken) {
+	emit participantMoveRequested(session, scopeToken.trimmed());
+}
+
 void ModernShellBridge::invokeParticipantAction(const qulonglong session, const QString &actionId) {
 	emit participantActionRequested(session, actionId.trimmed());
+}
+
+void ModernShellBridge::participantActionValueChanged(const qulonglong session, const QString &actionId,
+													  const int value, const bool final) {
+	emit participantActionValueChangedRequested(session, actionId.trimmed(), value, final);
+}
+
+void ModernShellBridge::moveChannelToChannel(const QString &sourceScopeToken, const QString &targetScopeToken) {
+	emit channelMoveRequested(sourceScopeToken.trimmed(), targetScopeToken.trimmed());
 }
 
 void ModernShellBridge::loadOlderHistory() {
@@ -107,8 +146,25 @@ void ModernShellBridge::openImagePicker() {
 	emit imagePickerRequested();
 }
 
+void ModernShellBridge::attachImageData(const QString &dataUrl) {
+	emit imageDataAttachmentRequested(dataUrl.trimmed());
+}
+
+void ModernShellBridge::activateLink(const QString &href) {
+	const QString trimmedHref = href.trimmed();
+	if (trimmedHref.isEmpty()) {
+		return;
+	}
+
+	emit linkActivationRequested(trimmedHref);
+}
+
 void ModernShellBridge::invokeAppAction(const QString &actionId) {
 	emit appActionRequested(actionId.trimmed());
+}
+
+void ModernShellBridge::toggleLayout() {
+	emit layoutToggleRequested();
 }
 
 #endif // defined(MUMBLE_HAS_MODERN_LAYOUT)

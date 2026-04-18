@@ -435,6 +435,7 @@ struct Settings {
 	QByteArray qbaModernMinimalViewGeometry = {};
 	QByteArray qbaModernMinimalViewState    = {};
 	QByteArray qbaConfigGeometry         = {};
+	QByteArray qbaImagePreviewGeometry   = {};
 	WindowLayout wlWindowLayout          = LayoutHybrid;
 	ChannelExpand ceExpand               = ChannelsWithUsers;
 	ChannelDrag ceChannelDrag            = Ask;

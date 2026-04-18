@@ -10,6 +10,7 @@
 #include "murmur/database/DBChannel.h"
 #include "murmur/database/DBChatAsset.h"
 #include "murmur/database/DBChatMessage.h"
+#include "murmur/database/DBChatMessageReaction.h"
 #include "murmur/database/DBChatReadState.h"
 #include "murmur/database/DBChatThread.h"
 #include "murmur/database/DBTextChannel.h"
@@ -125,6 +126,7 @@ public:
 																	   unsigned int startOffset = 0, int amount = -1);
 	std::vector< ::mumble::server::db::DBChatMessage > getChatMessagesBefore(unsigned int serverID, unsigned int threadID,
 																		  unsigned int beforeMessageID, unsigned int amount);
+	std::optional< ::mumble::server::db::DBChatMessage > getChatMessage(unsigned int serverID, unsigned int messageID);
 	::mumble::server::db::DBChatAsset addChatAsset(const ::mumble::server::db::DBChatAsset &asset);
 	::mumble::server::db::DBChatAsset getChatAsset(unsigned int serverID, unsigned int assetID);
 	bool chatAssetExists(unsigned int serverID, unsigned int assetID);
@@ -136,6 +138,10 @@ public:
 																				   unsigned int messageID);
 	void setChatMessageEmbeds(unsigned int serverID, unsigned int messageID,
 							  const std::vector< ::mumble::server::db::DBChatMessageEmbed > &embeds);
+	std::vector< ::mumble::server::db::DBChatMessageReaction > getChatMessageReactions(unsigned int serverID,
+																					 unsigned int messageID);
+	void setChatMessageReactionActive(unsigned int serverID, unsigned int messageID, unsigned int actorUserID,
+									  const std::string &emoji, bool active);
 	void setChatReadState(const ::mumble::server::db::DBChatReadState &readState);
 	std::optional< ::mumble::server::db::DBChatReadState > getChatReadState(unsigned int serverID, unsigned int threadID,
 																			 unsigned int userID);

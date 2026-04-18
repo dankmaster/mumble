@@ -396,8 +396,9 @@ bool ChatbarTextEdit::sendImagesFromMimeData(const QMimeData *source) {
 bool ChatbarTextEdit::emitPastedImage(QImage image) {
 	QString processedImage = Log::imageToImg(image, static_cast< int >(Global::get().uiImageLength));
 	if (processedImage.length() > 0) {
-		QString imgHtml = QLatin1String("<br />") + processedImage;
-		emit pastedImage(imgHtml);
+		// Standalone paste sends the image as its own message, so avoid spending
+		// part of the server's image-size budget on an extra line-break wrapper.
+		emit pastedImage(processedImage);
 		return true;
 	}
 	return false;

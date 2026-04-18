@@ -10,6 +10,7 @@
 #include "Log.h"
 
 #include <QtCore/QDebug>
+#include <QtCore/QTimer>
 #include <QtGui/QDesktopServices>
 
 namespace {
@@ -65,7 +66,9 @@ bool RelayWebPage::acceptNavigationRequest(const QUrl &url, const NavigationType
 
 	if (isMainFrame) {
 		emit externalNavigationRequested(url);
-		QDesktopServices::openUrl(url);
+		const QUrl externalUrl = url;
+		// Avoid re-entrant browser launch while WebEngine is still unwinding the click.
+		QTimer::singleShot(0, this, [externalUrl]() { QDesktopServices::openUrl(externalUrl); });
 	}
 
 	return false;

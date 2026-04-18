@@ -18,6 +18,7 @@
 
 #include "CustomElements.h"
 #include "Log.h"
+#include "ModernShellMenuSerializer.h"
 #include "MUComboBox.h"
 #include "Mumble.pb.h"
 #include "MumbleProtocol.h"
@@ -73,6 +74,7 @@ class SearchDialog;
 }
 
 class MenuLabel;
+class ListenerVolumeController;
 class ListenerVolumeSlider;
 class PersistentChatListWidget;
 class UserLocalVolumeSlider;
@@ -320,9 +322,12 @@ public:
 	void handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg);
 	void handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg);
 	void handlePersistentChatEmbedState(const MumbleProto::ChatEmbedState &msg);
+	void handlePersistentChatReactionState(const MumbleProto::ChatReactionState &msg);
 	bool canSendToPersistentChatTarget(const PersistentChatTarget &target, bool requestPermissions) const;
 	void syncPersistentChatInputState(bool baseEnabled);
+	void attachPersistentChatImage(const QImage &image);
 	void attachPersistentChatImages(const QList< QUrl > &urls);
+	bool attachPersistentChatImageData(const QString &dataUrl);
 	void openPersistentChatImagePicker();
 	void cachePersistentChatChannelSelection(const QListWidgetItem *item);
 	void clearPersistentChatChannelSelection();
@@ -337,11 +342,40 @@ public:
 	QVariantMap buildModernShellSnapshot();
 	bool handleModernShellScopeSelection(const QString &scopeToken);
 	bool handleModernShellVoiceJoin(const QString &scopeToken);
+	bool handleModernShellScopeAction(const QString &scopeToken, const QString &actionId);
+	bool handleModernShellScopeActionValueChanged(const QString &scopeToken, const QString &actionId, int value,
+												 bool final);
+	bool handleModernShellReplyStart(qulonglong messageID);
+	void handleModernShellReplyCancel();
+	bool handleModernShellReactionToggle(qulonglong messageID, const QString &emoji, bool active);
 	bool handleModernShellParticipantMessage(qulonglong session);
 	bool handleModernShellParticipantJoin(qulonglong session);
+	bool handleModernShellParticipantMove(qulonglong session, const QString &targetScopeToken);
 	bool handleModernShellParticipantAction(qulonglong session, const QString &actionId);
+	bool handleModernShellParticipantActionValueChanged(qulonglong session, const QString &actionId, int value,
+														bool final);
+	bool handleModernShellChannelMove(const QString &sourceScopeToken, const QString &targetScopeToken);
 	bool handleModernShellAppAction(const QString &actionId);
+	void togglePreferredModernShellLayout();
+	enum class ModernShellMenuContext : unsigned char {
+		AppServer,
+		AppSelf,
+		AppConfigure,
+		AppHelp,
+		Participant,
+		Scope,
+		Listener
+	};
+	QVariantList serializeModernShellMenu(
+		QMenu *menu, ModernShellMenuContext context,
+		ModernShellMenuSerializer::ActionRegistry *registry = nullptr) const;
+	ModernShellMenuSerializer::ActionDefinition modernShellActionDefinition(ModernShellMenuContext context,
+																			 QAction *action) const;
+	bool triggerModernShellSerializedAction(const ModernShellMenuSerializer::ActionRegistry &registry,
+											 const QString &actionId, ClientUser *contextUser = nullptr,
+											 Channel *contextChannel = nullptr);
 #endif
+	void triggerContextAction(const QString &actionData, ClientUser *user, Channel *channel);
 	void updateChatBar(bool forcePersistentChatReload = false);
 	void openTextMessageDialog(ClientUser *p);
 	void openUserLocalNicknameDialog(const ClientUser &p);
@@ -395,6 +429,7 @@ protected:
 
 	qt_unique_ptr< MenuLabel > m_localVolumeLabel;
 	qt_unique_ptr< UserLocalVolumeSlider > m_userLocalVolumeSlider;
+	qt_unique_ptr< ListenerVolumeController > m_listenerVolumeController;
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
 	QWidget *m_serverNavigatorContainer = nullptr;
 	QFrame *m_serverNavigatorHeaderFrame = nullptr;

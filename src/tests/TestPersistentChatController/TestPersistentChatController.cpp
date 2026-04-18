@@ -5,7 +5,7 @@
 
 #include <QtTest>
 
-#include "PersistentChatController.h"
+#include "mumble/PersistentChatController.h"
 
 PersistentChatGateway::PersistentChatGateway(QObject *parent) : QObject(parent) {
 }
@@ -29,6 +29,10 @@ void PersistentChatGateway::requestOlder(MumbleProto::ChatScope, unsigned int, u
 
 void PersistentChatGateway::send(MumbleProto::ChatScope, unsigned int, const QString &, MumbleProto::ChatBodyFormat,
 								 std::optional< unsigned int >) {
+}
+
+void PersistentChatGateway::toggleReaction(MumbleProto::ChatScope, unsigned int, unsigned int, unsigned int,
+										   const QString &, bool) {
 }
 
 void PersistentChatGateway::markRead(MumbleProto::ChatScope, unsigned int, unsigned int) {
@@ -94,7 +98,29 @@ namespace {
 		state.set_message_id(messageID);
 		state.set_thread_id(threadID);
 		MumbleProto::ChatEmbedRef *embed = state.add_embeds();
-		embed->set_url(url.toUtf8().constData());
+		embed->set_canonical_url(url.toUtf8().constData());
+		return state;
+	}
+
+	MumbleProto::ChatReactionAggregate makeReaction(const QString &emoji, unsigned int count, bool selfReacted) {
+		MumbleProto::ChatReactionAggregate reaction;
+		reaction.set_emoji(emoji.toUtf8().constData());
+		reaction.set_count(count);
+		reaction.set_self_reacted(selfReacted);
+		return reaction;
+	}
+
+	MumbleProto::ChatReactionState makeReactionState(
+		MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int messageID, unsigned int threadID,
+		std::initializer_list< MumbleProto::ChatReactionAggregate > reactions) {
+		MumbleProto::ChatReactionState state;
+		state.set_scope(scope);
+		state.set_scope_id(scopeID);
+		state.set_message_id(messageID);
+		state.set_thread_id(threadID);
+		for (const MumbleProto::ChatReactionAggregate &reaction : reactions) {
+			*state.add_reactions() = reaction;
+		}
 		return state;
 	}
 }
@@ -106,6 +132,8 @@ private slots:
 	void restoresCachedScopeSnapshots();
 	void mergesOlderHistoryAndReadState();
 	void appliesEmbedUpdatesToCachedMessages();
+	void preservesReplyMetadataFromHistory();
+	void appliesReactionUpdatesToCachedMessages();
 };
 
 void TestPersistentChatController::restoresCachedScopeSnapshots() {
@@ -177,7 +205,60 @@ void TestPersistentChatController::appliesEmbedUpdatesToCachedMessages() {
 	const PersistentChatScopeStateSnapshot snapshot = controller.activeSnapshot();
 	QCOMPARE(snapshot.messages.size(), 1);
 	QCOMPARE(snapshot.messages.front().embeds_size(), 1);
-	QCOMPARE(QString::fromUtf8(snapshot.messages.front().embeds(0).url().c_str()), QStringLiteral("https://example.com/preview"));
+	QCOMPARE(QString::fromUtf8(snapshot.messages.front().embeds(0).canonical_url().c_str()),
+			 QStringLiteral("https://example.com/preview"));
+}
+
+void TestPersistentChatController::preservesReplyMetadataFromHistory() {
+	PersistentChatGateway gateway;
+	PersistentChatController controller;
+	controller.setGateway(&gateway);
+	controller.setActiveScope(PersistentChatScopeKey::fromScope(MumbleProto::TextChannel, 44), false);
+
+	MumbleProto::ChatMessage root = makeMessage(40, 4000, MumbleProto::TextChannel, 44, QStringLiteral("root"));
+	MumbleProto::ChatMessage reply =
+		makeMessage(41, 4010, MumbleProto::TextChannel, 44, QStringLiteral("reply"));
+	reply.set_reply_to_message_id(40);
+	reply.set_reply_actor_name("Alice");
+	reply.set_reply_snippet("root");
+	*reply.add_reactions() = makeReaction(QString::fromUtf8("🔥"), 2, true);
+
+	gateway.handleIncomingHistory(makeHistory(MumbleProto::TextChannel, 44, { root, reply }, 0, 40, false));
+
+	const PersistentChatScopeStateSnapshot snapshot = controller.activeSnapshot();
+	QCOMPARE(snapshot.messages.size(), 2);
+	QCOMPARE(snapshot.messages.back().reply_to_message_id(), 40U);
+	QCOMPARE(QString::fromUtf8(snapshot.messages.back().reply_actor_name().c_str()), QStringLiteral("Alice"));
+	QCOMPARE(QString::fromUtf8(snapshot.messages.back().reply_snippet().c_str()), QStringLiteral("root"));
+	QCOMPARE(snapshot.messages.back().reactions_size(), 1);
+	QCOMPARE(QString::fromUtf8(snapshot.messages.back().reactions(0).emoji().c_str()), QString::fromUtf8("🔥"));
+	QCOMPARE(snapshot.messages.back().reactions(0).count(), 2U);
+	QCOMPARE(snapshot.messages.back().reactions(0).self_reacted(), true);
+}
+
+void TestPersistentChatController::appliesReactionUpdatesToCachedMessages() {
+	PersistentChatGateway gateway;
+	PersistentChatController controller;
+	controller.setGateway(&gateway);
+	controller.setActiveScope(PersistentChatScopeKey::fromScope(MumbleProto::TextChannel, 55), false);
+
+	gateway.handleIncomingHistory(
+		makeHistory(MumbleProto::TextChannel, 55, { makeMessage(50, 5000, MumbleProto::TextChannel, 55) }, 0, 50, false));
+
+	QVERIFY(controller.applyReactionState(
+		makeReactionState(MumbleProto::TextChannel, 55, 50, 50,
+						  { makeReaction(QString::fromUtf8("👍"), 1, true),
+							makeReaction(QString::fromUtf8("🎉"), 3, false) })));
+
+	const PersistentChatScopeStateSnapshot snapshot = controller.activeSnapshot();
+	QCOMPARE(snapshot.messages.size(), 1);
+	QCOMPARE(snapshot.messages.front().reactions_size(), 2);
+	QCOMPARE(QString::fromUtf8(snapshot.messages.front().reactions(0).emoji().c_str()), QString::fromUtf8("👍"));
+	QCOMPARE(snapshot.messages.front().reactions(0).count(), 1U);
+	QCOMPARE(snapshot.messages.front().reactions(0).self_reacted(), true);
+	QCOMPARE(QString::fromUtf8(snapshot.messages.front().reactions(1).emoji().c_str()), QString::fromUtf8("🎉"));
+	QCOMPARE(snapshot.messages.front().reactions(1).count(), 3U);
+	QCOMPARE(snapshot.messages.front().reactions(1).self_reacted(), false);
 }
 
 QTEST_MAIN(TestPersistentChatController)

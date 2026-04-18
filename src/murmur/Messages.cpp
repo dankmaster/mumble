@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -558,6 +559,91 @@ namespace {
 		return ref;
 	}
 
+	struct ChatReactionAggregateState {
+		unsigned int count = 0;
+		bool selfReacted   = false;
+	};
+
+	struct ChatReplyPreview {
+		std::optional< std::string > actorName;
+		std::optional< std::string > snippet;
+	};
+
+	std::vector< std::pair< std::string, ChatReactionAggregateState > >
+		aggregateChatReactions(const std::vector< msdb::DBChatMessageReaction > &reactions,
+							   std::optional< unsigned int > viewerUserID) {
+		std::map< std::string, ChatReactionAggregateState > grouped;
+		for (const msdb::DBChatMessageReaction &reaction : reactions) {
+			ChatReactionAggregateState &aggregate = grouped[reaction.emoji];
+			aggregate.count++;
+			if (viewerUserID && reaction.actorUserID == viewerUserID.value()) {
+				aggregate.selfReacted = true;
+			}
+		}
+
+		std::vector< std::pair< std::string, ChatReactionAggregateState > > ordered(grouped.begin(), grouped.end());
+		std::sort(ordered.begin(), ordered.end(),
+				  [](const auto &lhs, const auto &rhs) {
+					  if (lhs.second.count != rhs.second.count) {
+						  return lhs.second.count > rhs.second.count;
+					  }
+					  return lhs.first < rhs.first;
+				  });
+		return ordered;
+	}
+
+	void appendProtoReactionAggregates(google::protobuf::RepeatedPtrField< MumbleProto::ChatReactionAggregate > *target,
+									   const std::vector< msdb::DBChatMessageReaction > &reactions,
+									   std::optional< unsigned int > viewerUserID) {
+		if (!target) {
+			return;
+		}
+
+		for (const auto &aggregate : aggregateChatReactions(reactions, viewerUserID)) {
+			MumbleProto::ChatReactionAggregate *protoReaction = target->Add();
+			protoReaction->set_emoji(aggregate.first);
+			protoReaction->set_count(aggregate.second.count);
+			protoReaction->set_self_reacted(aggregate.second.selfReacted);
+		}
+	}
+
+	QString chatReplySnippetText(const QString &text) {
+		QString normalized = text;
+		normalized.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+		normalized.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+		normalized.replace(QLatin1Char('\n'), QLatin1Char(' '));
+		normalized = normalized.simplified();
+		if (normalized.size() > 140) {
+			normalized = normalized.left(137).trimmed() + QLatin1String("...");
+		}
+		return normalized;
+	}
+
+	template< typename AuthorResolver >
+	std::optional< ChatReplyPreview > resolveReplyPreview(DBWrapper &dbWrapper, unsigned int serverID,
+														  const ::msdb::DBChatMessage &message,
+														  const AuthorResolver &resolveAuthorName) {
+		if (!message.replyToMessageID) {
+			return std::nullopt;
+		}
+
+		const std::optional< ::msdb::DBChatMessage > replyTarget =
+			dbWrapper.getChatMessage(serverID, message.replyToMessageID.value());
+		if (!replyTarget || replyTarget->deletedAt > std::chrono::system_clock::time_point()) {
+			return std::nullopt;
+		}
+
+		ChatReplyPreview preview;
+		preview.actorName = resolveAuthorName(*replyTarget);
+
+		const QString snippetText = chatReplySnippetText(u8(replyTarget->bodyText));
+		if (!snippetText.isEmpty()) {
+			preview.snippet = u8(snippetText);
+		}
+
+		return preview;
+	}
+
 	QString normalizedMime(const QString &mime) {
 		return mime.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
 	}
@@ -880,7 +966,9 @@ namespace {
 
 	MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
 													 unsigned int scopeID,
-													 const std::optional< std::string > &resolvedAuthorName = std::nullopt) {
+													 const std::optional< std::string > &resolvedAuthorName = std::nullopt,
+													 std::optional< unsigned int > viewerUserID = std::nullopt,
+													 const std::optional< ChatReplyPreview > &replyPreview = std::nullopt) {
 		MumbleProto::ChatMessage protoMessage;
 		protoMessage.set_scope(scope);
 		protoMessage.set_scope_id(scopeID);
@@ -898,6 +986,14 @@ namespace {
 		if (message.replyToMessageID) {
 			protoMessage.set_reply_to_message_id(message.replyToMessageID.value());
 		}
+		if (replyPreview) {
+			if (replyPreview->actorName && !replyPreview->actorName->empty()) {
+				protoMessage.set_reply_actor_name(replyPreview->actorName.value());
+			}
+			if (replyPreview->snippet && !replyPreview->snippet->empty()) {
+				protoMessage.set_reply_snippet(replyPreview->snippet.value());
+			}
+		}
 		protoMessage.set_body_text(message.bodyText);
 		protoMessage.set_body_format(protoBodyFormatFromDB(message.bodyFormat));
 		protoMessage.set_message(u8(structuredChatLegacyHtml(u8(message.bodyText), message.bodyFormat)));
@@ -907,11 +1003,24 @@ namespace {
 		for (const msdb::DBChatMessageEmbed &embed : message.embeds) {
 			*protoMessage.add_embeds() = protoEmbedRefFromDB(embed);
 		}
+		appendProtoReactionAggregates(protoMessage.mutable_reactions(), message.reactions, viewerUserID);
 		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
 		protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
 		protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
 
 		return protoMessage;
+	}
+
+	MumbleProto::ChatReactionState protoReactionStateForMessage(const ::msdb::DBChatMessage &message,
+																MumbleProto::ChatScope scope, unsigned int scopeID,
+																std::optional< unsigned int > viewerUserID) {
+		MumbleProto::ChatReactionState state;
+		state.set_scope(scope);
+		state.set_scope_id(scopeID);
+		state.set_thread_id(message.threadID);
+		state.set_message_id(message.messageID);
+		appendProtoReactionAggregates(state.mutable_reactions(), message.reactions, viewerUserID);
+		return state;
 	}
 
 	MumbleProto::ChatReadStateUpdate protoReadStateFromDB(const ::msdb::DBChatReadState &readState,
@@ -951,6 +1060,18 @@ namespace {
 		}
 
 		return legacyMessage;
+	}
+
+	void sendPersistentChatTextDenied(Server *server, ServerUser *user, const QString &reason) {
+		if (!server || !user) {
+			return;
+		}
+
+		MumbleProto::PermissionDenied denied;
+		denied.set_session(user->uiSession);
+		denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
+		denied.set_reason(u8(reason));
+		server->sendMessage(user, denied);
 	}
 } // namespace
 
@@ -1062,7 +1183,28 @@ void Server::persistAndBroadcastChatMessage(
 		storedMessage.embeds = initialEmbeds;
 	}
 
-	MumbleProto::ChatMessage protoMessage = protoChatMessageFromDB(storedMessage, scope, scopeID, authorName);
+	const auto resolvedAuthorName = [this](const ::msdb::DBChatMessage &message) -> std::optional< std::string > {
+		if (message.authorName && !message.authorName->empty()) {
+			return message.authorName;
+		}
+
+		if (message.authorSession) {
+			ServerUser *currentUser = qhUsers.value(message.authorSession.value());
+			if (currentUser && !currentUser->qsName.isEmpty()) {
+				return u8(currentUser->qsName);
+			}
+		}
+
+		if (message.authorUserID && m_dbWrapper.registeredUserExists(iServerNum, message.authorUserID.value())) {
+			return m_dbWrapper.getUserName(iServerNum, message.authorUserID.value());
+		}
+
+		return std::nullopt;
+	};
+	const std::optional< ChatReplyPreview > replyPreview =
+		resolveReplyPreview(m_dbWrapper, iServerNum, storedMessage, resolvedAuthorName);
+	MumbleProto::ChatMessage protoMessage =
+		protoChatMessageFromDB(storedMessage, scope, scopeID, authorName, std::nullopt, replyPreview);
 
 	QSet< ServerUser * > persistentRecipients;
 	if (scope == MumbleProto::Channel) {
@@ -3105,6 +3247,31 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		return;
 	}
 
+	const std::string scopeKey = chatScopeKey(scope, scopeID);
+	if (scopeKey.empty()) {
+		return;
+	}
+
+	const std::optional< ::msdb::DBChatThread > existingThread =
+		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	if (replyToMessageID) {
+		if (!existingThread) {
+			sendPersistentChatTextDenied(this, uSource, tr("The selected reply target is unavailable."));
+			return;
+		}
+
+		const std::optional< ::msdb::DBChatMessage > replyTarget =
+			m_dbWrapper.getChatMessage(iServerNum, replyToMessageID.value());
+		if (!replyTarget) {
+			sendPersistentChatTextDenied(this, uSource, tr("The selected reply target no longer exists."));
+			return;
+		}
+		if (replyTarget->threadID != existingThread->threadID) {
+			sendPersistentChatTextDenied(this, uSource, tr("Replies have to stay in the same conversation."));
+			return;
+		}
+	}
+
 	QSet< ServerUser * > legacyFallbackRecipients;
 	if (scope == MumbleProto::Channel) {
 		legacyFallbackRecipients = legacyChannelRecipients(qhUsers, m_channelListenerManager, permissionChannel);
@@ -3297,8 +3464,11 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 			std::reverse(page.begin(), page.end());
 
 			for (const AggregateChatEntry &entry : page) {
+				const std::optional< ChatReplyPreview > replyPreview =
+					resolveReplyPreview(m_dbWrapper, iServerNum, entry.message, resolvedAuthorName);
 				*response.add_messages() =
-					protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID, resolvedAuthorName(entry.message));
+					protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID, resolvedAuthorName(entry.message),
+										  persistedUserID(uSource), replyPreview);
 			}
 		}
 
@@ -3341,8 +3511,11 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	}
 
 	for (const ::msdb::DBChatMessage &currentMessage : messages) {
+		const std::optional< ChatReplyPreview > replyPreview =
+			resolveReplyPreview(m_dbWrapper, iServerNum, currentMessage, resolvedAuthorName);
 		*response.add_messages() =
-			protoChatMessageFromDB(currentMessage, scope, scopeID, resolvedAuthorName(currentMessage));
+			protoChatMessageFromDB(currentMessage, scope, scopeID, resolvedAuthorName(currentMessage),
+								  persistedUserID(uSource), replyPreview);
 	}
 
 	const std::optional< unsigned int > userID = persistedUserID(uSource);
@@ -3828,6 +4001,132 @@ void Server::msgChatAssetChunk(ServerUser *, MumbleProto::ChatAssetChunk &) {
 }
 
 void Server::msgChatEmbedState(ServerUser *, MumbleProto::ChatEmbedState &) {
+}
+
+void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactionToggle &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	RATELIMIT(uSource);
+
+	if (!clientSupportsPersistentChat(uSource)) {
+		inferPersistentChatSupport(uSource);
+	}
+
+	const std::optional< unsigned int > actorUserID = persistedUserID(uSource);
+	if (!actorUserID) {
+		sendPersistentChatTextDenied(
+			this, uSource,
+			tr("Persisted reactions currently require a registered user identity on this server."));
+		return;
+	}
+
+	if (!msg.has_message_id() || msg.message_id() == 0 || !msg.has_emoji()) {
+		return;
+	}
+
+	const QString emoji = u8(msg.emoji()).trimmed();
+	if (emoji.isEmpty() || emoji.size() > 32) {
+		return;
+	}
+
+	MumbleProto::ChatScope scope =
+		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	unsigned int scopeID =
+		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
+	Channel *permissionChannel = nullptr;
+	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
+
+	switch (scope) {
+		case MumbleProto::Channel:
+			permissionChannel = qhChannels.value(scopeID);
+			dbScope           = ::msdb::ChatThreadScope::Channel;
+			break;
+		case MumbleProto::ServerGlobal:
+			scopeID           = 0;
+			permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+			dbScope           = ::msdb::ChatThreadScope::ServerGlobal;
+			break;
+		case MumbleProto::Aggregate:
+			return;
+		case MumbleProto::TextChannel: {
+			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			if (!textChannel) {
+				return;
+			}
+
+			permissionChannel = qhChannels.value(textChannel->aclChannelID);
+			dbScope           = ::msdb::ChatThreadScope::TextChannel;
+			break;
+		}
+		default:
+			return;
+	}
+
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		sendPersistentChatTextDenied(this, uSource, tr("Global chat is disabled by this server."));
+		return;
+	}
+
+	if (!permissionChannel) {
+		return;
+	}
+
+	if (!ChanACL::hasPermission(uSource, permissionChannel, ChanACL::TextMessage, &acCache)) {
+		PERM_DENIED(uSource, permissionChannel, ChanACL::TextMessage);
+		return;
+	}
+
+	const std::string scopeKey = chatScopeKey(scope, scopeID);
+	if (scopeKey.empty()) {
+		return;
+	}
+
+	const std::optional< ::msdb::DBChatThread > thread =
+		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	if (!thread) {
+		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
+		return;
+	}
+	if (msg.has_thread_id() && msg.thread_id() != thread->threadID) {
+		sendPersistentChatTextDenied(this, uSource, tr("That reaction target belongs to a different conversation."));
+		return;
+	}
+
+	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
+	if (!message || message->threadID != thread->threadID) {
+		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
+		return;
+	}
+
+	const bool active = msg.has_active() ? msg.active() : true;
+	m_dbWrapper.setChatMessageReactionActive(iServerNum, message->messageID, actorUserID.value(), u8(emoji), active);
+
+	message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
+	if (!message) {
+		return;
+	}
+
+	QSet< ServerUser * > persistentRecipients;
+	if (scope == MumbleProto::Channel) {
+		persistentRecipients = legacyChannelRecipients(qhUsers, m_channelListenerManager, permissionChannel);
+		persistentRecipients.insert(uSource);
+	} else {
+		persistentRecipients = recipientsWithTextAccess(qhUsers, permissionChannel, acCache);
+	}
+
+	for (ServerUser *currentUser : persistentRecipients) {
+		if (!clientSupportsPersistentChat(currentUser)) {
+			continue;
+		}
+
+		sendMessage(currentUser, protoReactionStateForMessage(*message, scope, scopeID, persistedUserID(currentUser)));
+	}
+}
+
+void Server::msgChatReactionState(ServerUser *, MumbleProto::ChatReactionState &) {
 }
 
 void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSync &msg) {

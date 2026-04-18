@@ -67,7 +67,9 @@
 	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetState, 42)      \
 	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetRequest, 43)    \
 	PROCESS_MUMBLE_TCP_MESSAGE(ChatAssetChunk, 44)      \
-	PROCESS_MUMBLE_TCP_MESSAGE(ChatEmbedState, 45)
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatEmbedState, 45)      \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatReactionToggle, 46)  \
+	PROCESS_MUMBLE_TCP_MESSAGE(ChatReactionState, 47)
 
 /**
  * "X-macro" for all Mumble Protobuf UDP messages types.

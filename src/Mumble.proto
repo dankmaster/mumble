@@ -758,6 +758,12 @@ message ChatEmbedRef {
 	optional string error_code = 7;
 }
 
+message ChatReactionAggregate {
+	required string emoji = 1;
+	required uint32 count = 2;
+	optional bool self_reacted = 3 [default = false];
+}
+
 // Sent by the client to submit a persistent chat message to the server.
 message ChatSend {
 	optional ChatScope scope = 1 [default = Channel];
@@ -787,6 +793,9 @@ message ChatMessage {
 	optional ChatBodyFormat body_format = 14 [default = ChatBodyFormatPlainText];
 	repeated ChatAssetRef attachments = 15;
 	repeated ChatEmbedRef embeds = 16;
+	repeated ChatReactionAggregate reactions = 17;
+	optional string reply_actor_name = 18;
+	optional string reply_snippet = 19;
 }
 
 // Sent by the client to request a paginated chunk of chat history.
@@ -875,6 +884,23 @@ message ChatEmbedState {
 	optional uint32 thread_id = 3;
 	optional uint32 message_id = 4;
 	repeated ChatEmbedRef embeds = 5;
+}
+
+message ChatReactionToggle {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 thread_id = 3;
+	optional uint32 message_id = 4;
+	optional string emoji = 5;
+	optional bool active = 6 [default = true];
+}
+
+message ChatReactionState {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 thread_id = 3;
+	optional uint32 message_id = 4;
+	repeated ChatReactionAggregate reactions = 5;
 }
 
 // Sent by the publisher to request that the server create a new screen-share session.
