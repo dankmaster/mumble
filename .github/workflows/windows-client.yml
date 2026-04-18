@@ -1,6 +1,10 @@
 name: Windows Client
 
 on:
+  push:
+    branches: '**'
+  pull_request:
+    branches: '**'
   workflow_dispatch:
     inputs:
       SIGN_WINDOWS_INSTALLER:
@@ -35,6 +39,7 @@ jobs:
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
   build-windows-client:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     needs: [ fetch_build_number ]
     runs-on: windows-2025-vs2026
 
@@ -151,6 +156,13 @@ jobs:
           find build \( -iname 'mumble*.msi' -o -iname 'mumble*.exe' \) ! -iname 'mumble-screen-helper.exe' | sort > build/windows-client-artifacts.txt
           test -s build/windows-client-artifacts.txt
 
+      - name: Validate Windows client/server binaries
+        shell: powershell
+        run: |
+          .\scripts\windows\assert-windows-build-artifacts.ps1 `
+            -BuildRoot .\build `
+            -ArtifactListPath .\build\windows-binary-artifacts.txt
+
       - name: Validate signing configuration
         if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
         shell: bash
@@ -181,6 +193,7 @@ jobs:
             build/windows-screen-share-capabilities.json
             build/windows-screen-share-helper.log
             build/windows-screen-share-self-test.json
+            build/windows-binary-artifacts.txt
             build/windows-client-artifacts.txt
             build/**/mumble*.msi
             build/**/mumble*.exe
@@ -261,19 +274,14 @@ jobs:
             -InstallDependencies `
             -EnablePackaging
 
-      - name: Publish Shared Client Artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: Mumble-windows-client-shared-${{ needs.fetch_build_number.outputs.build_number }}
-          compression-level: 9
-          path: |
-            build-shared-webengine/shared-webengine-stage/**
-            build-shared-webengine/windows-screen-share-capabilities.json
-            build-shared-webengine/windows-screen-share-helper.log
-            build-shared-webengine/windows-screen-share-self-test.json
-            build-shared-webengine/windows-client-artifacts.txt
-            build-shared-webengine/**/mumble*.msi
-            build-shared-webengine/**/mumble*.exe
+      - name: Validate shared Windows client/server binaries
+        shell: powershell
+        run: |
+          .\scripts\windows\assert-windows-build-artifacts.ps1 `
+            -BuildRoot .\build-shared-webengine `
+            -StageRoot .\build-shared-webengine\shared-webengine-stage `
+            -RequireStage `
+            -ArtifactListPath .\build-shared-webengine\windows-binary-artifacts.txt
 
       - name: Verify shared helper runtime
         shell: powershell
@@ -284,3 +292,18 @@ jobs:
             -SkipConfigure `
             -SkipBuild `
             -VerifyHelperRuntime
+
+      - name: Publish Shared Client Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: Mumble-windows-client-shared-${{ needs.fetch_build_number.outputs.build_number }}
+          compression-level: 9
+          path: |
+            build-shared-webengine/shared-webengine-stage/**
+            build-shared-webengine/windows-screen-share-capabilities.json
+            build-shared-webengine/windows-screen-share-helper.log
+            build-shared-webengine/windows-screen-share-self-test.json
+            build-shared-webengine/windows-binary-artifacts.txt
+            build-shared-webengine/windows-client-artifacts.txt
+            build-shared-webengine/**/mumble*.msi
+            build-shared-webengine/**/mumble*.exe
