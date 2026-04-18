@@ -2,6 +2,8 @@
 	"use strict";
 
 	const livekit = window.LivekitClient;
+	let relayBridge = null;
+	let bridgeLoadPromise = null;
 
 	const refs = {
 		title: document.getElementById("title"),
@@ -66,6 +68,97 @@
 		} else {
 			console.log(message);
 		}
+	}
+
+	function notifyBridge(method, value) {
+		if (!relayBridge || typeof relayBridge[method] !== "function") {
+			return;
+		}
+
+		try {
+			relayBridge[method](value);
+		} catch (error) {
+			console.warn("Relay bridge call failed:", error);
+		}
+	}
+
+	async function ensureBridge() {
+		if (!window.qt || !window.qt.webChannelTransport) {
+			return;
+		}
+
+		if (relayBridge) {
+			return;
+		}
+
+		if (window.QWebChannel) {
+			await new Promise(function(resolve) {
+				try {
+					new QWebChannel(qt.webChannelTransport, function(channel) {
+						relayBridge = channel.objects.relayBridge || null;
+						if (relayBridge) {
+							notifyBridge("ready");
+						}
+						resolve();
+					});
+				} catch (error) {
+					console.warn("Relay bridge initialization failed:", error);
+					resolve();
+				}
+			});
+			return;
+		}
+
+		if (!bridgeLoadPromise) {
+			bridgeLoadPromise = new Promise(function(resolve) {
+				const script = document.createElement("script");
+				script.src = "qrc:///qtwebchannel/qwebchannel.js";
+				script.async = true;
+				script.onload = function() {
+					try {
+						new QWebChannel(qt.webChannelTransport, function(channel) {
+							relayBridge = channel.objects.relayBridge || null;
+							if (relayBridge) {
+								notifyBridge("ready");
+							}
+							resolve();
+						});
+					} catch (error) {
+						console.warn("Relay bridge initialization failed:", error);
+						resolve();
+					}
+				};
+				script.onerror = function() {
+					console.warn("Relay bridge script could not be loaded.");
+					resolve();
+				};
+				document.head.appendChild(script);
+			});
+		}
+
+		await bridgeLoadPromise;
+	}
+
+	function requestFallback(reason) {
+		const message = String(reason || "").trim() || "Relay runtime requested fallback.";
+		log(message, "warn");
+		notifyBridge("requestFallback", message);
+	}
+
+	function isUserCanceledScreenShareError(error) {
+		if (!error) {
+			return false;
+		}
+
+		const name = String(error.name || "").trim();
+		if (name === "AbortError") {
+			return true;
+		}
+
+		const message = String(error.message || error.toString() || "").toLowerCase();
+		return message.includes("user aborted") || message.includes("screen share request was cancelled")
+			|| message.includes("screen share request was canceled") || message.includes("picker was closed")
+			|| message.includes("selection was canceled") || message.includes("selection was cancelled");
 	}
 
 	function setText(element, value) {
@@ -362,6 +455,7 @@
 		if (!isScreenShareTrack(track, publication)) {
 			return;
 		}
+		const key = trackKey(publication, participant, localTrack);
 
 		if (track && typeof track.detach === "function") {
 			const detached = track.detach();
@@ -372,6 +466,11 @@
 					}
 				});
 			}
+		}
+
+		if (state.currentTrackKey !== key) {
+			log((localTrack ? "Stale local" : "Stale remote") + " screen-share track ended for " + describeParticipant(participant) + ".");
+			return;
 		}
 
 		if (state.currentTrackElement) {
@@ -393,6 +492,7 @@
 		if (!isScreenShareAudioTrack(track, publication)) {
 			return;
 		}
+		const key = trackKey(publication, participant, false);
 
 		if (track && typeof track.detach === "function") {
 			const detached = track.detach();
@@ -403,6 +503,11 @@
 					}
 				});
 			}
+		}
+
+		if (state.currentAudioTrackKey !== key) {
+			log("Stale remote screen-share audio ended for " + describeParticipant(participant) + ".");
+			return;
 		}
 
 		if (state.currentAudioElement) {
@@ -700,8 +805,15 @@
 			refs.startShare.disabled = false;
 			refs.stopShare.disabled = true;
 			setHint("Screen sharing could not be started.");
+			if (isUserCanceledScreenShareError(error)) {
+				log("Screen sharing was canceled by the user.", "info");
+				showEmpty("Share canceled", "No screen-share source was selected.");
+				return;
+			}
+
 			log("Unable to start screen sharing: " + error.message, "error");
 			showEmpty("Share did not start", "The browser did not grant or keep screen-capture permission.");
+			requestFallback("The in-app relay window could not start screen sharing.");
 		}
 	}
 
@@ -731,6 +843,7 @@
 			await ensureConnected();
 		} catch (error) {
 			showEmpty("Reconnect failed", "The viewer could not reconnect to the relay session.");
+			requestFallback("The in-app relay viewer could not reconnect.");
 		}
 	}
 
@@ -774,7 +887,7 @@
 			showEmpty("No screen selected yet", "Click Start sharing to choose a screen or window.");
 		} else {
 			setText(refs.title, "Joining screen share");
-			setText(refs.subtitle, "This viewer was opened automatically by the Mumble screen-share helper.");
+			setText(refs.subtitle, "Mumble opened this relay window automatically.");
 			refs.publisherActions.classList.add("hidden");
 			refs.viewerActions.classList.remove("hidden");
 			setHint("Connecting to the relay and waiting for the publisher.");
@@ -783,6 +896,7 @@
 	}
 
 	async function boot() {
+		await ensureBridge();
 		renderShell();
 		log("Relay role: " + config.relayRole + ".");
 		log("Relay transport: " + config.transport + ".");
@@ -794,7 +908,8 @@
 		if (!livekit) {
 			setPill(refs.connectionPill, "error", "danger");
 			setHint("LiveKit client runtime failed to load.");
-			log("The LiveKit browser SDK did not load. Check the CDN script or host a local copy.", "error");
+			log("The LiveKit browser SDK did not load. Check the bundled runtime or host a local copy.", "error");
+			requestFallback("LiveKit client runtime failed to load.");
 			return;
 		}
 
@@ -802,6 +917,7 @@
 			setPill(refs.connectionPill, "error", "danger");
 			setHint("Relay session metadata is incomplete.");
 			log("Missing relay_url, relay_room_id, or relay_token in the helper launch query.", "error");
+			requestFallback("Relay session metadata is incomplete.");
 			return;
 		}
 
@@ -826,9 +942,15 @@
 			await ensureConnected();
 		} catch (error) {
 			showEmpty("Relay connection failed", "The window could not connect to the configured WebRTC relay.");
+			requestFallback("The in-app relay window could not connect to the relay server.");
 			return;
 		}
 	}
 
-	void boot();
+	boot().catch(function(error) {
+		const message = error && error.message ? error.message : String(error || "unknown error");
+		log("Relay bootstrap failed: " + message, "error");
+		showEmpty("Relay startup failed", "The in-app relay window did not finish booting.");
+		requestFallback("The in-app relay window failed during bootstrap.");
+	});
 })();

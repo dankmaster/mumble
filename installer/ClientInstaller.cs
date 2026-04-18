@@ -34,7 +34,43 @@ public class ClientInstaller : MumbleInstall {
 		return System.IO.Path.GetFullPath(System.IO.Path.Combine(Environment.CurrentDirectory, "mumble_client-" + new Version(version) + "-" + arch) + ".msi");
 	}
 
-	public ClientInstaller(string version, string arch, Features features) {
+	private static void PopulatePayloadTree(Dir targetDir, string sourceRoot, string relativePath = "") {
+		string currentPath = string.IsNullOrWhiteSpace(relativePath) ? sourceRoot : System.IO.Path.Combine(sourceRoot, relativePath);
+		if (!System.IO.Directory.Exists(currentPath)) {
+			throw new System.IO.DirectoryNotFoundException("Payload directory was not found: " + currentPath);
+		}
+
+		var files = System.IO.Directory
+			.GetFiles(currentPath)
+			.OrderBy(filePath => filePath, StringComparer.OrdinalIgnoreCase)
+			.Select(filePath => {
+				string fileName = System.IO.Path.GetFileName(filePath);
+				if (string.IsNullOrWhiteSpace(relativePath) && fileName.Equals("mumble.exe", StringComparison.OrdinalIgnoreCase)) {
+					return new File(new Id("mumble.exe"), filePath, new FileAssociation("mumble_plugin", "application/mumble", "Open", "\"%1\""));
+				}
+
+				return new File(filePath);
+			})
+			.ToArray();
+
+		var childDirs = System.IO.Directory
+			.GetDirectories(currentPath)
+			.OrderBy(dirPath => dirPath, StringComparer.OrdinalIgnoreCase)
+			.Select(dirPath => {
+				string dirName = System.IO.Path.GetFileName(dirPath);
+				var childDir = new Dir(dirName);
+				PopulatePayloadTree(childDir, sourceRoot, string.IsNullOrWhiteSpace(relativePath)
+					? dirName
+					: System.IO.Path.Combine(relativePath, dirName));
+				return childDir;
+			})
+			.ToArray();
+
+		targetDir.Files = files;
+		targetDir.Dirs = childDirs;
+	}
+
+	public ClientInstaller(string version, string arch, Features features, string payloadRoot = "") {
 		List<string> binaries = new List<string>();
 		string[] plugins = {
 			"amongus.dll",
@@ -169,32 +205,38 @@ public class ClientInstaller : MumbleInstall {
 		shortcutDir.Shortcuts = new ExeFileShortcut[] { menuShortcut };
 		desktopDir.Shortcuts = new ExeFileShortcut[] { deskShortcut };
 
-		var binaryFiles = new File[binaries.Count];
-		var licenseFiles = new File[licenses.Length];
-		var pluginFiles = new File[plugins.Length];
+		if (!string.IsNullOrWhiteSpace(payloadRoot)) {
+			PopulatePayloadTree(installDir, System.IO.Path.GetFullPath(payloadRoot));
+		} else {
+			var binaryFiles = new File[binaries.Count];
+			var licenseFiles = new File[licenses.Length];
+			var pluginFiles = new File[plugins.Length];
 
-		for (int i = 0; i < binaries.Count; i++) {
-			if (binaries[i] == "mumble.exe") {
-				binaryFiles[i] = new File(new Id("mumble.exe"), @"..\..\" + binaries[i], new FileAssociation("mumble_plugin", "application/mumble", "Open", "\"%1\""));
-			} else {
-				binaryFiles[i] = new File(@"..\..\" + binaries[i]);
+			for (int i = 0; i < binaries.Count; i++) {
+				if (binaries[i] == "mumble.exe") {
+					binaryFiles[i] = new File(new Id("mumble.exe"), @"..\..\" + binaries[i], new FileAssociation("mumble_plugin", "application/mumble", "Open", "\"%1\""));
+				} else {
+					binaryFiles[i] = new File(@"..\..\" + binaries[i]);
+				}
 			}
-		}
 
-		for (int i = 0; i < licenses.Length; i++) {
-			licenseFiles[i] = new File(@"..\..\licenses\" + licenses[i]);
-		}
+			for (int i = 0; i < licenses.Length; i++) {
+				licenseFiles[i] = new File(@"..\..\licenses\" + licenses[i]);
+			}
 
-		for (int i = 0; i < plugins.Length; i++) {
-			pluginFiles[i] = new File(@"..\..\plugins\" + plugins[i]);
-		}
+			for (int i = 0; i < plugins.Length; i++) {
+				pluginFiles[i] = new File(@"..\..\plugins\" + plugins[i]);
+			}
 
-		installDir.Files = binaryFiles;
-		licenseDir.Files = licenseFiles;
-		pluginDir.Files = pluginFiles;
+			installDir.Files = binaryFiles;
+			licenseDir.Files = licenseFiles;
+			pluginDir.Files = pluginFiles;
+		}
 
 		menuDir.Dirs = new Dir[] { shortcutDir };
-		installDir.Dirs = new Dir[] { licenseDir, pluginDir };
+		if (string.IsNullOrWhiteSpace(payloadRoot)) {
+			installDir.Dirs = new Dir[] { licenseDir, pluginDir };
+		}
 		productDir.Dirs = new Dir[] { installDir };
 		progsDir.Dirs = new Dir[] { productDir};
 
@@ -221,6 +263,7 @@ class BuildInstaller
 		bool isAllLangs = false;
 		Features features = new Features();
 		bool skipMSIRebuild = false;
+		string payloadRoot = "";
 
 		for (int i = 0; i < args.Length; i++) {
 			if (args[i] == "--version" && Regex.IsMatch(args[i + 1], @"^([0-9]+\.){2}[0-9]+$")) {
@@ -258,13 +301,17 @@ class BuildInstaller
 			if (args[i] == "--skip-msi-rebuild") {
 				skipMSIRebuild = true;
 			}
+
+			if (args[i] == "--payload-root" && i + 1 < args.Length) {
+				payloadRoot = args[i + 1];
+			}
 		}
 
 		if (version != null && arch != null) {
 			string msiPath;
 
 			if (!skipMSIRebuild) {
-				var clInstaller = new ClientInstaller(version, arch, features);
+				var clInstaller = new ClientInstaller(version, arch, features, payloadRoot);
 				clInstaller.Version = new Version(version);
 				msiPath = isAllLangs
 							? clInstaller.BuildMultilanguageMsi()

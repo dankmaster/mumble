@@ -189,3 +189,98 @@ jobs:
         with:
           path: ${{ env.MUMBLE_ENVIRONMENT_DIR }}
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+  build-windows-client-shared:
+    needs: [ fetch_build_number ]
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set environment variables
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "shared" "x86_64" "${{ github.workspace }}"
+        shell: bash
+
+      - name: Enable shared environment bootstrap fallback
+        shell: bash
+        run: |
+          echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
+
+      - name: Verify shared environment archive or use local bootstrap fallback
+        shell: bash
+        run: |
+          set -euxo pipefail
+          archive_url="${MUMBLE_ENVIRONMENT_SOURCE}/${MUMBLE_ENVIRONMENT_VERSION}.7z"
+          if ! curl -I -f -L "$archive_url" > /dev/null; then
+            echo "::notice title=Missing shared build environment::The shared Windows vcpkg environment archive is not published: $archive_url"
+            echo "::notice title=Shared bootstrap fallback::Falling back to local vcpkg bootstrap for the shared Windows environment."
+          fi
+
+      - name: Install Rust toolchain for DeepFilterNet
+        shell: powershell
+        run: |
+          $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
+          Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
+          & $rustupInit -y --profile minimal --default-toolchain stable
+          if ($LASTEXITCODE -ne 0) {
+            throw "rustup-init failed"
+          }
+          "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:USERPROFILE\.cargo\bin\cargo.exe" --version
+
+      - name: Download ONNX Runtime for DTLN
+        shell: powershell
+        run: |
+          $version = "1.18.1"
+          $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-win-x64-$version.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "onnxruntime"
+          $onnxRoot = Join-Path $extractRoot "onnxruntime-win-x64-$version"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+          if (Test-Path -LiteralPath $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
+            throw "Expanded ONNX Runtime archive is missing its include directory"
+          }
+          "ONNXRUNTIME_ROOT=$onnxRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install ffmpeg for helper runtime probe
+        shell: powershell
+        run: choco install ffmpeg -y
+
+      - name: Build, package, and stage shared WebEngine client
+        shell: powershell
+        run: |
+          .\scripts\windows\build-local-windows-client.ps1 `
+            -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
+            -SharedWebEngine `
+            -InstallDependencies `
+            -EnablePackaging
+
+      - name: Publish Shared Client Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: Mumble-windows-client-shared-${{ needs.fetch_build_number.outputs.build_number }}
+          compression-level: 9
+          path: |
+            build-shared-webengine/shared-webengine-stage/**
+            build-shared-webengine/windows-screen-share-capabilities.json
+            build-shared-webengine/windows-screen-share-helper.log
+            build-shared-webengine/windows-screen-share-self-test.json
+            build-shared-webengine/windows-client-artifacts.txt
+            build-shared-webengine/**/mumble*.msi
+            build-shared-webengine/**/mumble*.exe
+
+      - name: Verify shared helper runtime
+        shell: powershell
+        run: |
+          .\scripts\windows\build-local-windows-client.ps1 `
+            -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
+            -SharedWebEngine `
+            -SkipConfigure `
+            -SkipBuild `
+            -VerifyHelperRuntime

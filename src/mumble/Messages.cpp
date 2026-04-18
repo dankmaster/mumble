@@ -43,7 +43,10 @@
 #include "Global.h"
 
 #include <algorithm>
+#include <QDateTime>
+#include <QFile>
 #include <QTextDocumentFragment>
+#include <QTextStream>
 
 #define ACTOR_INIT                           \
 	ClientUser *pSrc = nullptr;              \
@@ -78,6 +81,67 @@ namespace {
 
 	QString boolToken(const bool value) {
 		return value ? QStringLiteral("true") : QStringLiteral("false");
+	}
+
+	void reparentChannelWithoutModel(Channel *channel, Channel *parent) {
+		if (!channel || !parent || channel->cParent == parent) {
+			return;
+		}
+
+		if (channel->cParent) {
+			channel->cParent->removeChannel(channel);
+		}
+
+		parent->addChannel(channel);
+	}
+
+	bool channelSubtreeHasUsers(const Channel *channel) {
+		if (!channel) {
+			return false;
+		}
+
+		if (!channel->qlUsers.isEmpty()) {
+			return true;
+		}
+
+		for (const Channel *child : channel->qlChannels) {
+			if (channelSubtreeHasUsers(child)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	void removeChannelSubtreeWithoutModel(Channel *channel) {
+		if (!channel) {
+			return;
+		}
+
+		const QList< Channel * > childChannels = channel->qlChannels;
+		for (Channel *child : childChannels) {
+			removeChannelSubtreeWithoutModel(child);
+		}
+
+		Channel::remove(channel);
+		delete channel;
+	}
+
+	void moveClientUserWithoutModel(ClientUser *user, Channel *channel) {
+		if (!user || !channel || user->cChannel == channel) {
+			return;
+		}
+
+		channel->addClientUser(user);
+	}
+
+	void removeClientUserWithoutModel(ClientUser *user) {
+		if (!user) {
+			return;
+		}
+
+		ClientUser::remove(user);
+		delete user;
 	}
 } // namespace
 
@@ -140,11 +204,30 @@ void MainWindow::msgReject(const MumbleProto::Reject &msg) {
 /// @param msg The message object with the respective information
 void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 	const ClientUser *user = ClientUser::get(msg.session());
+	const bool hiddenLegacyUserModelSafeMode =
+		qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
+	const bool traceServerSync = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
+	const auto appendServerSyncTrace = [traceServerSync, session = msg.session()](const QString &phase) {
+		if (!traceServerSync) {
+			return;
+		}
+
+		QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
+		if (!traceFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+			return;
+		}
+
+		QTextStream stream(&traceFile);
+		stream << QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) << QLatin1Char('Z')
+			   << " ServerSync session=" << session << QLatin1Char(' ') << phase << Qt::endl;
+	};
+	appendServerSyncTrace(QStringLiteral("enter"));
 	if (!user) {
 		Global::get().l->log(Log::CriticalError, tr("Server sync protocol violation. No user profile received."));
 		Global::get().sh->disconnect();
 		return;
 	}
+	appendServerSyncTrace(QStringLiteral("user-found"));
 	Global::get().uiSession = msg.session();
 	Global::get().bScreenShareEnabled = false;
 	Global::get().bScreenShareRecordingEnabled = false;
@@ -156,6 +239,7 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 	Global::get().qsScreenShareRelayUrl.clear();
 
 	Global::get().sh->sendPing(); // Send initial ping to establish UDP connection
+	appendServerSyncTrace(QStringLiteral("sent-ping"));
 
 	Global::get().pPermissions = ChanACL::Permissions(static_cast< unsigned int >(msg.permissions()));
 	Global::get().l->clearIgnore();
@@ -163,8 +247,13 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 		QString str = u8(msg.welcome_text());
 		setPersistentChatWelcomeText(str);
 	}
-	pmModel->ensureSelfVisible();
-	pmModel->recheckLinks();
+	if (hiddenLegacyUserModelSafeMode) {
+		queueModernShellSnapshotSync();
+	} else {
+		pmModel->ensureSelfVisible();
+		pmModel->recheckLinks();
+	}
+	appendServerSyncTrace(QStringLiteral("post-model-sync"));
 
 	// Reset the mechanism for using and recycling target IDs for setting up
 	// VoiceTargets
@@ -175,10 +264,13 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 		qmTargetUse.insert(i, i);
 	}
 	iTargetCounter = 100;
+	appendServerSyncTrace(QStringLiteral("post-target-reset"));
 
 	AudioInput::setMaxBandwidth(static_cast< int >(msg.max_bandwidth()));
+	appendServerSyncTrace(QStringLiteral("post-bandwidth"));
 
 	findDesiredChannel();
+	appendServerSyncTrace(QStringLiteral("post-find-desired-channel"));
 
 	QString host, uname, pw;
 	unsigned short port;
@@ -190,12 +282,14 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 		Global::get().s.qlShortcuts << sc;
 		GlobalShortcutEngine::engine->bNeedRemap = true;
 	}
+	appendServerSyncTrace(QStringLiteral("post-shortcuts"));
 
 
 	connect(user, SIGNAL(talkingStateChanged()), this, SLOT(userStateChanged()));
 	connect(user, SIGNAL(muteDeafStateChanged()), this, SLOT(userStateChanged()));
 	connect(user, SIGNAL(prioritySpeakerStateChanged()), this, SLOT(userStateChanged()));
 	connect(user, SIGNAL(recordingStateChanged()), this, SLOT(userStateChanged()));
+	appendServerSyncTrace(QStringLiteral("post-self-signal-connect"));
 
 	AudioInputPtr audioIn = Global::get().ai;
 	if (audioIn) {
@@ -203,17 +297,25 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 		QObject::connect(user, &ClientUser::muteDeafStateChanged, audioIn.get(),
 						 &AudioInput::onUserMuteDeafStateChanged);
 	}
+	appendServerSyncTrace(QStringLiteral("post-audio-update"));
 
 	// Update QActions and menus
 	on_qmServer_aboutToShow();
 	on_qmSelf_aboutToShow();
-	qmChannel_aboutToShow();
-	qmUser_aboutToShow();
+	if (!hiddenLegacyUserModelSafeMode) {
+		qmChannel_aboutToShow();
+		qmUser_aboutToShow();
+	}
 	on_qmConfig_aboutToShow();
+	appendServerSyncTrace(QStringLiteral("post-menu-update"));
 
 
 	Global::get().sh->setServerSynchronized(true);
 	updateChatBar();
+	if (hiddenLegacyUserModelSafeMode) {
+		queueModernShellSnapshotSync();
+	}
+	appendServerSyncTrace(QStringLiteral("exit"));
 
 	emit serverSynchronized();
 }
@@ -226,6 +328,7 @@ void MainWindow::msgServerSync(const MumbleProto::ServerSync &msg) {
 void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 	bool persistentGlobalChanged = false;
 	bool screenShareConfigChanged = false;
+	bool modernLayoutCompatibleAdvertised = false;
 	if (msg.has_welcome_text()) {
 		QString str = u8(msg.welcome_text());
 		setPersistentChatWelcomeText(str);
@@ -248,42 +351,51 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 		const bool enabled = msg.persistent_global_chat_enabled();
 		persistentGlobalChanged = Global::get().bPersistentGlobalChatEnabled != enabled;
 		Global::get().bPersistentGlobalChatEnabled = enabled;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_enabled()) {
 		Global::get().bScreenShareEnabled = msg.screen_share_enabled();
 		screenShareConfigChanged          = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_recording_enabled()) {
 		Global::get().bScreenShareRecordingEnabled = msg.screen_share_recording_enabled();
 		screenShareConfigChanged                   = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_helper_required()) {
 		Global::get().bScreenShareHelperRequired = msg.screen_share_helper_required();
 		screenShareConfigChanged                 = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.preferred_screen_share_codecs_size() > 0) {
 		Global::get().qlPreferredScreenShareCodecs = preferredScreenShareCodecsFromConfig(msg);
 		screenShareConfigChanged                   = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_max_width()) {
 		Global::get().uiScreenShareMaxWidth =
 			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_width(), 0, Mumble::ScreenShare::HARD_MAX_WIDTH);
 		screenShareConfigChanged = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_max_height()) {
 		Global::get().uiScreenShareMaxHeight =
 			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_height(), 0, Mumble::ScreenShare::HARD_MAX_HEIGHT);
 		screenShareConfigChanged = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_max_fps()) {
 		Global::get().uiScreenShareMaxFps =
 			Mumble::ScreenShare::sanitizeLimit(msg.screen_share_max_fps(), 0, Mumble::ScreenShare::HARD_MAX_FPS);
 		screenShareConfigChanged = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (msg.has_screen_share_relay_url()) {
 		Global::get().qsScreenShareRelayUrl =
 			Mumble::ScreenShare::normalizeRelayUrl(u8(msg.screen_share_relay_url()));
 		screenShareConfigChanged = true;
+		modernLayoutCompatibleAdvertised = true;
 	}
 	if (screenShareConfigChanged && Global::get().s.bScreenShareDiagnostics) {
 		qInfo().noquote()
@@ -300,6 +412,12 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 			m_screenShareManager->logLocalShareAvailabilityDiagnostic(QStringLiteral("server-config"));
 		}
 	}
+	if (modernLayoutCompatibleAdvertised) {
+		m_modernLayoutCompatibleServer = true;
+	}
+	if (modernLayoutCompatibleAdvertised && effectiveWindowLayout() != m_activeShellLayout) {
+		refreshShellLayout();
+	}
 	if (persistentGlobalChanged) {
 		rebuildPersistentChatChannelList();
 		updateChatBar();
@@ -308,6 +426,7 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 			refreshPersistentChatView(true);
 		}
 	}
+	queueModernShellSnapshotSync();
 }
 
 /// This message is being received when the server denied the permission to perform a requested action. This function
@@ -441,6 +560,28 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 	ClientUser *pSelf = ClientUser::get(Global::get().uiSession);
 	ClientUser *pDst  = ClientUser::get(msg.session());
 	Channel *channel  = nullptr;
+	const bool hiddenLegacyUserModelSafeMode =
+		qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
+	const bool traceUserState = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
+	const auto appendUserStateTrace = [traceUserState, session = msg.session()](const QString &phase) {
+		if (!traceUserState) {
+			return;
+		}
+
+		QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
+		if (!traceFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+			return;
+		}
+
+		QTextStream stream(&traceFile);
+		stream << QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) << QLatin1Char('Z')
+			   << " UserState session=" << session << QLatin1Char(' ') << phase << Qt::endl;
+	};
+	appendUserStateTrace(QStringLiteral("enter"));
+	const bool modernShellConversationListActive = usesModernShell() && !hiddenLegacyUserModelSafeMode;
+	bool createdUser                             = false;
+	bool renamedUser                             = false;
+	bool movedChannels                           = false;
 
 	if (msg.has_channel_id()) {
 		channel = Channel::get(msg.channel_id());
@@ -449,25 +590,49 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			channel = Channel::get(Mumble::ROOT_CHANNEL_ID);
 		}
 	}
+	appendUserStateTrace(QStringLiteral("channel-resolved"));
 
 	// User just connected
 	if (!pDst) {
 		if (!msg.has_name()) {
 			return;
 		}
+		createdUser = true;
 
-		pDst = pmModel->addUser(msg.session(), u8(msg.name()));
+		if (hiddenLegacyUserModelSafeMode) {
+			pDst         = ClientUser::add(msg.session(), nullptr);
+			pDst->qsName = u8(msg.name());
+			appendUserStateTrace(QStringLiteral("created-user"));
+			if (Channel *rootChannel = Channel::get(Mumble::ROOT_CHANNEL_ID); rootChannel && pDst->cChannel != rootChannel) {
+				rootChannel->addClientUser(pDst);
+			}
+			appendUserStateTrace(QStringLiteral("attached-root"));
+		} else {
+			pDst = pmModel->addUser(msg.session(), u8(msg.name()));
+		}
 
 		connect(pDst, &ClientUser::talkingStateChanged, Global::get().talkingUI, &TalkingUI::on_talkingStateChanged);
 		connect(pDst, &ClientUser::muteDeafStateChanged, Global::get().talkingUI, &TalkingUI::on_muteDeafStateChanged);
+		appendUserStateTrace(QStringLiteral("connected-signals"));
 
 		if (channel && channel != pDst->cChannel) {
-			pmModel->moveUser(pDst, channel);
+			if (hiddenLegacyUserModelSafeMode) {
+				moveClientUserWithoutModel(pDst, channel);
+			} else {
+				pmModel->moveUser(pDst, channel);
+			}
 		}
+		appendUserStateTrace(QStringLiteral("initial-channel-applied"));
 
 		if (msg.has_hash()) {
-			pmModel->setHash(pDst, u8(msg.hash()));
+			if (hiddenLegacyUserModelSafeMode) {
+				pDst->qsHash = u8(msg.hash());
+			} else {
+				pmModel->setHash(pDst, u8(msg.hash()));
+			}
 		}
+		appendUserStateTrace(QStringLiteral("initial-hash-applied"));
+		appendUserStateTrace(QStringLiteral("created"));
 
 		if (pSelf) {
 			if (pDst->cChannel == pSelf->cChannel) {
@@ -479,15 +644,26 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			}
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-create"));
 
 	if (msg.has_user_id()) {
-		pmModel->setUserId(pDst, static_cast< int >(msg.user_id()));
+		if (hiddenLegacyUserModelSafeMode) {
+			pDst->iId = static_cast< int >(msg.user_id());
+		} else {
+			pmModel->setUserId(pDst, static_cast< int >(msg.user_id()));
+		}
 	}
+	appendUserStateTrace(QStringLiteral("post-user-id"));
 
 	if (channel) {
 		Channel *oldChannel = pDst->cChannel;
 		if (channel != oldChannel) {
-			pmModel->moveUser(pDst, channel);
+			movedChannels = true;
+			if (hiddenLegacyUserModelSafeMode) {
+				moveClientUserWithoutModel(pDst, channel);
+			} else {
+				pmModel->moveUser(pDst, channel);
+			}
 
 			if (pSelf) {
 				if (pDst == pSelf) {
@@ -547,6 +723,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			}
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-channel"));
 
 	// Handle channel listening
 	for (int i = 0; i < msg.listening_channel_add_size(); i++) {
@@ -610,11 +787,17 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			qWarning("msgUserState(): Invalid channel ID encountered in volume adjustment");
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-listening"));
 
 	if (msg.has_name()) {
 		QString oldName = pDst->qsName;
 		QString newName = u8(msg.name());
-		pmModel->renameUser(pDst, newName);
+		if (hiddenLegacyUserModelSafeMode) {
+			pDst->qsName = newName;
+		} else {
+			pmModel->renameUser(pDst, newName);
+		}
+		renamedUser = !oldName.isNull() && oldName != newName;
 		if (!oldName.isNull() && oldName != newName) {
 			if (pSrc != pDst) {
 				Global::get().l->log(Log::UserRenamed, tr("%1 renamed to %2 by %3.")
@@ -628,11 +811,17 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			}
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-name"));
 
 	if (!pDst->qsHash.isEmpty()) {
 		const QString &name = Global::get().db->getFriend(pDst->qsHash);
-		if (!name.isEmpty())
-			pmModel->setFriendName(pDst, name);
+		if (!name.isEmpty()) {
+			if (hiddenLegacyUserModelSafeMode) {
+				pDst->qsFriendName = name;
+			} else {
+				pmModel->setFriendName(pDst, name);
+			}
+		}
 		if (Global::get().db->isLocalMuted(pDst->qsHash))
 			pDst->setLocalMute(true);
 		if (Global::get().db->isLocalIgnored(pDst->qsHash))
@@ -646,6 +835,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 		pDst->setLocalVolumeAdjustment(Global::get().db->getUserLocalVolume(pDst->qsHash));
 		pDst->setLocalNickname(Global::get().db->getUserLocalNickname(pDst->qsHash));
 	}
+	appendUserStateTrace(QStringLiteral("post-local-flags"));
 
 	if (msg.has_self_deaf() || msg.has_self_mute()) {
 		if (msg.has_self_mute()) {
@@ -669,6 +859,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			}
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-self-mute"));
 
 	if (msg.has_recording()) {
 		pDst->setRecording(msg.recording());
@@ -692,6 +883,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			}
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-recording"));
 
 	if (msg.has_priority_speaker()) {
 		if (pSelf
@@ -747,6 +939,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 
 		pDst->setPrioritySpeaker(msg.priority_speaker());
 	}
+	appendUserStateTrace(QStringLiteral("post-priority"));
 
 	if (msg.has_deaf() || msg.has_mute() || msg.has_suppress()) {
 		if (msg.has_mute())
@@ -888,6 +1081,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 			}
 		}
 	}
+	appendUserStateTrace(QStringLiteral("post-server-mute"));
 
 	if (msg.has_texture_hash()) {
 		pDst->qbaTextureHash = blob(msg.texture_hash());
@@ -909,9 +1103,44 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 #endif
 	}
 	if (msg.has_comment_hash())
-		pmModel->setCommentHash(pDst, blob(msg.comment_hash()));
-	if (msg.has_comment())
-		pmModel->setComment(pDst, u8(msg.comment()));
+		if (hiddenLegacyUserModelSafeMode) {
+			pDst->qsComment      = QString();
+			pDst->qbaCommentHash = blob(msg.comment_hash());
+		} else {
+			pmModel->setCommentHash(pDst, blob(msg.comment_hash()));
+		}
+	if (msg.has_comment()) {
+		if (hiddenLegacyUserModelSafeMode) {
+			pDst->qsComment      = u8(msg.comment());
+			pDst->qbaCommentHash = pDst->qsComment.isEmpty() ? QByteArray() : sha1(pDst->qsComment);
+			if (!pDst->qsComment.isEmpty()) {
+				Global::get().db->setBlob(pDst->qbaCommentHash, pDst->qsComment.toUtf8());
+			}
+		} else {
+			pmModel->setComment(pDst, u8(msg.comment()));
+		}
+	}
+	appendUserStateTrace(QStringLiteral("post-comment"));
+
+	if (hiddenLegacyUserModelSafeMode) {
+		queueModernShellSnapshotSync();
+	} else if (modernShellConversationListActive) {
+		const PersistentChatTarget activeTarget = currentPersistentChatTarget();
+		const bool activeDirectMessageAffected =
+			activeTarget.directMessage && activeTarget.user && activeTarget.user->uiSession == pDst->uiSession;
+		const bool rebuildConversationList = createdUser || renamedUser || (movedChannels && pDst == pSelf);
+
+		if (rebuildConversationList) {
+			rebuildPersistentChatChannelList();
+		}
+		if (rebuildConversationList || movedChannels || activeDirectMessageAffected) {
+			updateMenuPermissions();
+			if (!rebuildConversationList) {
+				queueModernShellSnapshotSync();
+			}
+		}
+	}
+	appendUserStateTrace(QStringLiteral("exit"));
 }
 
 /// This message is being received when a user was removed. This might be because the user disconnected or because
@@ -924,6 +1153,8 @@ void MainWindow::msgUserRemove(const MumbleProto::UserRemove &msg) {
 	VICTIM_INIT;
 	ACTOR_INIT;
 	SELF_INIT;
+	const bool hiddenLegacyUserModelSafeMode =
+		qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
 
 	QString reason = u8(msg.reason()).toHtmlEscaped();
 
@@ -966,8 +1197,18 @@ void MainWindow::msgUserRemove(const MumbleProto::UserRemove &msg) {
 								  Q_ARG(unsigned int, pDst->uiSession));
 	}
 
-	if (pDst != pSelf)
-		pmModel->removeUser(pDst);
+	if (pDst != pSelf) {
+		if (hiddenLegacyUserModelSafeMode) {
+			removeClientUserWithoutModel(pDst);
+			queueModernShellSnapshotSync();
+		} else {
+			pmModel->removeUser(pDst);
+			if (usesModernShell()) {
+				rebuildPersistentChatChannelList();
+				updateMenuPermissions();
+			}
+		}
+	}
 }
 
 /// This message is being received when the server informs the local client about channel properties (either during
@@ -980,11 +1221,24 @@ void MainWindow::msgChannelState(const MumbleProto::ChannelState &msg) {
 
 	Channel *c = Channel::get(msg.channel_id());
 	Channel *p = msg.has_parent() ? Channel::get(msg.parent()) : nullptr;
+	const bool hiddenLegacyChannelModelSafeMode =
+		qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
 
 	if (!c) {
 		// Addresses channel does not exist so create it
 		if (p && msg.has_name()) {
-			c             = pmModel->addChannel(msg.channel_id(), p, u8(msg.name()));
+			if (hiddenLegacyChannelModelSafeMode) {
+				c = Channel::add(msg.channel_id(), u8(msg.name()));
+				if (c) {
+					reparentChannelWithoutModel(c, p);
+				}
+			} else {
+				c = pmModel->addChannel(msg.channel_id(), p, u8(msg.name()));
+			}
+			if (!c) {
+				qWarning("Server attempted to create an invalid or duplicate channel");
+				return;
+			}
 			c->bTemporary = msg.temporary();
 			p             = nullptr; // No need to move it later
 
@@ -1010,31 +1264,67 @@ void MainWindow::msgChannelState(const MumbleProto::ChannelState &msg) {
 
 			pp = pp->cParent;
 		}
-		pmModel->moveChannel(c, p);
+		if (hiddenLegacyChannelModelSafeMode) {
+			reparentChannelWithoutModel(c, p);
+		} else {
+			pmModel->moveChannel(c, p);
+		}
 	}
 
-	if (msg.has_name())
-		pmModel->renameChannel(c, u8(msg.name()));
+	if (msg.has_name()) {
+		if (hiddenLegacyChannelModelSafeMode) {
+			c->qsName = u8(msg.name());
+		} else {
+			pmModel->renameChannel(c, u8(msg.name()));
+		}
+	}
 
-	if (msg.has_description_hash())
-		pmModel->setCommentHash(c, blob(msg.description_hash()));
-	if (msg.has_description())
-		pmModel->setComment(c, u8(msg.description()));
+	if (msg.has_description_hash()) {
+		if (hiddenLegacyChannelModelSafeMode) {
+			c->qsDesc      = QString();
+			c->qbaDescHash = blob(msg.description_hash());
+		} else {
+			pmModel->setCommentHash(c, blob(msg.description_hash()));
+		}
+	}
+	if (msg.has_description()) {
+		if (hiddenLegacyChannelModelSafeMode) {
+			c->qsDesc      = u8(msg.description());
+			c->qbaDescHash = QByteArray();
+		} else {
+			pmModel->setComment(c, u8(msg.description()));
+		}
+	}
 
 	if (msg.has_position()) {
-		pmModel->repositionChannel(c, msg.position());
+		if (hiddenLegacyChannelModelSafeMode) {
+			c->iPosition = msg.position();
+		} else {
+			pmModel->repositionChannel(c, msg.position());
+		}
 	}
 
 	if (msg.links_size()) {
 		QList< Channel * > ql;
-		pmModel->unlinkAll(c);
+		if (hiddenLegacyChannelModelSafeMode) {
+			c->unlink();
+		} else {
+			pmModel->unlinkAll(c);
+		}
 		for (int i = 0; i < msg.links_size(); ++i) {
 			Channel *l = Channel::get(msg.links(i));
 			if (l)
 				ql << l;
 		}
-		if (!ql.isEmpty())
-			pmModel->linkChannels(c, ql);
+		if (!ql.isEmpty()) {
+			if (hiddenLegacyChannelModelSafeMode) {
+				for (Channel *linkedChannel : ql) {
+					c->link(linkedChannel);
+				}
+			} else {
+				pmModel->linkChannels(c, ql);
+			}
+		}
 	}
 	if (msg.links_remove_size()) {
 		QList< Channel * > ql;
@@ -1043,8 +1333,15 @@ void MainWindow::msgChannelState(const MumbleProto::ChannelState &msg) {
 			if (l)
 				ql << l;
 		}
-		if (!ql.isEmpty())
-			pmModel->unlinkChannels(c, ql);
+		if (!ql.isEmpty()) {
+			if (hiddenLegacyChannelModelSafeMode) {
+				for (Channel *linkedChannel : ql) {
+					c->unlink(linkedChannel);
+				}
+			} else {
+				pmModel->unlinkChannels(c, ql);
+			}
+		}
 	}
 	if (msg.links_add_size()) {
 		QList< Channel * > ql;
@@ -1053,8 +1350,15 @@ void MainWindow::msgChannelState(const MumbleProto::ChannelState &msg) {
 			if (l)
 				ql << l;
 		}
-		if (!ql.isEmpty())
-			pmModel->linkChannels(c, ql);
+		if (!ql.isEmpty()) {
+			if (hiddenLegacyChannelModelSafeMode) {
+				for (Channel *linkedChannel : ql) {
+					c->link(linkedChannel);
+				}
+			} else {
+				pmModel->linkChannels(c, ql);
+			}
+		}
 	}
 
 	if (msg.has_max_users()) {
@@ -1080,10 +1384,29 @@ void MainWindow::msgChannelRemove(const MumbleProto::ChannelRemove &msg) {
 	Channel *c = Channel::get(msg.channel_id());
 	if (c && (c->iId != 0)) {
 		c->clearFilterMode();
+		const bool hiddenLegacyChannelModelSafeMode =
+			qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
 
 		if (Global::get().mw->m_searchDialog) {
 			QMetaObject::invokeMethod(Global::get().mw->m_searchDialog, "on_channelRemoved", Qt::QueuedConnection,
 									  Q_ARG(unsigned int, c->iId));
+		}
+
+		if (hiddenLegacyChannelModelSafeMode) {
+			if (channelSubtreeHasUsers(c)) {
+				Global::get().l->log(Log::CriticalError,
+									 tr("Protocol violation. Server sent remove for occupied channel."));
+				Global::get().sh->disconnect();
+				return;
+			}
+
+			if (c->cParent) {
+				c->cParent->removeChannel(c);
+			}
+
+			removeChannelSubtreeWithoutModel(c);
+			queueModernShellSnapshotSync();
+			return;
 		}
 
 		if (!pmModel->removeChannel(c, true)) {
@@ -1287,7 +1610,12 @@ void MainWindow::msgVoiceTarget(const MumbleProto::VoiceTarget &) {
 ///
 /// @param msg The message object containing the respective information
 void MainWindow::msgPermissionQuery(const MumbleProto::PermissionQuery &msg) {
-	Channel *current = pmModel->getChannel(qtvUsers->currentIndex());
+	const bool hiddenLegacyChannelModelSafeMode =
+		qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
+	Channel *current = nullptr;
+	if (!hiddenLegacyChannelModelSafeMode && pmModel && qtvUsers) {
+		current = pmModel->getChannel(qtvUsers->currentIndex());
+	}
 
 	if (msg.flush()) {
 		for (Channel *c : Channel::c_qhChannels) {
@@ -1306,8 +1634,10 @@ void MainWindow::msgPermissionQuery(const MumbleProto::PermissionQuery &msg) {
 		c->uiPermissions = msg.permissions();
 		if (c->iId == 0)
 			Global::get().pPermissions = static_cast< ChanACL::Permissions >(c->uiPermissions);
-		if (c == current) {
+		if (!hiddenLegacyChannelModelSafeMode && c == current) {
 			updateMenuPermissions();
+		} else if (hiddenLegacyChannelModelSafeMode) {
+			queueModernShellSnapshotSync();
 		}
 	}
 }
@@ -1338,13 +1668,17 @@ void MainWindow::msgUserStats(const MumbleProto::UserStats &msg) {
 			m_userIdleSeconds.remove(msg.session());
 		}
 
-		if (idleSeconds != previousIdleSeconds && pmModel) {
+		const bool hiddenLegacyUserModelSafeMode =
+			qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0 && usesModernShell();
+		if (!hiddenLegacyUserModelSafeMode && idleSeconds != previousIdleSeconds && pmModel) {
 			if (ClientUser *user = ClientUser::get(msg.session()); user) {
 				const QModelIndex idx = pmModel->index(user);
 				if (idx.isValid()) {
 					emit pmModel->dataChanged(idx, idx);
 				}
 			}
+		} else if (hiddenLegacyUserModelSafeMode && idleSeconds != previousIdleSeconds) {
+			queueModernShellSnapshotSync();
 		}
 	}
 

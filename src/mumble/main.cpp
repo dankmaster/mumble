@@ -57,6 +57,8 @@
 
 #include <QLocale>
 #include <QScreen>
+#include <QtCore/QDir>
+#include <QtCore/QFileInfo>
 #include <QtCore/QProcess>
 #include <QtGui/QDesktopServices>
 #include <QtWidgets/QMessageBox>
@@ -96,6 +98,28 @@ extern char *os_lang;
 
 using QtLogSink = spdlog::sinks::qt_color_sink_st;
 
+namespace {
+#ifdef Q_OS_WIN
+void configureBundledQtWebEnginePaths(const QString &applicationFilePath) {
+	const QFileInfo applicationInfo(applicationFilePath);
+	const QDir appDir(applicationInfo.absolutePath());
+	const QString localesPath   = appDir.filePath(QLatin1String("translations/qtwebengine_locales"));
+	const QString resourcesPath = appDir.filePath(QLatin1String("resources"));
+	const QString processPath   = appDir.filePath(QLatin1String("QtWebEngineProcess.exe"));
+
+	if (QFileInfo::exists(localesPath)) {
+		qputenv("QTWEBENGINE_LOCALES_PATH", QDir::toNativeSeparators(localesPath).toUtf8());
+	}
+	if (QFileInfo::exists(resourcesPath)) {
+		qputenv("QTWEBENGINE_RESOURCES_PATH", QDir::toNativeSeparators(resourcesPath).toUtf8());
+	}
+	if (QFileInfo::exists(processPath)) {
+		qputenv("QTWEBENGINEPROCESS_PATH", QDir::toNativeSeparators(processPath).toUtf8());
+	}
+}
+#endif
+} // namespace
+
 void initLog(QTextBrowser *textBox = nullptr) {
 	// TODO: Ideally we should add a user option, perhaps along with a launch parameter, to set the log level.
 	// However, the messages across the codebase are very inconsistent in terms of right now.
@@ -132,6 +156,7 @@ void prepareLogForShutdown() {
 	std::shared_ptr< spdlog::logger > logger = spdlog::get(log::MainLoggerName);
 
 	if (!logger) {
+		log::restoreQtMessageHandler();
 		return;
 	}
 
@@ -157,6 +182,8 @@ void prepareLogForShutdown() {
 			remove_qt_sinks(mt_dist_sink->sinks());
 		}
 	}
+
+	log::restoreQtMessageHandler();
 }
 
 QPoint getTalkingUIPosition() {
@@ -384,6 +411,7 @@ int main(int argc, char **argv) {
 
 #if defined(Q_OS_WIN)
 	SetDllDirectory(L"");
+	configureBundledQtWebEnginePaths(QString::fromLocal8Bit(argv[0]));
 #else
 #	ifndef Q_OS_MAC
 	EnvUtils::setenv(QLatin1String("AVAHI_COMPAT_NOWARN"), QLatin1String("1"));

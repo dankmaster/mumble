@@ -12,6 +12,16 @@ verify_required_env_variables_set() {
 		exit 1
 	fi
 
+	if [[ -z "${MUMBLE_ENVIRONMENT_REPOSITORY:-}" ]]; then
+		echo "MUMBLE_ENVIRONMENT_REPOSITORY not set!" 1>&2
+		exit 1
+	fi
+
+	if [[ -z "${MUMBLE_ENVIRONMENT_COMMIT:-}" ]]; then
+		echo "MUMBLE_ENVIRONMENT_COMMIT not set!" 1>&2
+		exit 1
+	fi
+
 	if [[ -z "$MUMBLE_ENVIRONMENT_VERSION" ]]; then
 		echo "MUMBLE_ENVIRONMENT_VERSION not set!" 1>&2
 		exit 1
@@ -20,6 +30,31 @@ verify_required_env_variables_set() {
 	if [[ -z "$MUMBLE_ENVIRONMENT_DIR" ]]; then
 		echo "MUMBLE_ENVIRONMENT_DIR not set!" 1>&2
 		exit 1
+	fi
+}
+
+is_environment_ready() {
+	local env_dir="$1"
+
+	[[ -f "$env_dir/vcpkg.exe" ]] \
+		&& [[ -f "$env_dir/scripts/buildsystems/vcpkg.cmake" ]] \
+		&& [[ -d "$env_dir/installed/$MUMBLE_VCPKG_TRIPLET" ]]
+}
+
+remote_file_exists() {
+	local url="$1"
+
+	if [[ -z "$url" ]]; then
+		echo "remote_file_exists requires a URL" 1>&2
+		exit 1
+	fi
+
+	if command -v curl > /dev/null 2>&1; then
+		curl -I -f -L "$url" > /dev/null
+	elif command -v aria2c > /dev/null 2>&1; then
+		aria2c --dry-run "$url" > /dev/null
+	else
+		return 1
 	fi
 }
 
@@ -32,6 +67,11 @@ download_file() {
 		exit 1
 	fi
 
+	if [[ -s "$output_file" ]]; then
+		echo "Reusing existing archive: $output_file"
+		return
+	fi
+
 	if command -v aria2c > /dev/null 2>&1; then
 		aria2c "$url" --out "$output_file"
 	elif command -v curl > /dev/null 2>&1; then
@@ -40,6 +80,10 @@ download_file() {
 		echo "Neither aria2c nor curl is available for downloading dependencies" 1>&2
 		exit 1
 	fi
+}
+
+have_archive_extractor() {
+	command -v 7z > /dev/null 2>&1 || command -v tar > /dev/null 2>&1
 }
 
 extract_with_progress() {
@@ -63,7 +107,11 @@ extract_with_progress() {
 
 	# Use gtar and gwc if available (for MacOS compatibility)
 	tar_exe="tar"
-	if [ -x "$(command -v gtar)" ]; then
+	if [[ -x "/c/Windows/System32/tar.exe" ]]; then
+		tar_exe="/c/Windows/System32/tar.exe"
+	elif [ -x "$(command -v tar.exe)" ]; then
+		tar_exe="tar.exe"
+	elif [ -x "$(command -v gtar)" ]; then
 		tar_exe="gtar"
 	fi
 	wc_exe="wc"
@@ -76,11 +124,21 @@ extract_with_progress() {
 	mkdir "$tmp_dir"
 
 	if [[ "$fromFile" = *.7z || "$fromFile"  = *.zip ]]; then
-		extract_cmd=( 7z x "$fromFile" -o"$tmp_dir" )
+		if command -v 7z > /dev/null 2>&1; then
+			extract_cmd=( 7z x "$fromFile" -o"$tmp_dir" )
 
-		summary="$( 7z l "$fromFile" | tail -n 1 )"
-		fromSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 4 )"
-		toSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 3 )"
+			summary="$( 7z l "$fromFile" | tail -n 1 )"
+			fromSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 4 )"
+			toSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 3 )"
+		elif command -v tar > /dev/null 2>&1; then
+			extract_cmd=( "$tar_exe" -xf "$fromFile" --directory "$tmp_dir" )
+
+			fromSize="$( stat -c '%s' "$fromFile" 2> /dev/null || echo 0 )"
+			toSize="$fromSize"
+		else
+			echo "Neither 7z nor tar is available for extracting $fromFile" 1>&2
+			exit 1
+		fi
 	else
 		# Get sizes in bytes
 		fromSize=$(xz --robot --list "$fromFile" | tail -n -1 | cut -f 4)
@@ -136,30 +194,334 @@ make_build_env_available() {
 
 	local env_dir="$MUMBLE_ENVIRONMENT_DIR"
 
-	if [[ -d "$env_dir" && -n "$( ls -A "$env_dir" )" ]]; then
+	if is_environment_ready "$env_dir"; then
 		echo "Environment is cached"
 	else
-		echo "Environment not cached -> downloading now"
+		echo "Environment not cached -> preparing now"
 
 		local env_archive="$MUMBLE_ENVIRONMENT_VERSION.$env_file_extension"
+		local env_archive_url="$MUMBLE_ENVIRONMENT_SOURCE/$env_archive"
 
-		download_file "$MUMBLE_ENVIRONMENT_SOURCE/$env_archive" "$env_archive"
+		if command -v curl > /dev/null 2>&1 && curl -I -f -L "$env_archive_url" > /dev/null 2>&1; then
+			download_file "$env_archive_url" "$env_archive"
 
-		echo "Extracting archive..."
-		if [[ ! -d "$env_dir" ]]; then
-			mkdir -p "$env_dir"
+			echo "Extracting archive..."
+			if [[ ! -d "$env_dir" ]]; then
+				mkdir -p "$env_dir"
+			fi
+
+			extract_with_progress "$env_archive" "$env_dir"
+		elif [[ "${MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP:-}" = "ON" ]]; then
+			echo "Environment archive is missing; falling back to local bootstrap."
+			ensure_build_env_repo_checkout
+			ensure_vcpkg_bootstrapped
+			install_mumble_vcpkg_dependencies "$MUMBLE_VCPKG_TRIPLET"
+		else
+			echo "Environment archive is missing and local bootstrap is disabled: $env_archive_url" 1>&2
+			exit 1
 		fi
 
-		extract_with_progress "$env_archive" "$env_dir"
-
-		if [[ ! -d "$env_dir" || -z "$( ls -A "$env_dir" )" ]]; then
+		if ! is_environment_ready "$env_dir"; then
 			echo "Environment did not follow expected form" 1>&2
 			ls -al "$env_dir"
 			exit 1
 		fi
 
-		chmod +x "$env_dir/installed/$MUMBLE_VCPKG_TRIPLET/tools/Ice/slice2cpp"
+		if [[ -f "$env_dir/installed/$MUMBLE_VCPKG_TRIPLET/tools/Ice/slice2cpp" ]]; then
+			chmod +x "$env_dir/installed/$MUMBLE_VCPKG_TRIPLET/tools/Ice/slice2cpp"
+		fi
 	fi
+}
+
+environment_has_triplet() {
+	local triplet="$1"
+
+	if [[ -z "$triplet" ]]; then
+		echo "environment_has_triplet requires a triplet" 1>&2
+		exit 1
+	fi
+
+	local triplet_dir="$MUMBLE_ENVIRONMENT_DIR/installed/$triplet"
+	[[ -d "$triplet_dir" && -n "$( ls -A "$triplet_dir" 2> /dev/null )" ]]
+}
+
+ensure_build_env_repo_checkout() {
+	local env_dir="$MUMBLE_ENVIRONMENT_DIR"
+
+	if [[ -d "$env_dir/ports" && -f "$env_dir/bootstrap-vcpkg.bat" ]]; then
+		return
+	fi
+
+	local temp_dir="${env_dir}.repo"
+	rm -rf "$temp_dir"
+	mkdir -p "$env_dir"
+
+	git clone --filter=blob:none "$MUMBLE_ENVIRONMENT_REPOSITORY" "$temp_dir"
+	git -C "$temp_dir" checkout "$MUMBLE_ENVIRONMENT_COMMIT"
+	rm -rf "$temp_dir/.git"
+
+	shopt -s dotglob nullglob
+	cp -a "$temp_dir"/* "$env_dir"/
+	shopt -u dotglob nullglob
+
+	rm -rf "$temp_dir"
+}
+
+ensure_vcpkg_bootstrapped() {
+	local env_dir="$MUMBLE_ENVIRONMENT_DIR"
+
+	if [[ -f "$env_dir/vcpkg.exe" ]]; then
+		return
+	fi
+
+	if [[ ! -f "$env_dir/bootstrap-vcpkg.bat" ]]; then
+		echo "bootstrap-vcpkg.bat not found in $env_dir" 1>&2
+		exit 1
+	fi
+
+	local env_dir_windows
+	env_dir_windows="$( cygpath -aw "$env_dir" )"
+	cmd.exe //d //c "cd /d \"$env_dir_windows\" && bootstrap-vcpkg.bat -disableMetrics"
+
+	if [[ ! -f "$env_dir/vcpkg.exe" ]]; then
+		echo "vcpkg bootstrap did not produce $env_dir/vcpkg.exe" 1>&2
+		exit 1
+	fi
+}
+
+ensure_windows_mdnsresponder_port_patch() {
+	local triplet="$1"
+
+	if [[ "$triplet" != *windows* ]]; then
+		return
+	fi
+
+	local port_dir="$MUMBLE_ENVIRONMENT_DIR/ports/mdnsresponder"
+	local portfile="$port_dir/portfile.cmake"
+	if [[ ! -f "$portfile" ]]; then
+		return
+	fi
+
+	local script_dir
+	script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+	local patch_source="$script_dir/patches/mdnsresponder-winres.patch"
+	local patch_target="$port_dir/mumble-winres.patch"
+	if [[ ! -f "$patch_source" ]]; then
+		echo "Missing mdnsresponder patch payload: $patch_source" 1>&2
+		exit 1
+	fi
+
+	cp "$patch_source" "$patch_target"
+
+	if grep -q "mumble-winres.patch" "$portfile"; then
+		return
+	fi
+
+	local temp_file="${portfile}.tmp"
+	awk '
+		{
+			print
+			if ($0 ~ /^[[:space:]]*HEAD_REF[[:space:]]+main[[:space:]]*$/) {
+				print "    PATCHES"
+				print "        mumble-winres.patch"
+			}
+		}
+	' "$portfile" > "$temp_file"
+	mv "$temp_file" "$portfile"
+}
+
+remove_tree_force() {
+	local target="$1"
+
+	if [[ -z "$target" || ! -e "$target" ]]; then
+		return
+	fi
+
+	rm -rf "$target" 2> /dev/null || true
+	if [[ ! -e "$target" ]]; then
+		return
+	fi
+
+	if [[ "$target" == *:* || "$OSTYPE" == cygwin* || "$OSTYPE" == msys* ]]; then
+		local windows_target
+		windows_target="$( cygpath -aw "$target" )"
+		if [[ -d "$target" ]]; then
+			cmd.exe //d //c "if exist \"$windows_target\" rd /s /q \"$windows_target\"" || true
+		else
+			cmd.exe //d //c "if exist \"$windows_target\" del /f /q \"$windows_target\"" || true
+		fi
+	fi
+
+	if [[ -e "$target" ]]; then
+		echo "Failed to remove stale path: $target" 1>&2
+		exit 1
+	fi
+}
+
+get_vcpkg_buildtrees_root() {
+	local triplet="${1:-}"
+
+	if [[ "$triplet" == "x64-windows" ]]; then
+		echo "$MUMBLE_ENVIRONMENT_DIR/bt"
+	else
+		echo "$MUMBLE_ENVIRONMENT_DIR/buildtrees"
+	fi
+}
+
+qt_source_dir_missing_cmakelists() {
+	local package_name="$1"
+	local triplet="${2:-x64-windows}"
+	local buildtree_dir="$( get_vcpkg_buildtrees_root "$triplet" )/$package_name"
+	local source_root="$buildtree_dir/src"
+
+	if [[ ! -d "$source_root" ]]; then
+		return 1
+	fi
+
+	local clean_dir=""
+	while IFS= read -r candidate; do
+		clean_dir="$candidate"
+		break
+	done < <(
+		find "$source_root" -maxdepth 1 -mindepth 1 -type d \( -name 'here-src-*.clean' -o -name 'here-src-*.clean.tmp' \) 2> /dev/null | sort
+	)
+
+	if [[ -z "$clean_dir" ]]; then
+		return 1
+	fi
+
+	[[ ! -f "$clean_dir/CMakeLists.txt" ]]
+}
+
+clean_qt_package_state() {
+	local package_name="$1"
+	local triplet="$2"
+	local buildtree_dir="$( get_vcpkg_buildtrees_root "$triplet" )/$package_name"
+	local package_dir="$MUMBLE_ENVIRONMENT_DIR/packages/${package_name}_${triplet}"
+
+	echo "Cleaning malformed Qt package state for $package_name ($triplet)"
+	remove_tree_force "$buildtree_dir"
+	remove_tree_force "$package_dir"
+}
+
+repair_malformed_qt_package_state() {
+	local triplet="$1"
+	local repaired=1
+
+	for package_name in qtdeclarative qtwebchannel qtwebengine; do
+		if qt_source_dir_missing_cmakelists "$package_name" "$triplet"; then
+			clean_qt_package_state "$package_name" "$triplet"
+			repaired=0
+		fi
+	done
+
+	return "$repaired"
+}
+
+report_malformed_qt_package_state() {
+	local triplet="$1"
+	local found=1
+
+	for package_name in qtdeclarative qtwebchannel qtwebengine; do
+		if qt_source_dir_missing_cmakelists "$package_name" "$triplet"; then
+			local buildtree_dir="$( get_vcpkg_buildtrees_root "$triplet" )/$package_name"
+			local log_candidates=(
+				"$buildtree_dir/error-logs-$triplet.txt"
+				"$buildtree_dir/config-$triplet-out.log"
+				"$buildtree_dir/stdout-$triplet.log"
+			)
+			local log_path=""
+			for candidate in "${log_candidates[@]}"; do
+				if [[ -f "$candidate" ]]; then
+					log_path="$candidate"
+					break
+				fi
+			done
+
+			echo "Detected malformed Qt package source state for $package_name in $buildtree_dir/src (*.clean or *.clean.tmp missing CMakeLists.txt)." 1>&2
+			if [[ -n "$log_path" ]]; then
+				echo "Relevant log: $log_path" 1>&2
+			fi
+			found=0
+		fi
+	done
+
+	return "$found"
+}
+
+install_mumble_vcpkg_dependencies() {
+	local triplet="$1"
+	local dependency_file="$MUMBLE_ENVIRONMENT_DIR/mumble_dependencies.txt"
+
+	if [[ -z "$triplet" ]]; then
+		echo "install_mumble_vcpkg_dependencies requires a triplet" 1>&2
+		exit 1
+	fi
+
+	if [[ ! -f "$dependency_file" ]]; then
+		echo "Missing dependency file: $dependency_file" 1>&2
+		exit 1
+	fi
+
+	mapfile -t raw_dependencies < <( grep -vE '^[[:space:]]*(#|$)' "$dependency_file" )
+	declare -A seen_dependencies=()
+	dependencies=()
+
+	for dependency in "${raw_dependencies[@]}"; do
+		dependency="$( sed 's/[[:space:]]*#.*$//' <<< "$dependency" | xargs )"
+		if [[ -z "$dependency" || -n "${seen_dependencies[$dependency]:-}" ]]; then
+			continue
+		fi
+
+		dependencies+=( "$dependency" )
+		seen_dependencies["$dependency"]=1
+	done
+
+	if [[ "$triplet" == *windows* && -z "${seen_dependencies[mdnsresponder]:-}" ]]; then
+		dependencies+=( "mdnsresponder" )
+		seen_dependencies["mdnsresponder"]=1
+	fi
+
+	for shared_dependency in qtwebchannel "qtwebengine[webengine,webchannel]"; do
+		if [[ "$triplet" == "x64-windows" && -z "${seen_dependencies[$shared_dependency]:-}" ]]; then
+			dependencies+=( "$shared_dependency" )
+			seen_dependencies["$shared_dependency"]=1
+		fi
+	done
+
+	ensure_windows_mdnsresponder_port_patch "$triplet"
+
+	local retried_qt_state=0
+	local -a vcpkg_install_args=( install --triplet "$triplet" )
+	if [[ "$triplet" == "x64-windows" ]]; then
+		local short_buildtrees_root="$( get_vcpkg_buildtrees_root "$triplet" )"
+		mkdir -p "$short_buildtrees_root"
+		vcpkg_install_args+=( --x-buildtrees-root="$short_buildtrees_root" )
+	fi
+	while true; do
+		if [[ "$triplet" == "x64-windows" ]]; then
+			repair_malformed_qt_package_state "$triplet" || true
+		fi
+
+		if "$MUMBLE_ENVIRONMENT_DIR/vcpkg.exe" "${vcpkg_install_args[@]}" "${dependencies[@]}"; then
+			return
+		fi
+
+		if [[ "$triplet" == "x64-windows" && "$retried_qt_state" -eq 0 ]]; then
+			if repair_malformed_qt_package_state "$triplet"; then
+				echo "Detected malformed Qt package state after shared dependency failure; cleaned affected package state and retrying once."
+				retried_qt_state=1
+				continue
+			fi
+		fi
+
+		if [[ "$triplet" == "x64-windows" ]]; then
+			report_malformed_qt_package_state "$triplet" || true
+		fi
+
+		return 1
+	done
 }
 
 configure_database_tables() {

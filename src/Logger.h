@@ -18,6 +18,7 @@ namespace log {
 
 	void init(spdlog::level::level_enum logLevel = spdlog::level::trace);
 	void addSink(std::shared_ptr< spdlog::sinks::sink > sink);
+	void restoreQtMessageHandler();
 
 	template< typename... Args > static void inline trace(spdlog::format_string_t< Args... > fmt, Args &&... args) {
 		spdlog::trace(fmt, std::forward< Args >(args)...);

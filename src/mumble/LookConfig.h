@@ -23,6 +23,8 @@ private:
 	Q_OBJECT
 	Q_DISABLE_COPY(LookConfig)
 	std::optional< QColor > selectedBackgroundColor;
+	Settings::WindowLayout m_loadedWindowLayout = Settings::LayoutHybrid;
+	bool m_loadedAutoSwitchModernOnCompatibleServers = true;
 
 public:
 	/// The unique name of this ConfigWidget

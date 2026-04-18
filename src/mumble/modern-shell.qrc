@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/modern-shell">
+        <file alias="index.html">modern-shell/index.html</file>
+        <file alias="styles.css">modern-shell/styles.css</file>
+        <file alias="app.js">modern-shell/app.js</file>
+    </qresource>
+</RCC>

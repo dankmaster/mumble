@@ -172,6 +172,10 @@
 	PROCESS(ui, WINDOW_GEOMETRY_MINIMAL_VIEW_KEY, qbaMinimalViewGeometry)        \
 	PROCESS(ui, WINDOW_STATE_KEY, qbaMainWindowState)                            \
 	PROCESS(ui, WINDOW_STATE_MINIMAL_VIEW_KEY, qbaMinimalViewState)              \
+	PROCESS(ui, MODERN_WINDOW_GEOMETRY_KEY, qbaModernMainWindowGeometry)         \
+	PROCESS(ui, MODERN_MINIMAL_VIEW_GEOMETRY_KEY, qbaModernMinimalViewGeometry)  \
+	PROCESS(ui, MODERN_WINDOW_STATE_KEY, qbaModernMainWindowState)               \
+	PROCESS(ui, MODERN_MINIMAL_VIEW_STATE_KEY, qbaModernMinimalViewState)        \
 	PROCESS(ui, CONFIG_GEOMETRY_KEY, qbaConfigGeometry)                          \
 	PROCESS(ui, WINDOW_LAYOUT_KEY, wlWindowLayout)                               \
 	PROCESS(ui, SERVER_FILTER_MODE_KEY, ssFilter)                                \
@@ -182,6 +186,7 @@
 	PROCESS(ui, DISPLAY_VOLUME_ADJUSTMENTS_KEY, bShowVolumeAdjustments)          \
 	PROCESS(ui, DISPLAY_NICKNAMES_ONLY_KEY, bShowNicknamesOnly)                  \
 	PROCESS(ui, SELECTED_ITEM_AS_CHATBAR_TARGET_KEY, bChatBarUseSelection)       \
+	PROCESS(ui, AUTO_SWITCH_MODERN_LAYOUT_KEY, bAutoSwitchModernOnCompatibleServers) \
 	PROCESS(ui, PRESENCE_IDLE_TIMEOUT_MINUTES_KEY, iPresenceIdleTimeoutMinutes)  \
 	PROCESS(ui, FILTER_HIDES_EMPTY_CHANNEL_KEY, bFilterHidesEmptyChannels)       \
 	PROCESS(ui, FILTER_ACTIVE_KEY, bFilterActive)                                \

@@ -285,7 +285,7 @@ endif()
 
 install(TARGETS mumble-server RUNTIME DESTINATION "${MUMBLE_INSTALL_EXECUTABLEDIR}" COMPONENT mumble_server)
 
-if(packaging)
+if(packaging AND NOT modern-layout-webengine)
 	if(WIN32)
 		if(translations)
 			list(APPEND installer_vars "--all-languages")

@@ -11,6 +11,7 @@
 #include <QtCore/QHash>
 #include <QtCore/QSet>
 #include <QtCore/QStringList>
+#include <QtCore/QVariant>
 #include <QtGui/QImage>
 #include <QtNetwork/QAbstractSocket>
 #include <QtWidgets/QMainWindow>
@@ -53,6 +54,9 @@ class PersistentChatGateway;
 class PersistentChatController;
 class PersistentChatHistoryModel;
 class PersistentChatHistoryDelegate;
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+class ModernShellHost;
+#endif
 class QAction;
 class QFrame;
 class QLabel;
@@ -175,6 +179,14 @@ public:
 	QPair< QByteArray, QImage > openImageFile();
 	void setupPersistentChatDock();
 	void setupServerNavigator();
+	Settings::WindowLayout effectiveWindowLayout() const;
+	bool usesModernShell() const;
+	void refreshShellLayout();
+	void applyShellLayout();
+	void activateLegacyShell();
+	void activateModernShell();
+	void queueModernShellSnapshotSync();
+	void syncModernShellSnapshot();
 	void updateServerNavigatorChrome();
 	void syncServerNavigatorUserMenu();
 	void positionServerNavigatorUserMenu();
@@ -308,10 +320,28 @@ public:
 	void handlePersistentChatHistory(const MumbleProto::ChatHistoryResponse &msg);
 	void handlePersistentChatReadState(const MumbleProto::ChatReadStateUpdate &msg);
 	void handlePersistentChatEmbedState(const MumbleProto::ChatEmbedState &msg);
+	bool canSendToPersistentChatTarget(const PersistentChatTarget &target, bool requestPermissions) const;
 	void syncPersistentChatInputState(bool baseEnabled);
+	void attachPersistentChatImages(const QList< QUrl > &urls);
+	void openPersistentChatImagePicker();
+	void cachePersistentChatChannelSelection(const QListWidgetItem *item);
+	void clearPersistentChatChannelSelection();
+	QListWidgetItem *findPersistentChatChannelItem(int scopeValue, unsigned int scopeID) const;
+	QList< QListWidgetItem * > persistentChatChannelListSelectedItems() const;
+	QListWidgetItem *persistentChatChannelListCurrentItem();
+	const QListWidgetItem *persistentChatChannelListCurrentItem() const;
 	bool markPersistentChatRead(bool rerender = true, bool willScrollToBottom = false);
 	void updatePersistentChatChrome(const PersistentChatTarget &target);
 	void updatePersistentChatSendButton();
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	QVariantMap buildModernShellSnapshot();
+	bool handleModernShellScopeSelection(const QString &scopeToken);
+	bool handleModernShellVoiceJoin(const QString &scopeToken);
+	bool handleModernShellParticipantMessage(qulonglong session);
+	bool handleModernShellParticipantJoin(qulonglong session);
+	bool handleModernShellParticipantAction(qulonglong session, const QString &actionId);
+	bool handleModernShellAppAction(const QString &actionId);
+#endif
 	void updateChatBar(bool forcePersistentChatReload = false);
 	void openTextMessageDialog(ClientUser *p);
 	void openUserLocalNicknameDialog(const ClientUser &p);
@@ -391,6 +421,8 @@ protected:
 	QLabel *m_serverNavigatorFooterPresence = nullptr;
 	QPointer< QWidget > m_serverNavigatorUserMenuPopup;
 	QWidget *m_persistentChatContainer = nullptr;
+	QWidget *m_logSurface = nullptr;
+	QWidget *m_persistentChatComposerInputRow = nullptr;
 	QFrame *m_persistentChatHeaderFrame = nullptr;
 	QLabel *m_persistentChatHeaderEyebrow = nullptr;
 	QLabel *m_persistentChatHeaderTitle = nullptr;
@@ -423,6 +455,8 @@ protected:
 	bool m_persistentChatMotdHidden = false;
 	bool m_hasPersistentChatSupport = false;
 	bool m_persistentChatTargetUsesVoiceTree = false;
+	std::optional< int > m_persistentChatSelectedScopeValue;
+	unsigned int m_persistentChatSelectedScopeID = 0;
 	unsigned int m_defaultPersistentTextChannelID = 0;
 	QHash< unsigned int, PersistentTextChannel > m_persistentTextChannels;
 	QHash< unsigned int, unsigned int > m_userIdleSeconds;
@@ -452,13 +486,22 @@ protected:
 	QString m_persistentChatPendingAnchorRowId;
 	int m_persistentChatPendingAnchorOffset    = 0;
 	std::optional< MumbleProto::ChatMessage > m_pendingPersistentChatReply;
+	QTimer *m_modernShellSyncTimer             = nullptr;
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	ModernShellHost *m_modernShellHost         = nullptr;
+#endif
+	bool m_shellLayoutInitialized            = false;
+	Settings::WindowLayout m_activeShellLayout = Settings::LayoutModern;
+	bool m_modernLayoutCompatibleServer      = false;
+	bool m_modernShellRuntimeDisabled        = false;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
 
-	static constexpr int stateVersion();
+	static constexpr int stateVersion(bool modernShell);
 
 	void createActions();
+	void handleModernShellBootFailure(const QString &reason);
 	void setupGui();
 	void updateWindowTitle();
 	/// updateToolbar updates the state of the toolbar depending on the current

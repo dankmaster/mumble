@@ -26,6 +26,7 @@ option(bundled-rnnoise "Build the included version of RNNoise instead of looking
 option(dtln "Use DTLN for machine learning speech cleanup." OFF)
 option(deepfilternet "Use DeepFilterNet for machine learning speech cleanup." OFF)
 option(webrtc-aec "Expose WebRTC AEC as an experimental echo cancellation option." OFF)
+option(modern-layout-webengine "Enable the Qt WebEngine-based relay runtime." OFF)
 
 option(manual-plugin "Include the built-in \"manual\" positional audio plugin." ON)
 
@@ -85,6 +86,15 @@ find_pkg(Qt6
 		Widgets
 	REQUIRED
 )
+
+if(modern-layout-webengine)
+	find_pkg(Qt6
+		COMPONENTS
+			WebChannel
+			WebEngineWidgets
+		REQUIRED
+	)
+endif()
 
 set(MUMBLE_SOURCES
 	"About.cpp"
@@ -380,6 +390,25 @@ set(MUMBLE_SOURCES
 	"${CMAKE_SOURCE_DIR}/themes/CatppuccinTheme.qrc"
 )
 
+if(modern-layout-webengine)
+	list(APPEND MUMBLE_SOURCES
+		"ModernShellBridge.cpp"
+		"ModernShellBridge.h"
+		"ModernShellHost.cpp"
+		"ModernShellHost.h"
+		"ModernShellPage.cpp"
+		"ModernShellPage.h"
+		"RelayWebPage.cpp"
+		"RelayWebPage.h"
+		"RelayWindowBridge.cpp"
+		"RelayWindowBridge.h"
+		"RelayWindowHost.cpp"
+		"RelayWindowHost.h"
+		"modern-shell.qrc"
+		"relay-webapp.qrc"
+	)
+endif()
+
 add_library(smallft STATIC "${3RDPARTY_DIR}/smallft/smallft.cpp")
 target_include_directories(smallft PUBLIC "${3RDPARTY_DIR}/smallft")
 target_disable_warnings(smallft)
@@ -617,6 +646,20 @@ target_link_libraries(mumble_client_object_lib
 		Qt6::Widgets
 )
 
+if(modern-layout-webengine)
+	target_compile_definitions(mumble_client_object_lib PUBLIC MUMBLE_HAS_MODERN_LAYOUT)
+	target_link_libraries(mumble_client_object_lib
+		PUBLIC
+			Qt6::WebChannel
+			Qt6::WebEngineWidgets
+	)
+	target_link_libraries(mumble
+		PRIVATE
+			Qt6::WebChannel
+			Qt6::WebEngineWidgets
+	)
+endif()
+
 if(static)
 	if(TARGET Qt6::QSQLiteDriverPlugin)
 		include_qt_plugin(mumble_client_object_lib PRIVATE "QSQLiteDriverPlugin")
@@ -699,7 +742,9 @@ if(WIN32)
 
 	target_link_libraries(mumble_client_object_lib
 		PUBLIC
+			crypt32.lib
 			dbghelp.lib
+			dnsapi.lib
 			dxguid.lib
 			hid.lib
 			wintrust.lib
@@ -1361,7 +1406,7 @@ target_include_directories(${TARGET_NAME} INTERFACE
   $<BUILD_INTERFACE:${AUTOGEN_INCLUDE_DIR}>
 )
 
-if(packaging AND WIN32)
+if(packaging AND WIN32 AND NOT modern-layout-webengine)
 	set(overlay ON)
 	set(plugins ON)
 

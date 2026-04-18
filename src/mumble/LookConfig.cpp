@@ -80,6 +80,14 @@ LookConfig::LookConfig(Settings &st) : ConfigWidget(st) {
 	qcbPresenceIdleTimeout->addItem(tr("30 min"), 30);
 	qcbPresenceIdleTimeout->addItem(tr("Never"), 0);
 
+#if !defined(MUMBLE_HAS_MODERN_LAYOUT)
+	const QString modernLayoutUnavailableText = tr("Requires a WebEngine-enabled Windows build.");
+	qrbLModern->setEnabled(false);
+	qrbLModern->setToolTip(modernLayoutUnavailableText);
+	qcbAutoSwitchModernOnCompatibleServers->setEnabled(false);
+	qcbAutoSwitchModernOnCompatibleServers->setToolTip(modernLayoutUnavailableText);
+#endif
+
 	connect(qrbLCustom, SIGNAL(toggled(bool)), qcbLockLayout, SLOT(setEnabled(bool)));
 	connect(qbClearBackgroundColor, &QPushButton::clicked, this, &LookConfig::talkinguiBackgroundCleared);
 	connect(qbBackgroundColor, &QPushButton::clicked, this, &LookConfig::qbBackgroundColor_clicked);
@@ -199,13 +207,23 @@ void LookConfig::reloadThemes() {
 }
 
 void LookConfig::load(const Settings &r) {
+	m_loadedWindowLayout = r.wlWindowLayout;
+	m_loadedAutoSwitchModernOnCompatibleServers = r.bAutoSwitchModernOnCompatibleServers;
+
+	const Settings::WindowLayout effectiveLayout =
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+		r.wlWindowLayout;
+#else
+		r.wlWindowLayout == Settings::LayoutModern ? Settings::LayoutHybrid : r.wlWindowLayout;
+#endif
+
 	loadComboBox(qcbLanguage, 0);
 	loadComboBox(qcbChannelDrag, 0);
 	loadComboBox(qcbUserDrag, 0);
 
 	setStyleType(r.styleType);
 	// Load Layout checkbox state
-	switch (r.wlWindowLayout) {
+	switch (effectiveLayout) {
 		case Settings::LayoutClassic:
 			qrbLClassic->setChecked(true);
 			break;
@@ -216,12 +234,16 @@ void LookConfig::load(const Settings &r) {
 			qrbLHybrid->setChecked(true);
 			break;
 		case Settings::LayoutCustom:
+			qrbLCustom->setChecked(true);
+			break;
+		case Settings::LayoutModern:
+			qrbLModern->setChecked(true);
+			break;
 		default:
-			s.wlWindowLayout = Settings::LayoutCustom;
 			qrbLCustom->setChecked(true);
 			break;
 	}
-	qcbLockLayout->setEnabled(r.wlWindowLayout == Settings::LayoutCustom);
+	qcbLockLayout->setEnabled(effectiveLayout == Settings::LayoutCustom);
 
 
 	for (int i = 0; i < qcbLanguage->count(); i++) {
@@ -251,6 +273,9 @@ void LookConfig::load(const Settings &r) {
 	loadCheckBox(qcbShowTransmitModeComboBox, r.bShowTransmitModeComboBox);
 	loadCheckBox(qcbHighContrast, r.bHighContrast);
 	loadCheckBox(qcbChatBarUseSelection, r.bChatBarUseSelection);
+	loadCheckBox(qcbAutoSwitchModernOnCompatibleServers,
+				 r.bAutoSwitchModernOnCompatibleServers
+	);
 	loadCheckBox(qcbFilterHidesEmptyChannels, r.bFilterHidesEmptyChannels);
 	bool loadedPresenceIdleTimeout = false;
 	for (int i = 0; i < qcbPresenceIdleTimeout->count(); ++i) {
@@ -310,7 +335,16 @@ void LookConfig::save() const {
 	} else if (qrbLStacked->isChecked()) {
 		s.wlWindowLayout = Settings::LayoutStacked;
 	} else if (qrbLHybrid->isChecked()) {
+#if !defined(MUMBLE_HAS_MODERN_LAYOUT)
+		s.wlWindowLayout =
+			m_loadedWindowLayout == Settings::LayoutModern ? Settings::LayoutModern : Settings::LayoutHybrid;
+#else
 		s.wlWindowLayout = Settings::LayoutHybrid;
+#endif
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	} else if (qrbLModern->isChecked()) {
+		s.wlWindowLayout = Settings::LayoutModern;
+#endif
 	} else {
 		s.wlWindowLayout = Settings::LayoutCustom;
 	}
@@ -337,6 +371,12 @@ void LookConfig::save() const {
 	s.bShowTransmitModeComboBox = qcbShowTransmitModeComboBox->isChecked();
 	s.bHighContrast             = qcbHighContrast->isChecked();
 	s.bChatBarUseSelection      = qcbChatBarUseSelection->isChecked();
+	s.bAutoSwitchModernOnCompatibleServers =
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+		qcbAutoSwitchModernOnCompatibleServers->isChecked();
+#else
+		m_loadedAutoSwitchModernOnCompatibleServers;
+#endif
 	s.iPresenceIdleTimeoutMinutes = qcbPresenceIdleTimeout->currentData().toInt();
 	s.bFilterHidesEmptyChannels = qcbFilterHidesEmptyChannels->isChecked();
 
@@ -382,8 +422,7 @@ void LookConfig::save() const {
 }
 
 void LookConfig::accept() const {
-	Global::get().mw->setShowDockTitleBars((Global::get().s.wlWindowLayout == Settings::LayoutCustom)
-										   && !Global::get().s.bLockLayout);
+	Global::get().mw->refreshShellLayout();
 	Global::get().mw->refreshUserPresenceStats();
 	if (Global::get().mw->pmModel) {
 		Global::get().mw->pmModel->forceVisualUpdate();

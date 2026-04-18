@@ -87,3 +87,10 @@ Notes for local use:
   you explicitly need the MSI installer output.
 - It skips local MySQL setup because that workflow has tests disabled.
 - Artifacts are written into the repo's `build\` directory.
+- Shared/WebEngine builds no longer require a published
+  `mumble_env.x64-windows.*.7z` release asset. If that archive is missing, the
+  dependency installer now clones the pinned `mumble-voip/vcpkg` repo, bootstraps
+  `vcpkg.exe`, and installs the `x64-windows` dependency set locally.
+- Expect that first shared/WebEngine dependency bootstrap to be heavy. The full
+  Windows vcpkg environment is typically tens of GB on disk and Qt WebEngine
+  builds can take a long time on a fresh machine.

@@ -21,6 +21,12 @@ echo "Installing dependencies for $os ($dep_type) - $arch"
 
 script_dir=$(dirname "$0")
 script_name="install_${os}_${dep_type}_${arch}.sh"
+script_path="$script_dir/$script_name"
+
+if [[ ! -f "$script_path" ]]; then
+	echo "No dependency installer is defined for $os ($dep_type) - $arch" 1>&2
+	exit 1
+fi
 
 # Execute respective script
-"$script_dir/$script_name"
+"$script_path"

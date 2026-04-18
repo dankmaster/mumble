@@ -209,7 +209,7 @@ struct Settings {
 		LogHighlight    = 0x10,
 		LogMessageLimit = 0x20,
 	};
-	enum WindowLayout { LayoutClassic, LayoutStacked, LayoutHybrid, LayoutCustom };
+	enum WindowLayout { LayoutClassic, LayoutStacked, LayoutHybrid, LayoutCustom, LayoutModern };
 	enum AlwaysOnTopBehaviour { OnTopNever, OnTopAlways, OnTopInMinimal, OnTopInNormal };
 	enum ProxyType { NoProxy, HttpProxy, Socks5Proxy };
 	enum RecordingMode {
@@ -430,6 +430,10 @@ struct Settings {
 	QByteArray qbaMainWindowState        = {};
 	QByteArray qbaMinimalViewGeometry    = {};
 	QByteArray qbaMinimalViewState       = {};
+	QByteArray qbaModernMainWindowGeometry  = {};
+	QByteArray qbaModernMainWindowState     = {};
+	QByteArray qbaModernMinimalViewGeometry = {};
+	QByteArray qbaModernMinimalViewState    = {};
 	QByteArray qbaConfigGeometry         = {};
 	WindowLayout wlWindowLayout          = LayoutHybrid;
 	ChannelExpand ceExpand               = ChannelsWithUsers;
@@ -441,6 +445,7 @@ struct Settings {
 	QuitBehavior quitBehavior            = QuitBehavior::ALWAYS_ASK;
 	bool bEnableDeveloperMenu            = false;
 	bool bLockLayout                     = false;
+	bool bAutoSwitchModernOnCompatibleServers = true;
 	bool bHideInTray                     = false;
 	bool bStateInTray                    = true;
 	bool bUsage                          = false;

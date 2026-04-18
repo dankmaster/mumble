@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/relay-webapp">
+        <file alias="index.html">../../relay-webapp/index.html</file>
+        <file alias="styles.css">../../relay-webapp/styles.css</file>
+        <file alias="relay-app.js">../../relay-webapp/relay-app.js</file>
+        <file alias="vendor/livekit-client.umd.min.js">../../relay-webapp/vendor/livekit-client.umd.min.js</file>
+    </qresource>
+</RCC>

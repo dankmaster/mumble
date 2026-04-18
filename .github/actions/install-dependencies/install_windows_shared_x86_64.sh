@@ -7,12 +7,37 @@ source "$( dirname "$0" )/common.sh"
 
 verify_required_env_variables_set
 
-if ! have_archive_extractor; then
-	echo "A local archive extractor is required for the Windows dependency bootstrap (7z or tar)." 1>&2
-	exit 1
+shared_environment_has_webengine_runtime() {
+	local triplet_dir="$MUMBLE_ENVIRONMENT_DIR/installed/x64-windows"
+	local webengine_targets_file="$triplet_dir/share/Qt6WebEngineCore/Qt6WebEngineCoreTargets.cmake"
+
+	[[ -f "$MUMBLE_ENVIRONMENT_DIR/vcpkg.exe" ]] \
+		&& [[ -f "$MUMBLE_ENVIRONMENT_DIR/scripts/buildsystems/vcpkg.cmake" ]] \
+		&& [[ -d "$triplet_dir/share/Qt6WebChannel" ]] \
+		&& [[ -d "$triplet_dir/share/Qt6WebEngineWidgets" ]] \
+		&& [[ -f "$webengine_targets_file" ]] \
+		&& ! grep -q 'QT_DISABLED_PUBLIC_FEATURES ".*webengine_webchannel' "$webengine_targets_file" \
+		&& [[ -f "$triplet_dir/tools/Qt6/bin/windeployqt.exe" ]]
+}
+
+if have_archive_extractor; then
+	archive_url="$MUMBLE_ENVIRONMENT_SOURCE/$MUMBLE_ENVIRONMENT_VERSION.7z"
+	if remote_file_exists "$archive_url"; then
+		make_build_env_available "7z"
+	fi
 fi
 
-make_build_env_available "7z"
+if ! shared_environment_has_webengine_runtime; then
+	ensure_build_env_repo_checkout
+	ensure_vcpkg_bootstrapped
+	install_mumble_vcpkg_dependencies "x64-windows"
+fi
+
+if ! environment_has_triplet "x86-windows"; then
+	ensure_build_env_repo_checkout
+	ensure_vcpkg_bootstrapped
+	"$MUMBLE_ENVIRONMENT_DIR/vcpkg.exe" install --triplet "x86-windows" boost
+fi
 
 rm -rf "${GITHUB_WORKSPACE}/3rdparty/asio"
 download_file "https://dl.mumble.info/build/extra/asio_sdk.zip" "asio_sdk.zip"
@@ -34,20 +59,17 @@ if [[ ! -d "C:/vcvars-bash/.git" ]]; then
 	git clone "https://github.com/nathan818fr/vcvars-bash.git" "C:/vcvars-bash"
 fi
 
-
 if [[ "${MUMBLE_SKIP_DATABASE_SETUP:-}" = "ON" ]]; then
 	echo "Skipping local database setup for Windows dependencies"
 	exit 0
 fi
 
-# Configure database tables for Mumble tests
 echo -e "[mysqld]\nlog-bin-trust-function-creators = 1" >> "C:/Windows/my.ini"
 
 mysqld --initialize-insecure --console
 
 powershell -Command "Start-Process mysqld"
 
-# Give the MySQL daemon some time to start up
 sleep 5
 
 configure_database_tables "mysql"

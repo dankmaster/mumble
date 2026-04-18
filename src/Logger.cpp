@@ -8,6 +8,7 @@
 #include <QString>
 #include <QtGlobal>
 
+#include <atomic>
 #include <cstdlib>
 
 #include <spdlog/sinks/dup_filter_sink.h>
@@ -25,27 +26,55 @@ using DebuggerSink = spdlog::sinks::msvc_sink_st;
 using namespace mumble;
 
 static std::shared_ptr< MasterSink > masterSink;
+static QtMessageHandler previousQtMessageHandler = nullptr;
+static std::atomic_bool qtMessageHandlerEnabled = false;
 
-static void qtMessageHandler(const QtMsgType type, const QMessageLogContext &, const QString &msg) {
-	switch (type) {
-		default:
-			log::trace("{}", qPrintable(msg));
-			break;
-		case QtDebugMsg:
-			log::debug("{}", qPrintable(msg));
-			break;
-		case QtInfoMsg:
-			log::info("{}", qPrintable(msg));
-			break;
-		case QtWarningMsg:
-			log::warn("{}", qPrintable(msg));
-			break;
-		case QtCriticalMsg:
-			log::error("{}", qPrintable(msg));
-			break;
-		case QtFatalMsg:
-			log::fatal("{}", qPrintable(msg));
-			break;
+namespace {
+	std::shared_ptr< spdlog::logger > &qtMessageLogger() {
+		// Keep the logger alive for the lifetime of the process so late Qt messages
+		// cannot call through spdlog's raw default-logger pointer after registry teardown.
+		static auto *logger = new std::shared_ptr< spdlog::logger >();
+		return *logger;
+	}
+
+	spdlog::level::level_enum toSpdlogLevel(const QtMsgType type) {
+		switch (type) {
+			default:
+				return spdlog::level::trace;
+			case QtDebugMsg:
+				return spdlog::level::debug;
+			case QtInfoMsg:
+				return spdlog::level::info;
+			case QtWarningMsg:
+				return spdlog::level::warn;
+			case QtCriticalMsg:
+			case QtFatalMsg:
+				return spdlog::level::err;
+		}
+	}
+} // namespace
+
+static void qtMessageHandler(const QtMsgType type, const QMessageLogContext &context, const QString &msg) {
+	const QByteArray localMessage = msg.toLocal8Bit();
+	if (!qtMessageHandlerEnabled.load(std::memory_order_acquire)) {
+		if (previousQtMessageHandler) {
+			previousQtMessageHandler(type, context, msg);
+		}
+		return;
+	}
+
+	const std::shared_ptr< spdlog::logger > logger = qtMessageLogger();
+	if (!logger) {
+		if (previousQtMessageHandler) {
+			previousQtMessageHandler(type, context, msg);
+		}
+		return;
+	}
+
+	logger->log(spdlog::source_loc {}, toSpdlogLevel(type), "{}", localMessage.constData());
+	if (type == QtFatalMsg) {
+		logger->flush();
+		std::abort();
 	}
 }
 
@@ -72,7 +101,14 @@ void log::init(spdlog::level::level_enum logLevel) {
 
 	logger->set_level(logLevel);
 
+	qtMessageLogger() = logger;
 	set_default_logger(std::move(logger));
 
-	qInstallMessageHandler(qtMessageHandler);
+	previousQtMessageHandler = qInstallMessageHandler(qtMessageHandler);
+	qtMessageHandlerEnabled.store(true, std::memory_order_release);
+}
+
+void log::restoreQtMessageHandler() {
+	qtMessageHandlerEnabled.store(false, std::memory_order_release);
+	qInstallMessageHandler(previousQtMessageHandler);
 }

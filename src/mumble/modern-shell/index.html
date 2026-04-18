@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Mumble Modern Layout</title>
+	<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+	<div class="app-shell">
+		<header class="modern-header">
+			<div class="window-band">
+				<div class="brand-cluster">
+					<div class="brand-badge">Modern</div>
+					<div class="brand-copy">
+						<p id="brand-title" class="brand-title">Mumble</p>
+						<p id="brand-subtitle" class="brand-subtitle">Room-first shell</p>
+					</div>
+				</div>
+				<div class="window-pills">
+					<span id="layout-pill" class="state-pill">Modern</span>
+					<span id="connection-pill" class="state-pill">Disconnected</span>
+					<span id="compat-pill" class="state-pill">Standard server</span>
+				</div>
+				<div class="window-actions">
+					<button id="connect-button" class="icon-button" type="button" title="Connect" aria-label="Connect">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M9 12l2 2 4-4"></path></svg>
+					</button>
+					<button id="mute-button" class="icon-button" type="button" title="Toggle mute" aria-label="Toggle mute">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path></svg>
+					</button>
+					<button id="deaf-button" class="icon-button" type="button" title="Toggle deafen" aria-label="Toggle deafen">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M16 9l5 5"></path><path d="M21 9l-5 5"></path></svg>
+					</button>
+					<button id="disconnect-button" class="icon-button" type="button" title="Disconnect" aria-label="Disconnect">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path><circle cx="12" cy="12" r="9"></circle></svg>
+					</button>
+					<button id="settings-button" class="icon-button" type="button" title="Settings" aria-label="Settings">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 01-2.8-2.8l.1-.1A1.6 1.6 0 004.6 15a1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 012.8-2.8l.1.1A1.6 1.6 0 009 4.6a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0019.4 9a1.6 1.6 0 001.5 1h.1a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"></path></svg>
+					</button>
+					<button id="rail-toggle-button" class="chip-button rail-toggle-button" type="button">Rooms</button>
+				</div>
+			</div>
+			<div class="menu-band">
+				<nav id="menu-bar" class="menu-bar" aria-label="Modern menu"></nav>
+			</div>
+		</header>
+
+		<div class="shell-frame">
+			<section class="conversation-pane">
+				<header class="conversation-header">
+					<div class="scope-copy">
+						<p id="server-eyebrow" class="eyebrow">Mumble</p>
+						<h1 id="scope-title" class="scope-title">Modern Layout</h1>
+						<p id="scope-description" class="scope-description">Waiting for bridge state.</p>
+					</div>
+					<div class="scope-sidecar">
+						<div id="voice-presence-stack" class="presence-stack"></div>
+						<div id="conversation-meta" class="meta-row"></div>
+						<div class="conversation-actions">
+							<button id="load-older-button" class="chip-button" type="button">Load older</button>
+							<button id="mark-read-button" class="chip-button" type="button">Mark read</button>
+						</div>
+					</div>
+				</header>
+
+				<div id="scope-banner" class="banner hidden"></div>
+				<div id="message-list" class="message-list">
+					<div class="empty-state">
+						<h2>Waiting for data</h2>
+						<p>The Modern layout will populate once the client pushes its current state.</p>
+					</div>
+				</div>
+				<button id="jump-latest-button" class="chip-button jump-latest-button hidden" type="button">Jump to latest</button>
+				<form id="composer-form" class="composer-bar">
+					<div class="composer-shell">
+						<textarea id="composer-input" rows="1" placeholder="Write a message"></textarea>
+						<div class="composer-actions">
+							<span id="composer-hint" class="composer-hint">Persistent room history stays with the selected room.</span>
+							<button id="attach-button" class="icon-button composer-attach-button" type="button" title="Attach image" aria-label="Attach image">
+								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5l-7.8 7.8a3 3 0 104.2 4.2l8.2-8.2a5 5 0 10-7.1-7.1L5.6 11.6"></path></svg>
+							</button>
+							<button id="send-button" class="icon-button send-button" type="submit" title="Send" aria-label="Send">
+								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"></path><path d="M22 2L15 22l-4-9-9-4z"></path></svg>
+							</button>
+						</div>
+					</div>
+				</form>
+			</section>
+
+			<aside class="utility-rail">
+				<div class="utility-scroll">
+					<section class="utility-card note-card">
+						<div class="section-heading">
+							<span class="section-label">Server note</span>
+							<button id="note-toggle-button" class="linkish-button" type="button">Open</button>
+						</div>
+						<p id="server-title" class="note-title">Modern Layout</p>
+						<p id="server-subtitle" class="note-body">Waiting for bridge state.</p>
+					</section>
+
+					<section class="utility-card room-card-block">
+						<div class="section-heading">
+							<span class="section-label">Voice rooms</span>
+							<span id="voice-room-count" class="quiet-count">0</span>
+						</div>
+						<div id="voice-room-list" class="rail-list"></div>
+					</section>
+
+					<section class="utility-card room-card-block">
+						<div class="section-heading">
+							<span class="section-label">Text rooms</span>
+							<span id="text-room-count" class="quiet-count">0</span>
+						</div>
+						<div id="text-room-list" class="rail-list"></div>
+					</section>
+				</div>
+
+				<section id="self-card" class="self-card">
+					<div class="self-avatar" id="self-avatar">M</div>
+					<div class="self-copy">
+						<p id="self-name" class="self-name">You</p>
+						<p id="self-status" class="self-status">Offline</p>
+					</div>
+					<button id="self-card-settings-button" class="icon-button self-card-settings-button" type="button" title="Settings" aria-label="Settings">
+						<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 01-2.8-2.8l.1-.1A1.6 1.6 0 004.6 15a1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 012.8-2.8l.1.1A1.6 1.6 0 009 4.6a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0019.4 9a1.6 1.6 0 001.5 1h.1a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"></path></svg>
+					</button>
+				</section>
+			</aside>
+		</div>
+	</div>
+
+	<div id="context-menu" class="context-menu hidden" role="menu" aria-hidden="true"></div>
+
+	<script src="./app.js" defer></script>
+</body>
+</html>

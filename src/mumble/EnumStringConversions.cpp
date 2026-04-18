@@ -91,7 +91,8 @@
 	PROCESS(Settings::WindowLayout, LayoutClassic, "Classic") \
 	PROCESS(Settings::WindowLayout, LayoutStacked, "Stacked") \
 	PROCESS(Settings::WindowLayout, LayoutHybrid, "Hybrid")   \
-	PROCESS(Settings::WindowLayout, LayoutCustom, "Custom")
+	PROCESS(Settings::WindowLayout, LayoutCustom, "Custom")   \
+	PROCESS(Settings::WindowLayout, LayoutModern, "Modern")
 
 #define RECORDING_MODE_VALUES                                                                       \
 	PROCESS(Settings::RecordingMode, RecordingMixdown, "Mixdown")                                   \

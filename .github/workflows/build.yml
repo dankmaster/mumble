@@ -112,7 +112,7 @@ jobs:
       run: ctest --output-on-failure -C $BUILD_TYPE
 
     - name: Validate signing configuration
-      if: ${{ inputs.SIGN_WINDOWS_INSTALLER && startsWith(matrix.os, 'windows') }}
+      if: ${{ inputs.SIGN_WINDOWS_INSTALLER && startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
       shell: bash
       env:
           SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -122,7 +122,7 @@ jobs:
             exit 1
           fi
 
-    - if: ${{ inputs.SIGN_WINDOWS_INSTALLER && startsWith(matrix.os, 'windows') }}
+    - if: ${{ inputs.SIGN_WINDOWS_INSTALLER && startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
       uses: ./.github/actions/sign-binaries
       with:
           signpath-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -148,7 +148,7 @@ jobs:
       # to branches and while PRs can access caches from the default branch, they
       # can't access the cache of other PRs. Hence, it is kind of a waste to save
       # the cache on a PR
-    - if: ${{ matrix.type  == 'static' && github.event_name != 'pull_request' }}
+    - if: ${{ (matrix.type == 'static' || matrix.type == 'shared') && github.event_name != 'pull_request' }}
       uses: actions/cache/save@v5
       with:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'

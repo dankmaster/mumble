@@ -8,6 +8,9 @@
 #include "ClientUser.h"
 #include "Global.h"
 #include "Log.h"
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+#include "RelayWindowHost.h"
+#endif
 #include "ProtoUtils.h"
 #include "QtUtils.h"
 #include "ScreenShare.h"
@@ -43,6 +46,10 @@ namespace {
 
 		return static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch() + skewMsec) >= expiresAt;
 	}
+
+	bool isWebRtcRelayTransport(const MumbleProto::ScreenShareRelayTransport transport) {
+		return transport == MumbleProto::ScreenShareRelayTransportWebRTC;
+	}
 } // namespace
 
 ScreenShareManager::ScreenShareManager(QObject *parent) : QObject(parent) {
@@ -62,6 +69,15 @@ ScreenShareHelperClient &ScreenShareManager::helperClient() {
 
 const ScreenShareHelperClient &ScreenShareManager::helperClient() const {
 	return *m_helperClient;
+}
+
+bool ScreenShareManager::supportsInAppRelayTransport(const MumbleProto::ScreenShareRelayTransport transport) const {
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	return isWebRtcRelayTransport(transport);
+#else
+	Q_UNUSED(transport);
+	return false;
+#endif
 }
 
 void ScreenShareManager::logLocalShareAvailabilityDiagnostic(const QString &context) const {
@@ -86,7 +102,7 @@ void ScreenShareManager::logLocalShareAvailabilityDiagnostic(const QString &cont
 	qInfo().noquote()
 		<< QStringLiteral("ScreenShareManager: availability context=%1 connected=%2 enabled=%3 helper_required=%4 "
 						  "capture_supported=%5 view_supported=%6 helper_available=%7 relay_url=%8 "
-						  "runtime_transports=[%9] reason=%10")
+						  "runtime_transports=[%9] in_app_relay=%10 reason=%11")
 			   .arg(context.isEmpty() ? QStringLiteral("-") : context, Global::get().sh ? QStringLiteral("true")
 																 : QStringLiteral("false"),
 					Global::get().bScreenShareEnabled ? QStringLiteral("true") : QStringLiteral("false"),
@@ -96,6 +112,9 @@ void ScreenShareManager::logLocalShareAvailabilityDiagnostic(const QString &cont
 					capabilities.helperAvailable ? QStringLiteral("true") : QStringLiteral("false"),
 					Global::get().qsScreenShareRelayUrl.isEmpty() ? QStringLiteral("-") : Global::get().qsScreenShareRelayUrl,
 					relayTransports.join(QStringLiteral(",")),
+					supportsInAppRelayTransport(Mumble::ScreenShare::relayTransportFromUrl(Global::get().qsScreenShareRelayUrl))
+						? QStringLiteral("true")
+						: QStringLiteral("false"),
 					reason.isEmpty() ? QStringLiteral("available") : reason);
 }
 
@@ -109,22 +128,23 @@ QString ScreenShareManager::localShareUnavailableReason() const {
 	}
 
 	const ScreenShareHelperClient::CapabilitySnapshot &capabilities = m_helperClient->capabilities();
+	const MumbleProto::ScreenShareRelayTransport relayTransport =
+		Mumble::ScreenShare::relayTransportFromUrl(Global::get().qsScreenShareRelayUrl);
 	if (!Global::get().bScreenShareEnabled) {
 		return tr("Screen sharing is disabled on this server.");
-	}
-	if (!capabilities.captureSupported) {
-		return tr("No supported local capture source is available.");
 	}
 	if (!Mumble::ScreenShare::isValidRelayUrl(Global::get().qsScreenShareRelayUrl)) {
 		return tr("This server has no valid screen-share relay endpoint configured.");
 	}
-	const MumbleProto::ScreenShareRelayTransport relayTransport =
-		Mumble::ScreenShare::relayTransportFromUrl(Global::get().qsScreenShareRelayUrl);
-	if (!capabilities.runtimeRelayTransports.isEmpty()
+	if (!supportsInAppRelayTransport(relayTransport) && !capabilities.captureSupported) {
+		return tr("No supported local capture source is available.");
+	}
+	if (!supportsInAppRelayTransport(relayTransport) && !capabilities.runtimeRelayTransports.isEmpty()
 		&& !capabilities.runtimeRelayTransports.contains(static_cast< int >(relayTransport))) {
 		return tr("The local screen-share helper does not support this server's relay transport.");
 	}
-	if (Global::get().bScreenShareHelperRequired && !capabilities.helperAvailable) {
+	if (!supportsInAppRelayTransport(relayTransport) && Global::get().bScreenShareHelperRequired
+		&& !capabilities.helperAvailable) {
 		return tr("The local screen-share helper is required but unavailable.");
 	}
 
@@ -161,6 +181,13 @@ void ScreenShareManager::requestStartChannelShare(unsigned int channelID) {
 	}
 
 	const ScreenShareHelperClient::CapabilitySnapshot &capabilities = m_helperClient->capabilities();
+	auto clampRequestedLimit = [](const unsigned int requested, const unsigned int capabilityLimit) {
+		if (requested > 0 && capabilityLimit > 0) {
+			return std::min(requested, capabilityLimit);
+		}
+
+		return requested > 0 ? requested : capabilityLimit;
+	};
 	if (channelID == 0) {
 		const ClientUser *self = ClientUser::get(Global::get().uiSession);
 		if (self && self->cChannel) {
@@ -173,24 +200,21 @@ void ScreenShareManager::requestStartChannelShare(unsigned int channelID) {
 	if (channelID != 0) {
 		msg.set_scope_id(channelID);
 	}
-	for (const int codec : capabilities.supportedCodecs) {
-		msg.add_requested_codecs(static_cast< MumbleProto::ScreenShareCodec >(codec));
-	}
-
-	const unsigned int targetWidth = Global::get().uiScreenShareMaxWidth > 0
-										 ? std::min(capabilities.maxWidth, Global::get().uiScreenShareMaxWidth)
-										 : capabilities.maxWidth;
-	const unsigned int targetHeight = Global::get().uiScreenShareMaxHeight > 0
-										  ? std::min(capabilities.maxHeight, Global::get().uiScreenShareMaxHeight)
-										  : capabilities.maxHeight;
-	const unsigned int targetFps = Global::get().uiScreenShareMaxFps > 0
-									   ? std::min(capabilities.maxFps, Global::get().uiScreenShareMaxFps)
-									   : capabilities.maxFps;
+	const QList< int > availableCodecs = capabilities.supportedCodecs.isEmpty()
+											 ? Mumble::ScreenShare::defaultCodecPreferenceList()
+											 : capabilities.supportedCodecs;
 	const QList< int > preferredCodecs = Global::get().qlPreferredScreenShareCodecs.isEmpty()
-											 ? capabilities.supportedCodecs
+											 ? availableCodecs
 											 : Global::get().qlPreferredScreenShareCodecs;
 	const MumbleProto::ScreenShareCodec codec =
-		Mumble::ScreenShare::selectPreferredCodec(preferredCodecs, capabilities.supportedCodecs);
+		Mumble::ScreenShare::selectPreferredCodec(preferredCodecs, availableCodecs);
+	for (const int availableCodec : availableCodecs) {
+		msg.add_requested_codecs(static_cast< MumbleProto::ScreenShareCodec >(availableCodec));
+	}
+
+	const unsigned int targetWidth = clampRequestedLimit(Global::get().uiScreenShareMaxWidth, capabilities.maxWidth);
+	const unsigned int targetHeight = clampRequestedLimit(Global::get().uiScreenShareMaxHeight, capabilities.maxHeight);
+	const unsigned int targetFps = clampRequestedLimit(Global::get().uiScreenShareMaxFps, capabilities.maxFps);
 
 	msg.set_requested_width(targetWidth);
 	msg.set_requested_height(targetHeight);
@@ -249,6 +273,25 @@ void ScreenShareManager::resetState() {
 	for (const QString &streamID : m_activeViewSessions) {
 		m_helperClient->stopView(streamID);
 	}
+
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	for (RelayWindowHost *host : m_inAppPublishWindows.values()) {
+		if (host) {
+			host->closeFromManager();
+			host->deleteLater();
+		}
+	}
+	for (RelayWindowHost *host : m_inAppViewWindows.values()) {
+		if (host) {
+			host->closeFromManager();
+			host->deleteLater();
+		}
+	}
+	m_inAppPublishWindows.clear();
+	m_inAppViewWindows.clear();
+	m_inAppPublishSessionIDs.clear();
+	m_inAppViewSessionIDs.clear();
+#endif
 
 	m_activePublishSessions.clear();
 	m_activeViewSessions.clear();
@@ -329,6 +372,7 @@ ScreenShareSession ScreenShareManager::sessionFromState(const MumbleProto::Scree
 
 bool ScreenShareManager::canPublishSession(const ScreenShareSession &session) const {
 	const ScreenShareHelperClient::CapabilitySnapshot &capabilities = m_helperClient->capabilities();
+	const bool inAppRelayAvailable = supportsInAppRelayTransport(session.relayTransport);
 	if (!Global::get().bScreenShareEnabled || !Global::get().sh) {
 		return false;
 	}
@@ -336,17 +380,7 @@ bool ScreenShareManager::canPublishSession(const ScreenShareSession &session) co
 		|| session.state != MumbleProto::ScreenShareLifecycleStateActive) {
 		return false;
 	}
-	if (!capabilities.captureSupported) {
-		return false;
-	}
-	if (Global::get().bScreenShareHelperRequired && !capabilities.helperAvailable) {
-		return false;
-	}
 	if (!Mumble::ScreenShare::isValidRelayUrl(session.relayUrl) || session.relayRoomID.trimmed().isEmpty()) {
-		return false;
-	}
-	if (!capabilities.runtimeRelayTransports.isEmpty()
-		&& !capabilities.runtimeRelayTransports.contains(static_cast< int >(session.relayTransport))) {
 		return false;
 	}
 	if (!session.relayToken.isEmpty() && tokenExpired(session.relayTokenExpiresAt)) {
@@ -360,27 +394,31 @@ bool ScreenShareManager::canPublishSession(const ScreenShareSession &session) co
 	if (!Mumble::ScreenShare::isValidCodec(session.codec)) {
 		return false;
 	}
+	if (inAppRelayAvailable) {
+		return true;
+	}
+	if (!capabilities.captureSupported) {
+		return false;
+	}
+	if (Global::get().bScreenShareHelperRequired && !capabilities.helperAvailable) {
+		return false;
+	}
+	if (!capabilities.runtimeRelayTransports.isEmpty()
+		&& !capabilities.runtimeRelayTransports.contains(static_cast< int >(session.relayTransport))) {
+		return false;
+	}
 	return capabilities.supportedCodecs.isEmpty()
 		|| capabilities.supportedCodecs.contains(static_cast< int >(session.codec));
 }
 
 bool ScreenShareManager::canViewSession(const ScreenShareSession &session) const {
 	const ScreenShareHelperClient::CapabilitySnapshot &capabilities = m_helperClient->capabilities();
+	const bool inAppRelayAvailable = supportsInAppRelayTransport(session.relayTransport);
 	if (!Global::get().bScreenShareEnabled || session.ownerSession == Global::get().uiSession
 		|| session.state != MumbleProto::ScreenShareLifecycleStateActive) {
 		return false;
 	}
-	if (!capabilities.viewSupported) {
-		return false;
-	}
-	if (Global::get().bScreenShareHelperRequired && !capabilities.helperAvailable) {
-		return false;
-	}
 	if (!Mumble::ScreenShare::isValidRelayUrl(session.relayUrl) || session.relayRoomID.trimmed().isEmpty()) {
-		return false;
-	}
-	if (!capabilities.runtimeRelayTransports.isEmpty()
-		&& !capabilities.runtimeRelayTransports.contains(static_cast< int >(session.relayTransport))) {
 		return false;
 	}
 	if (!session.relayToken.isEmpty() && tokenExpired(session.relayTokenExpiresAt)) {
@@ -392,6 +430,25 @@ bool ScreenShareManager::canViewSession(const ScreenShareSession &session) const
 		return false;
 	}
 	if (!Mumble::ScreenShare::isValidCodec(session.codec)) {
+		return false;
+	}
+	if (inAppRelayAvailable) {
+		const ClientUser *self = ClientUser::get(Global::get().uiSession);
+		if (!self || !self->cChannel) {
+			return false;
+		}
+
+		return session.scope == MumbleProto::ScreenShareScopeChannel && session.scopeID != 0
+			&& self->cChannel->iId == session.scopeID;
+	}
+	if (!capabilities.viewSupported) {
+		return false;
+	}
+	if (Global::get().bScreenShareHelperRequired && !capabilities.helperAvailable) {
+		return false;
+	}
+	if (!capabilities.runtimeRelayTransports.isEmpty()
+		&& !capabilities.runtimeRelayTransports.contains(static_cast< int >(session.relayTransport))) {
 		return false;
 	}
 	if (!capabilities.supportedCodecs.isEmpty()
@@ -413,10 +470,197 @@ bool ScreenShareManager::shouldAutoViewSession(const ScreenShareSession &session
 	return envFlagEnabled("MUMBLE_SCREENSHARE_AUTOVIEW") || envFlagEnabled("MUMBLE_SCREENSHARE_AUTO_VIEW");
 }
 
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+bool ScreenShareManager::startInAppPublishSession(const ScreenShareSession &session) {
+	if (m_inAppPublishWindows.contains(session.streamID)) {
+		if (RelayWindowHost *existingHost = m_inAppPublishWindows.value(session.streamID)) {
+			existingHost->updateSession(session);
+		}
+		return true;
+	}
+
+	auto *host = new RelayWindowHost(session, RelayWindowHost::Mode::Publish, qobject_cast< QWidget * >(parent()));
+	connect(host, &RelayWindowHost::fallbackRequested, this,
+			[this, streamID = session.streamID](const QString &reason) { handleInAppRelayFailure(streamID, true, reason); });
+	connect(host, &RelayWindowHost::closeRequested, this,
+			[this, streamID = session.streamID](const QString &) {
+				stopLocalPublishSession(streamID);
+				requestStopShare(streamID);
+			});
+	connect(host, &QObject::destroyed, this, [this, streamID = session.streamID]() {
+		m_inAppPublishWindows.remove(streamID);
+	});
+
+	m_inAppPublishWindows.insert(session.streamID, host);
+	m_inAppPublishSessionIDs.insert(session.streamID);
+	QString errorMessage;
+	if (!host->start(&errorMessage)) {
+		m_inAppPublishWindows.remove(session.streamID);
+		m_inAppPublishSessionIDs.remove(session.streamID);
+		host->deleteLater();
+		if (Global::get().l) {
+			Global::get().l->log(Log::Warning,
+								 tr("Unable to start the in-app screen-share publisher for %1: %2")
+									 .arg(session.streamID.toHtmlEscaped(),
+										  errorMessage.isEmpty() ? tr("unknown error") : errorMessage.toHtmlEscaped()));
+		}
+		return false;
+	}
+
+	return true;
+}
+
+bool ScreenShareManager::startInAppViewSession(const ScreenShareSession &session) {
+	if (m_inAppViewWindows.contains(session.streamID)) {
+		if (RelayWindowHost *existingHost = m_inAppViewWindows.value(session.streamID)) {
+			existingHost->updateSession(session);
+		}
+		return true;
+	}
+
+	auto *host = new RelayWindowHost(session, RelayWindowHost::Mode::View, qobject_cast< QWidget * >(parent()));
+	connect(host, &RelayWindowHost::fallbackRequested, this,
+			[this, streamID = session.streamID](const QString &reason) { handleInAppRelayFailure(streamID, false, reason); });
+	connect(host, &RelayWindowHost::closeRequested, this,
+			[this, streamID = session.streamID](const QString &) { requestStopViewing(streamID); });
+	connect(host, &QObject::destroyed, this, [this, streamID = session.streamID]() {
+		m_inAppViewWindows.remove(streamID);
+	});
+
+	m_inAppViewWindows.insert(session.streamID, host);
+	m_inAppViewSessionIDs.insert(session.streamID);
+	QString errorMessage;
+	if (!host->start(&errorMessage)) {
+		m_inAppViewWindows.remove(session.streamID);
+		m_inAppViewSessionIDs.remove(session.streamID);
+		host->deleteLater();
+		if (Global::get().l) {
+			Global::get().l->log(Log::Warning,
+								 tr("Unable to start the in-app screen-share viewer for %1: %2")
+									 .arg(session.streamID.toHtmlEscaped(),
+										  errorMessage.isEmpty() ? tr("unknown error") : errorMessage.toHtmlEscaped()));
+		}
+		return false;
+	}
+
+	return true;
+}
+
+void ScreenShareManager::stopInAppPublishSession(const QString &streamID) {
+	m_inAppPublishSessionIDs.remove(streamID);
+	m_activePublishSessions.remove(streamID);
+	const auto it = m_inAppPublishWindows.find(streamID);
+	if (it == m_inAppPublishWindows.end()) {
+		return;
+	}
+
+	RelayWindowHost *host = it.value();
+	m_inAppPublishWindows.erase(it);
+	if (host) {
+		host->closeFromManager();
+		host->deleteLater();
+	}
+}
+
+void ScreenShareManager::stopInAppViewSession(const QString &streamID) {
+	m_inAppViewSessionIDs.remove(streamID);
+	m_activeViewSessions.remove(streamID);
+	const auto it = m_inAppViewWindows.find(streamID);
+	if (it == m_inAppViewWindows.end()) {
+		return;
+	}
+
+	RelayWindowHost *host = it.value();
+	m_inAppViewWindows.erase(it);
+	if (host) {
+		host->closeFromManager();
+		host->deleteLater();
+	}
+}
+
+void ScreenShareManager::handleInAppRelayFailure(const QString &streamID, const bool publish,
+												 const QString &reason) {
+	const auto sessionIt = m_sessions.constFind(streamID);
+	if (sessionIt == m_sessions.cend()) {
+		if (Global::get().l) {
+			Global::get().l->log(Log::Warning,
+								 tr("In-app screen-share %1 fallback requested for unknown session %2.")
+									 .arg(publish ? tr("publisher") : tr("viewer"), streamID.toHtmlEscaped()));
+		}
+		if (publish) {
+			requestStopShare(streamID);
+		} else {
+			requestStopViewing(streamID);
+		}
+		return;
+	}
+
+	const ScreenShareSession session = sessionIt.value();
+	const QString trimmedReason = reason.trimmed();
+	if (Global::get().l && !trimmedReason.isEmpty()) {
+		Global::get().l->log(Log::Warning,
+							 tr("In-app screen-share %1 for %2 failed: %3")
+								 .arg(publish ? tr("publisher") : tr("viewer"),
+									  session.streamID.toHtmlEscaped(),
+									  trimmedReason.toHtmlEscaped()));
+	}
+
+	if (publish) {
+		stopInAppPublishSession(streamID);
+	} else {
+		stopInAppViewSession(streamID);
+	}
+
+	QString errorMessage;
+	const bool started = publish ? m_helperClient->startPublish(session, &errorMessage)
+								 : m_helperClient->startView(session, &errorMessage);
+	if (started) {
+		m_inAppPublishSessionIDs.remove(streamID);
+		m_inAppViewSessionIDs.remove(streamID);
+		if (publish) {
+			m_activePublishSessions.insert(streamID);
+		} else {
+			m_activeViewSessions.insert(streamID);
+		}
+		if (Global::get().l) {
+			Global::get().l->log(
+				Log::Information,
+				tr("Fell back to the helper/browser relay runtime for %1.")
+					.arg(streamID.toHtmlEscaped()));
+		}
+		return;
+	}
+
+	if (Global::get().l) {
+		Global::get().l->log(Log::Warning,
+							 tr("Unable to start the helper/browser relay runtime for %1: %2")
+								 .arg(streamID.toHtmlEscaped(),
+									  errorMessage.isEmpty() ? tr("unknown error") : errorMessage.toHtmlEscaped()));
+	}
+	if (publish) {
+		requestStopShare(streamID);
+	} else {
+		requestStopViewing(streamID);
+	}
+}
+#endif
+
 void ScreenShareManager::startLocalPublishSession(const ScreenShareSession &session) {
 	if (m_activePublishSessions.contains(session.streamID)) {
 		return;
 	}
+
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	if (supportsInAppRelayTransport(session.relayTransport) && startInAppPublishSession(session)) {
+		m_activePublishSessions.insert(session.streamID);
+		if (Global::get().l) {
+			Global::get().l->log(Log::Information,
+								 tr("Opened in-app screen-share publisher for %1.")
+									 .arg(session.streamID.toHtmlEscaped()));
+		}
+		return;
+	}
+#endif
 
 	QString errorMessage;
 	if (m_helperClient->startPublish(session, &errorMessage)) {
@@ -442,6 +686,18 @@ void ScreenShareManager::startLocalViewSession(const ScreenShareSession &session
 		return;
 	}
 
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	if (supportsInAppRelayTransport(session.relayTransport) && startInAppViewSession(session)) {
+		m_activeViewSessions.insert(session.streamID);
+		if (Global::get().l) {
+			Global::get().l->log(
+				Log::Information,
+				tr("Opened in-app screen-share viewer for %1.").arg(session.streamID.toHtmlEscaped()));
+		}
+		return;
+	}
+#endif
+
 	QString errorMessage;
 	if (m_helperClient->startView(session, &errorMessage)) {
 		m_activeViewSessions.insert(session.streamID);
@@ -461,12 +717,26 @@ void ScreenShareManager::startLocalViewSession(const ScreenShareSession &session
 }
 
 void ScreenShareManager::stopLocalPublishSession(const QString &streamID) {
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	if (m_inAppPublishSessionIDs.contains(streamID)) {
+		stopInAppPublishSession(streamID);
+		return;
+	}
+#endif
+
 	if (m_activePublishSessions.remove(streamID)) {
 		m_helperClient->stopPublish(streamID);
 	}
 }
 
 void ScreenShareManager::stopLocalViewSession(const QString &streamID) {
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	if (m_inAppViewSessionIDs.contains(streamID)) {
+		stopInAppViewSession(streamID);
+		return;
+	}
+#endif
+
 	if (m_activeViewSessions.remove(streamID)) {
 		m_helperClient->stopView(streamID);
 	}
@@ -484,7 +754,7 @@ void ScreenShareManager::logRemoteViewAvailability(const ScreenShareSession &ses
 			  : tr("session %1").arg(QString::number(session.ownerSession).toHtmlEscaped());
 	Global::get().l->log(
 		Log::Information,
-		tr("Screen share %1 from %2 is available in this channel. Set MUMBLE_SCREENSHARE_AUTOVIEW=1 to auto-open it until the in-app watch UI lands.")
+		tr("Screen share %1 from %2 is available in this channel. Set MUMBLE_SCREENSHARE_AUTOVIEW=1 to auto-open it in the relay window.")
 			.arg(session.streamID.toHtmlEscaped(), ownerLabel));
 }
 

@@ -91,7 +91,7 @@ case "$os" in
 esac
 
 
-buildDir="${GITHUB_WORKSPACE}/build"
+buildDir="${MUMBLE_BUILD_DIR_OVERRIDE:-${GITHUB_WORKSPACE}/build}"
 
 mkdir -p "$buildDir"
 

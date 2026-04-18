@@ -37,6 +37,10 @@ struct ScreenShareSession {
 	unsigned int bitrateKbps = 0;
 };
 
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+class RelayWindowHost;
+#endif
+
 class ScreenShareManager : public QObject {
 private:
 	Q_OBJECT
@@ -78,9 +82,15 @@ signals:
 
 private:
 	ScreenShareSession sessionFromState(const MumbleProto::ScreenShareState &msg) const;
+	bool supportsInAppRelayTransport(MumbleProto::ScreenShareRelayTransport transport) const;
 	bool canViewSession(const ScreenShareSession &session) const;
 	bool canPublishSession(const ScreenShareSession &session) const;
 	bool shouldAutoViewSession(const ScreenShareSession &session) const;
+	bool startInAppPublishSession(const ScreenShareSession &session);
+	bool startInAppViewSession(const ScreenShareSession &session);
+	void stopInAppPublishSession(const QString &streamID);
+	void stopInAppViewSession(const QString &streamID);
+	void handleInAppRelayFailure(const QString &streamID, bool publish, const QString &reason);
 	void startLocalPublishSession(const ScreenShareSession &session);
 	void startLocalViewSession(const ScreenShareSession &session);
 	void stopLocalPublishSession(const QString &streamID);
@@ -95,6 +105,13 @@ private:
 	QSet< QString > m_announcedViewableSessions;
 	mutable QString m_lastLoggedAvailabilityContext;
 	mutable QString m_lastLoggedAvailabilityReason;
+
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	QHash< QString, RelayWindowHost * > m_inAppPublishWindows;
+	QHash< QString, RelayWindowHost * > m_inAppViewWindows;
+	QSet< QString > m_inAppPublishSessionIDs;
+	QSet< QString > m_inAppViewSessionIDs;
+#endif
 };
 
 #endif // MUMBLE_MUMBLE_SCREENSHAREMANAGER_H_

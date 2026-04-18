@@ -1,0 +1,24 @@
+diff --git a/Clients/DNS-SD.VisualStudio/dns-sd.rc b/Clients/DNS-SD.VisualStudio/dns-sd.rc
+--- a/Clients/DNS-SD.VisualStudio/dns-sd.rc
++++ b/Clients/DNS-SD.VisualStudio/dns-sd.rc
+@@ -7,7 +7,7 @@
+ //
+ // Generated from the TEXTINCLUDE 2 resource.
+ //
+-#include "afxres.h"
++#include <winres.h>
+ #include "WinVersRes.h"
+ 
+ /////////////////////////////////////////////////////////////////////////////
+diff --git a/Clients/DNS-SD.VisualStudio/dns-sd.sdk.rc b/Clients/DNS-SD.VisualStudio/dns-sd.sdk.rc
+--- a/Clients/DNS-SD.VisualStudio/dns-sd.sdk.rc
++++ b/Clients/DNS-SD.VisualStudio/dns-sd.sdk.rc
+@@ -7,7 +7,7 @@
+ //
+ // Generated from the TEXTINCLUDE 2 resource.
+ //
+-#include "afxres.h"
++#include <winres.h>
+ 
+ /////////////////////////////////////////////////////////////////////////////
+ #undef APSTUDIO_READONLY_SYMBOLS
