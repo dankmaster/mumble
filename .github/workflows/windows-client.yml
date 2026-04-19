@@ -272,7 +272,8 @@ jobs:
             -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
             -SharedWebEngine `
             -InstallDependencies `
-            -EnablePackaging
+            -EnablePackaging `
+            -AllowPendingReboot
 
       - name: Validate shared Windows client/server binaries
         shell: powershell
@@ -291,7 +292,8 @@ jobs:
             -SharedWebEngine `
             -SkipConfigure `
             -SkipBuild `
-            -VerifyHelperRuntime
+            -VerifyHelperRuntime `
+            -AllowPendingReboot
 
       - name: Publish Shared Client Artifacts
         uses: actions/upload-artifact@v6

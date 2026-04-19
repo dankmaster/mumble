@@ -14,7 +14,8 @@ param(
 	[switch]$SharedWebEngine,
 	[switch]$VerifyHelperRuntime,
 	[switch]$SkipConfigure,
-	[switch]$SkipBuild
+	[switch]$SkipBuild,
+	[switch]$AllowPendingReboot
 )
 
 $ErrorActionPreference = "Stop"
@@ -231,7 +232,9 @@ function Get-PendingRebootReasons {
 function Assert-NoPendingReboot {
 	param(
 		[Parameter(Mandatory = $true)]
-		[string]$Context
+		[string]$Context,
+
+		[switch]$AllowHardPendingReboot
 	)
 
 	$reasons = Get-PendingRebootReasons
@@ -246,6 +249,10 @@ function Assert-NoPendingReboot {
 
 	if ($reasons.Hard.Count -gt 0) {
 		$hardDetails = ($reasons.Hard | Select-Object -Unique) -join '; '
+		if ($AllowHardPendingReboot) {
+			Write-Warning "Windows reports a required reboot before $Context, but -AllowPendingReboot was specified. Proceeding anyway. Details: $hardDetails"
+			return
+		}
 		throw "Windows reports a required reboot before $Context. Resolve it first to avoid long-running shared builds being interrupted. Details: $hardDetails"
 	}
 }
@@ -402,8 +409,18 @@ function Invoke-SharedWindowsPackaging {
 		$projectVersion = "$projectVersion.0"
 	}
 
+	$installerVersion = Get-CMakeCacheValue -CachePath $cachePath -Name "MUMBLE_WINDOWS_INSTALLER_VERSION"
+	if ([string]::IsNullOrWhiteSpace($installerVersion)) {
+		$installerVersion = $projectVersion
+	}
+	$installerVersion = $installerVersion.Trim()
+	if ($installerVersion -match '^\d+\.\d+$') {
+		$installerVersion = "$installerVersion.0"
+	}
+
 	$installerArgs = @(
 		"--version", $projectVersion,
+		"--installer-version", $installerVersion,
 		"--arch", "x64",
 		"--vc-redist-required", $vcRedistVersion,
 		"--payload-root", $stageRoot
@@ -1043,7 +1060,8 @@ try {
 	}
 
 	if ($InstallDependencies -or $SharedWebEngine) {
-		Assert-NoPendingReboot -Context 'the Windows shared build/dependency bootstrap'
+		Assert-NoPendingReboot -Context 'the Windows shared build/dependency bootstrap' `
+			-AllowHardPendingReboot:$AllowPendingReboot
 	}
 
 	Assert-CommandAvailable git

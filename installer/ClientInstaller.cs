@@ -30,8 +30,12 @@ public class ClientInstaller : MumbleInstall {
 	public const string s_Name = "Mumble (client)";
 	public const string s_UpgradeGuid = "D269FC55-4F2C-4285-9AA9-4D034AF305C4";
 
-	public static string GetMSIPath(string version, string arch) {
-		return System.IO.Path.GetFullPath(System.IO.Path.Combine(Environment.CurrentDirectory, "mumble_client-" + new Version(version) + "-" + arch) + ".msi");
+	public static bool IsVersionString(string value) {
+		return !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^([0-9]+\.){2,3}[0-9]+$");
+	}
+
+	public static string GetMSIPath(string artifactVersion, string arch) {
+		return System.IO.Path.GetFullPath(System.IO.Path.Combine(Environment.CurrentDirectory, "mumble_client-" + new Version(artifactVersion) + "-" + arch) + ".msi");
 	}
 
 	private static void PopulatePayloadTree(Dir targetDir, string sourceRoot, string relativePath = "") {
@@ -70,7 +74,7 @@ public class ClientInstaller : MumbleInstall {
 		targetDir.Dirs = childDirs;
 	}
 
-	public ClientInstaller(string version, string arch, Features features, string payloadRoot = "") {
+	public ClientInstaller(string artifactVersion, string installerVersion, string arch, Features features, string payloadRoot = "") {
 		List<string> binaries = new List<string>();
 		string[] plugins = {
 			"amongus.dll",
@@ -182,10 +186,13 @@ public class ClientInstaller : MumbleInstall {
 			}
 		}
 
+		var normalizedArtifactVersion = new Version(artifactVersion);
+		var normalizedInstallerVersion = new Version(installerVersion);
+
 		this.Name = ClientInstaller.s_Name;
 		this.UpgradeCode = Guid.Parse(ClientInstaller.s_UpgradeGuid);
-		this.Version = new Version(version);
-		this.OutFileName = "mumble_client-" + this.Version + "-" + arch;
+		this.Version = normalizedInstallerVersion;
+		this.OutFileName = "mumble_client-" + normalizedArtifactVersion + "-" + arch;
 		this.Media.First().Cabinet = "Mumble.cab";
 
 		var progsDir = new Dir(@"%ProgramFiles%");
@@ -258,6 +265,7 @@ class BuildInstaller
 {
 	public static void Main(string[] args) {
 		string version = "";
+		string installerVersion = "";
 		string arch = "";
 		string vcRedistRequired = "";
 		bool isAllLangs = false;
@@ -266,8 +274,12 @@ class BuildInstaller
 		string payloadRoot = "";
 
 		for (int i = 0; i < args.Length; i++) {
-			if (args[i] == "--version" && Regex.IsMatch(args[i + 1], @"^([0-9]+\.){2}[0-9]+$")) {
+			if (args[i] == "--version" && i + 1 < args.Length && ClientInstaller.IsVersionString(args[i + 1])) {
 				version = args[i + 1];
+			}
+
+			if (args[i] == "--installer-version" && i + 1 < args.Length && ClientInstaller.IsVersionString(args[i + 1])) {
+				installerVersion = args[i + 1];
 			}
 
 			if (args[i] == "--arch" && (args[i + 1] == "x64" || args[i + 1] == "x86")) {
@@ -307,12 +319,15 @@ class BuildInstaller
 			}
 		}
 
-		if (version != null && arch != null) {
+		if (string.IsNullOrWhiteSpace(installerVersion)) {
+			installerVersion = version;
+		}
+
+		if (!string.IsNullOrWhiteSpace(version) && !string.IsNullOrWhiteSpace(installerVersion) && !string.IsNullOrWhiteSpace(arch)) {
 			string msiPath;
 
 			if (!skipMSIRebuild) {
-				var clInstaller = new ClientInstaller(version, arch, features, payloadRoot);
-				clInstaller.Version = new Version(version);
+				var clInstaller = new ClientInstaller(version, installerVersion, arch, features, payloadRoot);
 				msiPath = isAllLangs
 							? clInstaller.BuildMultilanguageMsi()
 							: clInstaller.BuildMsi();

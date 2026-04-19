@@ -18,8 +18,14 @@ public class MumbleInstall : Project {
 	public MumbleInstall() {
 		var allUsersProp = new Property("ALLUSERS", "1");
 		this.Language = "en-US,cs-CZ,da-DK,de-DE,el-GR,es-ES,fi-FI,fr-FR,it-IT,ja-JP,nb-NO,nl-NL,pl-PL,pt-PT,ru-RU,sv-SE,tr-TR,zh-CN,zh-TW";
-		this.MajorUpgradeStrategy = MajorUpgradeStrategy.Default;
-		this.MajorUpgradeStrategy.RemoveExistingProductAfter = Step.InstallInitialize;
+		// This fork intentionally allows replace-in-place installs from both stock
+		// Mumble and other fork builds, even when the compatibility installer
+		// version trails upstream. We keep the shared UpgradeCode so stock Mumble
+		// can later major-upgrade back over this installation.
+		this.MajorUpgrade = new MajorUpgrade {
+			AllowDowngrades = true,
+			Schedule = UpgradeSchedule.afterInstallInitialize
+		};
 		this.PreserveTempFiles = true;
 		this.BackgroundImage = @"..\dlgbmp.bmp";
 		this.BannerImage = @"..\bannrbmp.bmp";

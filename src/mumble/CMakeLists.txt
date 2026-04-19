@@ -1421,6 +1421,7 @@ if(packaging AND WIN32 AND NOT modern-layout-webengine)
 
 	list(APPEND installer_vars
 		"--version" ${PROJECT_VERSION}
+		"--installer-version" "${MUMBLE_WINDOWS_INSTALLER_VERSION}"
 		"--arch" "${MUMBLE_TARGET_ARCH}"
 		"--vc-redist-required" "${VC_REDIST_VERSION}"
 	)

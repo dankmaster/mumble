@@ -30,6 +30,11 @@ workflow:
 ## Notes
 
 - This workflow uses `${{ github.run_number }}` as the local build number.
+- Windows packaging now uses a separate compatibility version lane for the
+  installer: by default `major.minor.0.build`. That keeps official Mumble
+  installers newer on the upgrade graph so users can switch back by running the
+  stock installer, while fork installers can still replace an existing Mumble
+  install in place.
 - It does not sign the installer.
 - It disables tests to keep the manual client build faster.
 
@@ -59,6 +64,14 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\build-local-windo
   -AdditionalCMakeOptions -Dscreen-helper=OFF
 ```
 
+If Windows still has a pending reboot marker from servicing and you
+intentionally want to continue anyway, the local build script also accepts:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\build-local-windows-client.ps1 `
+  -AllowPendingReboot
+```
+
 Notes for local use:
 
 - Install Visual Studio 2022 with the C++ build tools before running the script.
@@ -79,12 +92,16 @@ Notes for local use:
 - The local build script skips MSI packaging by default for a faster local test
   loop. Pass `-EnablePackaging` only if you need installers and already have
   WiX available.
+- Override the compatibility version only if you explicitly need a different
+  upgrade relationship: `-DMUMBLE_WINDOWS_INSTALLER_VERSION=<version>`.
 - The script mirrors the `Windows Client` workflow's configure/build path.
 - The `Windows Client` workflow now bootstraps the pinned ONNX Runtime archive
   for DTLN and installs Rust so the DeepFilterNet runtime DLL can be built on
   the Windows runner as part of the client artifact build.
 - It builds unsigned Windows client artifacts. Pass `-EnablePackaging` only if
   you explicitly need the MSI installer output.
+- `-AllowPendingReboot` is an opt-in escape hatch for local use: it downgrades
+  hard pending-reboot blockers to warnings for that run instead of aborting.
 - It skips local MySQL setup because that workflow has tests disabled.
 - Artifacts are written into the repo's `build\` directory.
 - Shared/WebEngine builds no longer require a published

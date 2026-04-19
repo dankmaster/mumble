@@ -24,6 +24,12 @@ project(mumble
 	LANGUAGES "C" "CXX"
 )
 
+set(MUMBLE_WINDOWS_INSTALLER_VERSION
+	"${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0.${BUILD_NUMBER}"
+	CACHE STRING
+	"Windows installer compatibility version used by the MSI/bundle upgrade path. Defaults to major.minor.0.build so official Mumble installers stay newer and can replace the fork while fork installers can still replace existing installs."
+)
+
 set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty")
 set(PLUGINS_DIR "${CMAKE_SOURCE_DIR}/plugins")
 
@@ -112,6 +118,7 @@ endif()
 
 message(STATUS "##################################################")
 message(STATUS "Mumble version:              ${PROJECT_VERSION}")
+message(STATUS "Windows installer version:   ${MUMBLE_WINDOWS_INSTALLER_VERSION}")
 message(STATUS "Architecture:                ${MUMBLE_TARGET_ARCH}")
 if(NOT IS_MULTI_CONFIG)
     message(STATUS "Build type:                  ${CMAKE_BUILD_TYPE}")
