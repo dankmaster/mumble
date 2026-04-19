@@ -142,7 +142,7 @@
 	}
 
 	function measureRailSection(section, listElement, itemCount) {
-		if (!section || !listElement) {
+		if (!section || !listElement || section.classList.contains("hidden")) {
 			return null;
 		}
 
@@ -1351,13 +1351,20 @@
 
 	function renderRoomList(container, rooms, options) {
 		const roomSection = container.closest(".room-card-block");
+		const roomList = rooms || [];
+		const hasRooms = roomList.length > 0;
 		if (roomSection) {
-			roomSection.classList.toggle("is-empty", !(rooms || []).length);
+			roomSection.classList.toggle("is-empty", !hasRooms);
+			roomSection.classList.toggle("hidden", !!options.hideWhenEmpty && !hasRooms);
 		}
 
 		container.innerHTML = "";
 
-		if (!(rooms || []).length) {
+		if (!hasRooms) {
+			if (options.hideWhenEmpty) {
+				return;
+			}
+
 			const empty = document.createElement("div");
 			empty.className = "rail-empty";
 			empty.textContent = options.emptyText || "Waiting for room state.";
@@ -1372,7 +1379,7 @@
 			container.appendChild(rootLabel);
 		}
 
-		rooms.forEach(function(room) {
+		roomList.forEach(function(room) {
 			container.appendChild(buildRoomRow(room, options.joinable, options.voicePresence));
 		});
 	}
@@ -2759,7 +2766,7 @@
 		renderRoomList(refs.textRoomList, textRooms, {
 			joinable: false,
 			voicePresence: null,
-			emptyText: classicServer ? "Classic servers do not expose room-backed text state." : "Waiting for room state."
+			hideWhenEmpty: true
 		});
 
 		renderVoicePresenceStack(headerPresence);
