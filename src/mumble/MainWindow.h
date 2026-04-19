@@ -59,6 +59,7 @@ class PersistentChatHistoryDelegate;
 class ModernShellHost;
 #endif
 class QAction;
+class QObject;
 class QFrame;
 class QLabel;
 class QListWidget;
@@ -196,6 +197,7 @@ public:
 	void closeServerNavigatorUserMenu();
 	void refreshCustomChromeStyles();
 	void refreshServerNavigatorStyles();
+	void refreshServerNavigatorSectionHeights();
 	void refreshServerNavigatorMotdHeight();
 	void refreshPersistentChatStyles();
 	void syncPersistentChatGatewayHandler();
@@ -234,6 +236,8 @@ public:
 		bool metadataFinished = false;
 		bool thumbnailFinished = false;
 		bool failed           = false;
+		bool siteSnapshotRequested = false;
+		bool siteSnapshotFinished  = false;
 	};
 
 	struct PersistentChatAssetDownload {
@@ -271,10 +275,13 @@ public:
 	QString persistentChatScopeLabel(MumbleProto::ChatScope scope, unsigned int scopeID) const;
 	void ensurePersistentChatPreview(const QString &previewKey);
 	void ensurePersistentChatPreviewAssetDownload(unsigned int assetID, const QString &previewKey);
+	void ensurePersistentChatPreviewSiteSnapshot(const QString &previewKey);
+	void handlePersistentChatPreviewSiteSnapshotResult(const QString &previewKey, const QImage &image, bool success);
 	int persistentChatPreviewContentWidth(int leftPadding) const;
 	QString persistentChatPreviewHtml(const QString &previewKey, int availableWidth) const;
 	void updatePersistentChatPreviewViewIfVisible(const QString &previewKey);
 	void setPersistentChatTargetUsesVoiceTree(bool useVoiceTree);
+	bool isServerNavigatorCompactHeight() const;
 	void updateServerNavigatorVoiceTreeHeight();
 	void updatePersistentChatChannelListHeight();
 	void rebuildPersistentChatChannelList();
@@ -325,6 +332,7 @@ public:
 	void handlePersistentChatReactionState(const MumbleProto::ChatReactionState &msg);
 	bool canSendToPersistentChatTarget(const PersistentChatTarget &target, bool requestPermissions) const;
 	void syncPersistentChatInputState(bool baseEnabled);
+	bool attachPersistentChatClipboardImage();
 	void attachPersistentChatImage(const QImage &image);
 	void attachPersistentChatImages(const QList< QUrl > &urls);
 	bool attachPersistentChatImageData(const QString &dataUrl);
@@ -487,7 +495,7 @@ protected:
 	QToolButton *m_persistentChatAttachButton = nullptr;
 	QToolButton *m_persistentChatSendButton = nullptr;
 	QString m_persistentChatWelcomeText;
-	bool m_persistentChatMotdHidden = false;
+	bool m_persistentChatMotdExpanded = false;
 	bool m_hasPersistentChatSupport = false;
 	bool m_persistentChatTargetUsesVoiceTree = false;
 	std::optional< int > m_persistentChatSelectedScopeValue;
@@ -524,6 +532,7 @@ protected:
 	QTimer *m_modernShellSyncTimer             = nullptr;
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 	ModernShellHost *m_modernShellHost         = nullptr;
+	QObject *m_persistentChatPreviewSnapshotRenderer = nullptr;
 #endif
 	bool m_shellLayoutInitialized            = false;
 	Settings::WindowLayout m_activeShellLayout = Settings::LayoutModern;

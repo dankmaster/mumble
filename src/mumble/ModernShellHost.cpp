@@ -19,6 +19,7 @@
 #include <QtCore/QTimer>
 #include <QtGui/QDragEnterEvent>
 #include <QtGui/QDropEvent>
+#include <QtGui/QPixmap>
 #include <QtGui/QImageReader>
 #include <QtWidgets/QVBoxLayout>
 #include <QtWebChannel/QWebChannel>
@@ -154,10 +155,26 @@ bool ModernShellHost::eventFilter(QObject *watched, QEvent *event) {
 			return imageUrls;
 		};
 
+		const auto extractMimeImage = [](const QMimeData *mimeData) {
+			if (!mimeData || !mimeData->hasImage()) {
+				return QImage();
+			}
+
+			const QVariant imageData = mimeData->imageData();
+			QImage image             = qvariant_cast< QImage >(imageData);
+			if (!image.isNull()) {
+				return image;
+			}
+
+			const QPixmap pixmap = qvariant_cast< QPixmap >(imageData);
+			return pixmap.isNull() ? QImage() : pixmap.toImage();
+		};
+
 		if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
 			QDropEvent *dropEvent = static_cast< QDropEvent * >(event);
 			const QList< QUrl > imageUrls = extractImageUrls(dropEvent->mimeData());
-			if (!imageUrls.isEmpty()) {
+			const QImage image            = extractMimeImage(dropEvent->mimeData());
+			if (!imageUrls.isEmpty() || !image.isNull()) {
 				dropEvent->acceptProposedAction();
 				return true;
 			}
@@ -167,6 +184,13 @@ bool ModernShellHost::eventFilter(QObject *watched, QEvent *event) {
 			if (!imageUrls.isEmpty()) {
 				dropEvent->acceptProposedAction();
 				emit imageUrlsDropped(imageUrls);
+				return true;
+			}
+
+			const QImage image = extractMimeImage(dropEvent->mimeData());
+			if (!image.isNull()) {
+				dropEvent->acceptProposedAction();
+				emit imageDropped(image);
 				return true;
 			}
 		}

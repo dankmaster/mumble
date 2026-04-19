@@ -23,25 +23,29 @@
 					<span id="compat-pill" class="state-pill">Standard server</span>
 				</div>
 				<div class="window-actions">
-					<button id="connect-button" class="icon-button" type="button" title="Connect" aria-label="Connect">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M9 12l2 2 4-4"></path></svg>
-					</button>
-					<button id="mute-button" class="icon-button" type="button" title="Toggle mute" aria-label="Toggle mute">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path></svg>
-					</button>
-					<button id="deaf-button" class="icon-button" type="button" title="Toggle deafen" aria-label="Toggle deafen">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M16 9l5 5"></path><path d="M21 9l-5 5"></path></svg>
-					</button>
-					<button id="disconnect-button" class="icon-button" type="button" title="Disconnect" aria-label="Disconnect">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path><circle cx="12" cy="12" r="9"></circle></svg>
-					</button>
-					<button id="layout-switch-button" class="icon-button" type="button" title="Switch to classic layout" aria-label="Switch to classic layout">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="7" height="14" rx="1.5"></rect><rect x="13.5" y="5" width="7" height="14" rx="1.5"></rect><path d="M10.5 12h3"></path><path d="M12.5 10l2 2-2 2"></path></svg>
-					</button>
-					<button id="settings-button" class="icon-button" type="button" title="Settings" aria-label="Settings">
-						<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 01-2.8-2.8l.1-.1A1.6 1.6 0 004.6 15a1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 012.8-2.8l.1.1A1.6 1.6 0 009 4.6a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0019.4 9a1.6 1.6 0 001.5 1h.1a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"></path></svg>
-					</button>
-					<button id="rail-toggle-button" class="chip-button rail-toggle-button" type="button">Rooms</button>
+					<div class="window-action-group window-action-group-primary" role="group" aria-label="Quick actions">
+						<button id="connect-button" class="icon-button header-icon-button" type="button" title="Connect" aria-label="Connect">
+							<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M9 12l2 2 4-4"></path></svg>
+						</button>
+						<button id="mute-button" class="icon-button header-icon-button" type="button" title="Toggle mute" aria-label="Toggle mute">
+							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 010 7"></path></svg>
+						</button>
+						<button id="deaf-button" class="icon-button header-icon-button" type="button" title="Toggle deafen" aria-label="Toggle deafen">
+							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M16 9l5 5"></path><path d="M21 9l-5 5"></path></svg>
+						</button>
+						<button id="disconnect-button" class="icon-button header-icon-button" type="button" title="Disconnect" aria-label="Disconnect">
+							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8l8 8"></path><path d="M16 8l-8 8"></path><circle cx="12" cy="12" r="9"></circle></svg>
+						</button>
+					</div>
+					<div class="window-action-group window-action-group-secondary" role="group" aria-label="Menu and layout actions">
+						<button id="layout-switch-button" class="icon-button header-icon-button" type="button" title="Switch to classic layout" aria-label="Switch to classic layout">
+							<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="7" height="14" rx="1.5"></rect><rect x="13.5" y="5" width="7" height="14" rx="1.5"></rect><path d="M10.5 12h3"></path><path d="M12.5 10l2 2-2 2"></path></svg>
+						</button>
+						<button id="settings-button" class="icon-button header-icon-button header-menu-button" type="button" title="Open Mumble menu" aria-label="Open Mumble menu" aria-haspopup="dialog" aria-expanded="false">
+							<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 01-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 01-2.8-2.8l.1-.1A1.6 1.6 0 004.6 15a1.6 1.6 0 00-1.5-1H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 9a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 012.8-2.8l.1.1A1.6 1.6 0 009 4.6a1.6 1.6 0 001-1.5V3a2 2 0 014 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0019.4 9a1.6 1.6 0 001.5 1h.1a2 2 0 010 4h-.1a1.6 1.6 0 00-1.5 1z"></path></svg>
+						</button>
+						<button id="rail-toggle-button" class="chip-button rail-toggle-button header-rail-toggle" type="button">Rooms</button>
+					</div>
 				</div>
 			</div>
 			<div class="menu-band">
@@ -112,27 +116,29 @@
 					<section class="utility-card note-card hidden">
 						<div class="section-heading">
 							<span class="section-label">MOTD</span>
-							<button id="note-toggle-button" class="linkish-button" type="button">Open</button>
+							<button id="note-toggle-button" class="note-toggle-button hidden" type="button" aria-expanded="false" title="Show the full message of the day">Show</button>
 						</div>
 						<p id="server-title" class="note-title">Mumble</p>
-						<p id="server-subtitle" class="note-body">Waiting for message of the day.</p>
+						<div id="server-subtitle" class="note-body">Waiting for message of the day.</div>
 					</section>
 
-					<section class="utility-card room-card-block">
-						<div class="section-heading">
-							<span class="section-label">Voice rooms</span>
-							<span id="voice-room-count" class="quiet-count">0</span>
-						</div>
-						<div id="voice-room-list" class="rail-list"></div>
-					</section>
+					<div class="room-section-stack">
+						<section class="utility-card room-card-block">
+							<div class="section-heading">
+								<span class="section-label">Voice rooms</span>
+								<span id="voice-room-count" class="quiet-count">0</span>
+							</div>
+							<div id="voice-room-list" class="rail-list"></div>
+						</section>
 
-					<section class="utility-card room-card-block">
-						<div class="section-heading">
-							<span class="section-label">Text rooms</span>
-							<span id="text-room-count" class="quiet-count">0</span>
-						</div>
-						<div id="text-room-list" class="rail-list"></div>
-					</section>
+						<section class="utility-card room-card-block">
+							<div class="section-heading">
+								<span class="section-label">Text rooms</span>
+								<span id="text-room-count" class="quiet-count">0</span>
+							</div>
+							<div id="text-room-list" class="rail-list"></div>
+						</section>
+					</div>
 				</div>
 
 				<section id="self-card" class="self-card" tabindex="0" aria-haspopup="dialog" aria-expanded="false">
@@ -149,6 +155,7 @@
 		</div>
 	</div>
 
+	<div id="app-menu-popover" class="self-menu-popover app-menu-popover hidden" role="dialog" aria-hidden="true"></div>
 	<div id="self-menu-popover" class="self-menu-popover hidden" role="dialog" aria-hidden="true"></div>
 	<div id="context-menu" class="context-menu hidden" role="menu" aria-hidden="true"></div>
 	<div id="image-viewer-layer" class="image-viewer-layer hidden" aria-hidden="true">

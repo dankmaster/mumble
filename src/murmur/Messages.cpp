@@ -730,6 +730,42 @@ namespace {
 	constexpr int CHAT_PREVIEW_MAX_CONCURRENT_HOST = 2;
 	constexpr int CHAT_PREVIEW_THUMBNAIL_WIDTH     = 640;
 	constexpr int CHAT_PREVIEW_THUMBNAIL_HEIGHT    = 480;
+	static const QByteArray s_chatPreviewBrowserUserAgent =
+		QByteArrayLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+						  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36");
+	static const QByteArray s_chatPreviewAcceptHeader =
+		QByteArrayLiteral("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8");
+	static const QByteArray s_chatPreviewAcceptLanguageHeader = QByteArrayLiteral("en-US,en;q=0.9");
+
+	void prepareChatPreviewRequest(QNetworkRequest &request) {
+		request.setRawHeader(QByteArrayLiteral("User-Agent"), s_chatPreviewBrowserUserAgent);
+		request.setRawHeader(QByteArrayLiteral("Accept"), s_chatPreviewAcceptHeader);
+		request.setRawHeader(QByteArrayLiteral("Accept-Language"), s_chatPreviewAcceptLanguageHeader);
+	}
+
+	bool previewContentTypeLooksHtml(const QString &contentType) {
+		return contentType.isEmpty() || contentType.contains(QLatin1String("html"))
+			   || contentType.contains(QLatin1String("xml"));
+	}
+
+	QString previewImageMetaTag(const QHash< QString, QString > &metaTags) {
+		static const QStringList preferredKeys = {
+			QStringLiteral("og:image"),
+			QStringLiteral("og:image:url"),
+			QStringLiteral("og:image:secure_url"),
+			QStringLiteral("twitter:image"),
+			QStringLiteral("twitter:image:src"),
+		};
+
+		for (const QString &key : preferredKeys) {
+			const QString value = metaTags.value(key).trimmed();
+			if (!value.isEmpty()) {
+				return value;
+			}
+		}
+
+		return QString();
+	}
 
 	bool isSanitizableImageMime(const QString &mime) {
 		return mime == QLatin1String("image/png") || mime == QLatin1String("image/jpeg")
@@ -1388,6 +1424,7 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 
 		updateHostCount(hostKey, +1);
 		QNetworkRequest request(imageUrl);
+		prepareChatPreviewRequest(request);
 		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
 		request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
 		QNetworkReply *reply = qnamNetwork->get(request);
@@ -1451,6 +1488,7 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 
 		updateHostCount(hostKey, +1);
 		QNetworkRequest request(pageUrl);
+		prepareChatPreviewRequest(request);
 		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
 		request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
 		QNetworkReply *reply = qnamNetwork->get(request);
@@ -1473,13 +1511,21 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 					}
 
 					if (!success || bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
-						embedState->status    = ::msdb::ChatEmbedStatus::Failed;
-						embedState->errorCode = "fetch_failed";
-						finish(*embedState);
-						return;
+						if (!success) {
+							embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+							embedState->errorCode = "fetch_failed";
+							finish(*embedState);
+							return;
+						}
 					}
 
 					if (contentType.startsWith(QLatin1String("image/")) || isDirectImageUrl(sourceUrl)) {
+						if (bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
+							embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+							embedState->errorCode = "fetch_failed";
+							finish(*embedState);
+							return;
+						}
 						*pageTitle       = QFileInfo(sourceUrl.path()).fileName();
 						*pageDescription = QObject::tr("Direct image preview");
 						*pageSiteName    = sourceUrl.host();
@@ -1487,15 +1533,18 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 						return;
 					}
 
-					if (!contentType.isEmpty() && !contentType.contains(QLatin1String("html"))
-						&& !contentType.contains(QLatin1String("xml"))) {
+					if (!previewContentTypeLooksHtml(contentType)) {
 						embedState->status    = ::msdb::ChatEmbedStatus::Failed;
 						embedState->errorCode = "unsupported_content_type";
 						finish(*embedState);
 						return;
 					}
 
-					const QString html                     = QString::fromUtf8(bytes);
+					// Large SPA responses often keep the useful preview tags near the start of <head>.
+					// Parse the prefix we have instead of discarding the preview solely due to size.
+					const QByteArray htmlBytes =
+						bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES ? bytes.left(CHAT_PREVIEW_MAX_PAGE_BYTES) : bytes;
+					const QString html                     = QString::fromUtf8(htmlBytes);
 					const QHash< QString, QString > metaTags = extractMetaTags(html);
 					*pageTitle =
 						metaTags.value(QLatin1String("og:title"),
@@ -1510,8 +1559,7 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 					embedState->description = u8(*pageDescription);
 					embedState->siteName    = u8(pageSiteName->isEmpty() ? sourceUrl.host() : *pageSiteName);
 
-					const QString imageUrlString =
-						metaTags.value(QLatin1String("og:image"), metaTags.value(QLatin1String("twitter:image")));
+					const QString imageUrlString = previewImageMetaTag(metaTags);
 					if (imageUrlString.isEmpty()) {
 						embedState->status    = ::msdb::ChatEmbedStatus::Ready;
 						embedState->errorCode = "";

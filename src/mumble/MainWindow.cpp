@@ -36,6 +36,11 @@
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 #	include "ModernShellBridge.h"
 #	include "ModernShellHost.h"
+#	include <QtWebEngineCore/QWebEngineProfile>
+#	include <QtWebEngineCore/QWebEngineSettings>
+#	include <QtWebEngineCore/QWebEngineUrlRequestInfo>
+#	include <QtWebEngineCore/QWebEngineUrlRequestInterceptor>
+#	include <QtWebEngineWidgets/QWebEngineView>
 #endif
 #include "MenuLabel.h"
 #include "PersistentChatController.h"
@@ -86,6 +91,7 @@
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QDateTime>
 #include <QtCore/QFileInfo>
+#include <QtCore/QMimeData>
 #include <QtCore/QPointer>
 #include <QtCore/QSet>
 #include <QtCore/QTimer>
@@ -102,6 +108,7 @@
 #include <QtGui/QImageReader>
 #include <QtGui/QPainter>
 #include <QtGui/QPainterPath>
+#include <QtGui/QPixmap>
 #include <QtGui/QScreen>
 #include <QtGui/QTextDocument>
 #include <QtGui/QTextDocumentFragment>
@@ -165,6 +172,7 @@ namespace {
 	constexpr int LocalServerLogScope       = -1;
 	constexpr int LocalDirectMessageScope   = -2;
 	constexpr int PersistentChatBottomInsetHeight = 18;
+	constexpr int ModernShellSnapshotCoalesceMs = 16;
 
 	bool modernShellMinimalSnapshotEnabled() {
 		static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0;
@@ -2682,6 +2690,19 @@ QString persistentChatMessageBodyHtml(
 	constexpr int PERSISTENT_CHAT_PREVIEW_DISPLAY_HEIGHT = 300;
 	constexpr int PERSISTENT_CHAT_PREVIEW_CARD_MAX_WIDTH = 480;
 	constexpr int PERSISTENT_CHAT_PREVIEW_WIDTH_STEP     = 16;
+	static const QByteArray s_previewBrowserUserAgent =
+		QByteArrayLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+						  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36");
+	static const QByteArray s_previewAcceptHeader =
+		QByteArrayLiteral("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8");
+	static const QByteArray s_previewAcceptLanguageHeader = QByteArrayLiteral("en-US,en;q=0.9");
+
+	void preparePreviewRequest(QNetworkRequest &request) {
+		Network::prepareRequest(request);
+		request.setRawHeader(QByteArrayLiteral("User-Agent"), s_previewBrowserUserAgent);
+		request.setRawHeader(QByteArrayLiteral("Accept"), s_previewAcceptHeader);
+		request.setRawHeader(QByteArrayLiteral("Accept-Language"), s_previewAcceptLanguageHeader);
+	}
 
 	void setPreviewAbortReason(QNetworkReply *reply, const QString &reason) {
 		if (reply) {
@@ -2705,7 +2726,31 @@ QString persistentChatMessageBodyHtml(
 		return QObject::tr("Preview unavailable");
 	}
 
-	void applyPreviewReplyGuards(QNetworkReply *reply, qint64 maxBytes) {
+	bool previewContentTypeLooksHtml(const QString &contentType) {
+		return contentType.isEmpty() || contentType.contains(QLatin1String("html"))
+			   || contentType.contains(QLatin1String("xml"));
+	}
+
+	QString previewImageMetaTag(const QHash< QString, QString > &metaTags) {
+		static const QStringList preferredKeys = {
+			QStringLiteral("og:image"),
+			QStringLiteral("og:image:url"),
+			QStringLiteral("og:image:secure_url"),
+			QStringLiteral("twitter:image"),
+			QStringLiteral("twitter:image:src"),
+		};
+
+		for (const QString &key : preferredKeys) {
+			const QString value = metaTags.value(key).trimmed();
+			if (!value.isEmpty()) {
+				return value;
+			}
+		}
+
+		return QString();
+	}
+
+	void applyPreviewReplyGuards(QNetworkReply *reply, qint64 maxBytes, bool abortOnContentLength = true) {
 		if (!reply) {
 			return;
 		}
@@ -2723,13 +2768,15 @@ QString persistentChatMessageBodyHtml(
 		timeoutTimer->start();
 
 		if (maxBytes > 0) {
-			QObject::connect(reply, &QNetworkReply::metaDataChanged, reply, [reply, maxBytes]() {
-				const qint64 contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-				if (contentLength > maxBytes && !reply->isFinished()) {
-					setPreviewAbortReason(reply, QLatin1String("too_large"));
-					reply->abort();
-				}
-			});
+			if (abortOnContentLength) {
+				QObject::connect(reply, &QNetworkReply::metaDataChanged, reply, [reply, maxBytes]() {
+					const qint64 contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+					if (contentLength > maxBytes && !reply->isFinished()) {
+						setPreviewAbortReason(reply, QLatin1String("too_large"));
+						reply->abort();
+					}
+				});
+			}
 			QObject::connect(reply, &QNetworkReply::downloadProgress, reply, [reply, maxBytes](qint64 received, qint64) {
 				if (received > maxBytes && !reply->isFinished()) {
 					setPreviewAbortReason(reply, QLatin1String("too_large"));
@@ -2738,6 +2785,276 @@ QString persistentChatMessageBodyHtml(
 			});
 		}
 	}
+
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	class PreviewSnapshotUrlInterceptor final : public QWebEngineUrlRequestInterceptor {
+	public:
+		explicit PreviewSnapshotUrlInterceptor(QObject *parent = nullptr) : QWebEngineUrlRequestInterceptor(parent) {
+		}
+
+		void interceptRequest(QWebEngineUrlRequestInfo &info) override {
+			const QUrl url = info.requestUrl();
+			const QString scheme = url.scheme().toLower();
+			if (scheme == QLatin1String("about") || scheme == QLatin1String("data")
+				|| scheme == QLatin1String("blob")) {
+				return;
+			}
+
+			if (!isSafePreviewTarget(url)) {
+				info.block(true);
+				return;
+			}
+
+			info.setHttpHeader(QByteArrayLiteral("User-Agent"), s_previewBrowserUserAgent);
+			info.setHttpHeader(QByteArrayLiteral("Accept-Language"), s_previewAcceptLanguageHeader);
+			if (info.resourceType() == QWebEngineUrlRequestInfo::ResourceTypeMainFrame
+				|| info.resourceType() == QWebEngineUrlRequestInfo::ResourceTypeSubFrame) {
+				info.setHttpHeader(QByteArrayLiteral("Accept"), s_previewAcceptHeader);
+			}
+		}
+	};
+
+	class PersistentChatPreviewSnapshotRenderer final : public QObject {
+	public:
+		using ResultCallback = std::function< void(const QString &, const QImage &, bool) >;
+
+		explicit PersistentChatPreviewSnapshotRenderer(QObject *parent = nullptr) : QObject(parent) {
+			m_timeoutTimer = new QTimer(this);
+			m_timeoutTimer->setSingleShot(true);
+			m_timeoutTimer->setInterval(15000);
+			QObject::connect(m_timeoutTimer, &QTimer::timeout, this, [this]() { finishCurrent(false, QImage()); });
+
+			m_settleTimer = new QTimer(this);
+			m_settleTimer->setSingleShot(true);
+			m_settleTimer->setInterval(1200);
+			QObject::connect(m_settleTimer, &QTimer::timeout, this, [this]() { captureCurrentView(); });
+		}
+
+		~PersistentChatPreviewSnapshotRenderer() override {
+			if (m_view) {
+				m_view->hide();
+				m_view->close();
+				delete m_view;
+				m_view = nullptr;
+				m_page = nullptr;
+			}
+			if (m_profile) {
+				delete m_profile;
+				m_profile     = nullptr;
+				m_interceptor = nullptr;
+			}
+		}
+
+		void setResultCallback(ResultCallback callback) {
+			m_resultCallback = std::move(callback);
+		}
+
+		void requestSnapshot(const QString &previewKey, const QUrl &url) {
+			if (previewKey.trimmed().isEmpty() || !isSafePreviewTarget(url)) {
+				return;
+			}
+
+			if ((m_busy && m_current.previewKey == previewKey) || m_queuedPreviewKeys.contains(previewKey)) {
+				return;
+			}
+
+			Request request;
+			request.previewKey = previewKey;
+			request.url        = url;
+			m_queue.push_back(request);
+			m_queuedPreviewKeys.insert(previewKey);
+			startNextIfIdle();
+		}
+
+	private:
+		struct Request {
+			QString previewKey;
+			QUrl url;
+		};
+
+		static constexpr int kViewportWidth  = 960;
+		static constexpr int kViewportHeight = 720;
+		static constexpr int kCaptureRetryDelayMsec = 250;
+		static constexpr int kMaxCaptureAttempts = 2;
+
+		void ensureView() {
+			if (m_view) {
+				return;
+			}
+
+			m_profile = new QWebEngineProfile(this);
+			m_profile->setPersistentCookiesPolicy(QWebEngineProfile::NoPersistentCookies);
+			m_profile->setPersistentPermissionsPolicy(QWebEngineProfile::PersistentPermissionsPolicy::StoreInMemory);
+			m_profile->setHttpCacheType(QWebEngineProfile::MemoryHttpCache);
+			m_profile->setHttpUserAgent(QString::fromLatin1(s_previewBrowserUserAgent));
+			m_profile->setHttpAcceptLanguage(QString::fromLatin1(s_previewAcceptLanguageHeader));
+
+			m_interceptor = new PreviewSnapshotUrlInterceptor(m_profile);
+			m_profile->setUrlRequestInterceptor(m_interceptor);
+
+			m_view = new QWebEngineView();
+			m_view->setAttribute(Qt::WA_ShowWithoutActivating, true);
+			m_view->setFocusPolicy(Qt::NoFocus);
+			m_view->setContextMenuPolicy(Qt::NoContextMenu);
+			m_view->setWindowFlag(Qt::Tool, true);
+			m_view->setWindowFlag(Qt::FramelessWindowHint, true);
+			m_view->setWindowFlag(Qt::WindowDoesNotAcceptFocus, true);
+			m_view->resize(kViewportWidth, kViewportHeight);
+			m_view->move(-32000, -32000);
+
+			m_page = new QWebEnginePage(m_profile, m_view);
+			m_page->setAudioMuted(true);
+			m_page->setBackgroundColor(Qt::white);
+			m_view->setPage(m_page);
+
+			m_view->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture, true);
+			m_view->settings()->setAttribute(QWebEngineSettings::ShowScrollBars, false);
+			m_view->settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
+
+			QObject::connect(m_view, &QWebEngineView::loadFinished, this, [this](bool ok) {
+				if (!m_busy) {
+					return;
+				}
+				if (!ok) {
+					finishCurrent(false, QImage());
+					return;
+				}
+
+				m_captureAttempts = 0;
+				m_page->runJavaScript(QStringLiteral(
+										  "try {"
+										  "window.scrollTo(0, 0);"
+										  "document.documentElement.style.scrollBehavior = 'auto';"
+										  "if (document.body) { document.body.style.scrollBehavior = 'auto'; }"
+										  "} catch (e) {}"),
+									  [this](const QVariant &) {
+										  if (m_busy) {
+											  m_settleTimer->start();
+										  }
+									  });
+			});
+			QObject::connect(m_view, &QWebEngineView::renderProcessTerminated, this,
+							 [this](QWebEnginePage::RenderProcessTerminationStatus, int) {
+								 recreateView();
+								 finishCurrent(false, QImage());
+							 });
+			QObject::connect(m_page, &QWebEnginePage::contentsSizeChanged, this, [this](const QSizeF &) {
+				if (m_busy && !m_page->isLoading()) {
+					m_settleTimer->start();
+				}
+			});
+		}
+
+		void recreateView() {
+			if (!m_view) {
+				return;
+			}
+
+			m_view->hide();
+			m_view->close();
+			delete m_view;
+			m_view    = nullptr;
+			m_page    = nullptr;
+			if (m_profile) {
+				delete m_profile;
+				m_profile = nullptr;
+				m_interceptor = nullptr;
+			}
+			ensureView();
+		}
+
+		void startNextIfIdle() {
+			if (m_busy || m_queue.isEmpty()) {
+				return;
+			}
+
+			ensureView();
+
+			m_busy = true;
+			m_current = m_queue.takeFirst();
+			m_queuedPreviewKeys.remove(m_current.previewKey);
+			m_captureAttempts = 0;
+
+			m_view->resize(kViewportWidth, kViewportHeight);
+			m_view->move(-32000, -32000);
+			m_view->show();
+			m_view->raise();
+			m_page->setVisible(true);
+			m_page->setUrl(m_current.url);
+			m_timeoutTimer->start();
+		}
+
+		void captureCurrentView() {
+			if (!m_busy || !m_view) {
+				return;
+			}
+
+			m_page->runJavaScript(QStringLiteral(
+									  "try {"
+									  "window.scrollTo(0, 0);"
+									  "} catch (e) {}"),
+								  [this](const QVariant &) {
+									  if (!m_busy || !m_view) {
+										  return;
+									  }
+
+									  const QPixmap pixmap = m_view->grab();
+									  const QImage image   = pixmap.toImage();
+									  if (!image.isNull() && image.width() > 1 && image.height() > 1) {
+										  finishCurrent(true, image);
+										  return;
+									  }
+
+									  ++m_captureAttempts;
+									  if (m_captureAttempts < kMaxCaptureAttempts) {
+										  m_settleTimer->start(kCaptureRetryDelayMsec);
+										  return;
+									  }
+
+									  finishCurrent(false, QImage());
+								  });
+		}
+
+		void finishCurrent(bool success, const QImage &image) {
+			if (!m_busy) {
+				return;
+			}
+
+			const QString previewKey = m_current.previewKey;
+			m_busy = false;
+			m_current = Request();
+			m_timeoutTimer->stop();
+			m_settleTimer->stop();
+
+			if (m_page) {
+				m_page->setVisible(false);
+				m_page->triggerAction(QWebEnginePage::Stop);
+			}
+			if (m_view) {
+				m_view->hide();
+			}
+
+			if (m_resultCallback) {
+				m_resultCallback(previewKey, image, success);
+			}
+
+			QTimer::singleShot(0, this, [this]() { startNextIfIdle(); });
+		}
+
+		ResultCallback m_resultCallback;
+		QList< Request > m_queue;
+		QSet< QString > m_queuedPreviewKeys;
+		Request m_current;
+		QTimer *m_timeoutTimer = nullptr;
+		QTimer *m_settleTimer = nullptr;
+		QWebEngineProfile *m_profile = nullptr;
+		PreviewSnapshotUrlInterceptor *m_interceptor = nullptr;
+		QWebEngineView *m_view = nullptr;
+		QWebEnginePage *m_page = nullptr;
+		bool m_busy = false;
+		int m_captureAttempts = 0;
+	};
+#endif
 
 	QImage persistentChatThumbnailImage(const QImage &image) {
 		if (image.isNull()) {
@@ -3771,6 +4088,7 @@ void MainWindow::setupGui() {
 
 	m_modernShellSyncTimer = new QTimer(this);
 	m_modernShellSyncTimer->setSingleShot(true);
+	m_modernShellSyncTimer->setTimerType(Qt::PreciseTimer);
 	connect(m_modernShellSyncTimer, &QTimer::timeout, this, &MainWindow::syncModernShellSnapshot);
 
 	applyShellLayout();
@@ -3892,7 +4210,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsMotdToggleButton->setObjectName(
 		QLatin1String("qtbServerNavigatorTextChannelsMotdToggle"));
 	m_serverNavigatorTextChannelsMotdToggleButton->setAutoRaise(true);
-	m_serverNavigatorTextChannelsMotdToggleButton->setText(tr("Hide"));
+	m_serverNavigatorTextChannelsMotdToggleButton->hide();
 
 	textChannelsMotdHeaderLayout->addWidget(m_serverNavigatorTextChannelsMotdTitle);
 	textChannelsMotdHeaderLayout->addStretch(1);
@@ -4086,12 +4404,12 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorFooterFrame->hide();
 	contentLayout->addWidget(m_serverNavigatorFooterFrame);
 
-	connect(m_serverNavigatorTextChannelsMotdToggleButton, &QToolButton::clicked, this, [this]() {
-		m_persistentChatMotdHidden = !m_persistentChatMotdHidden;
-		updatePersistentChatChrome(currentPersistentChatTarget());
-	});
 	connect(m_serverNavigatorFooterPresenceButton, &QPushButton::clicked, this, [this]() {
 		toggleServerNavigatorUserMenu();
+	});
+	connect(m_serverNavigatorTextChannelsMotdToggleButton, &QToolButton::clicked, this, [this]() {
+		m_persistentChatMotdExpanded = !m_persistentChatMotdExpanded;
+		refreshServerNavigatorSectionHeights();
 	});
 	connect(m_serverNavigatorTextChannelsMotdBody, &QLabel::linkActivated, this,
 			[this](const QString &link) { on_qteLog_anchorClicked(QUrl(link)); });
@@ -4158,7 +4476,7 @@ void MainWindow::setupServerNavigator() {
 	layout->addWidget(m_serverNavigatorContentFrame, 1);
 
 	refreshServerNavigatorStyles();
-	updateServerNavigatorVoiceTreeHeight();
+	refreshServerNavigatorSectionHeights();
 }
 
 void MainWindow::setupPersistentChatDock() {
@@ -4713,6 +5031,8 @@ void MainWindow::activateModernShell() {
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::disconnectRequested, this,
 				&MainWindow::on_qaServerDisconnect_triggered);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::settingsRequested, this, &MainWindow::openConfigDialog);
+		connect(m_modernShellHost->bridge(), &ModernShellBridge::clipboardImageAttachmentRequested, this,
+				[this]() { attachPersistentChatClipboardImage(); });
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::imagePickerRequested, this,
 				&MainWindow::openPersistentChatImagePicker);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::imageDataAttachmentRequested, this,
@@ -4734,6 +5054,7 @@ void MainWindow::activateModernShell() {
 				&MainWindow::togglePreferredModernShellLayout);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::bootReady, this,
 				&MainWindow::queueModernShellSnapshotSync);
+		connect(m_modernShellHost, &ModernShellHost::imageDropped, this, &MainWindow::attachPersistentChatImage);
 		connect(m_modernShellHost, &ModernShellHost::imageUrlsDropped, this, &MainWindow::attachPersistentChatImages);
 		QString modernShellError;
 		if (!m_modernShellHost->start(&modernShellError)) {
@@ -4956,8 +5277,16 @@ void MainWindow::queueModernShellSnapshotSync() {
 		return;
 	}
 
-	appendModernShellConnectTrace(QStringLiteral("queueModernShellSnapshotSync queued"));
-	m_modernShellSyncTimer->start(0);
+	if (m_modernShellSyncTimer->isActive()) {
+		appendModernShellConnectTrace(
+			QStringLiteral("queueModernShellSnapshotSync coalesced remaining=%1")
+				.arg(m_modernShellSyncTimer->remainingTime()));
+		return;
+	}
+
+	appendModernShellConnectTrace(
+		QStringLiteral("queueModernShellSnapshotSync queued delay=%1").arg(ModernShellSnapshotCoalesceMs));
+	m_modernShellSyncTimer->start(ModernShellSnapshotCoalesceMs);
 #endif
 }
 
@@ -5473,6 +5802,18 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		restoreModernShellInputState();
 		return actions;
 	};
+	const bool exposeChannelMenuInAppChrome =
+		target.channel && (target.scope == MumbleProto::TextChannel || target.scope == MumbleProto::Channel);
+	if (exposeChannelMenuInAppChrome) {
+		QVariantMap channelMenu;
+		channelMenu.insert(QStringLiteral("id"), QStringLiteral("channel"));
+		channelMenu.insert(QStringLiteral("label"),
+						   ModernShellMenuSerializer::normalizedActionLabel(qmChannel->title()));
+		channelMenu.insert(QStringLiteral("items"), buildChannelActions(target.channel));
+		appMenus.insert(1, channelMenu);
+		appState.insert(QStringLiteral("menus"), appMenus);
+		snapshot.insert(QStringLiteral("app"), appState);
+	}
 	const auto buildListenerActions = [this, restoreModernShellInputState](ClientUser *owner, Channel *channel) {
 		QVariantList actions;
 		if (!owner || !channel) {
@@ -6701,7 +7042,7 @@ void MainWindow::refreshServerNavigatorStyles() {
 					qssColor(railSeamColor),
 				});
 		m_serverNavigatorContainer->setStyleSheet(serverNavigatorStyle);
-		refreshServerNavigatorMotdHeight();
+		refreshServerNavigatorSectionHeights();
 		return;
 	}
 
@@ -6969,7 +7310,20 @@ void MainWindow::refreshServerNavigatorStyles() {
 	serverNavigatorStyle.replace(QStringLiteral("%1"), chrome.cardColor.name());
 	m_serverNavigatorContainer->setStyleSheet(serverNavigatorStyle);
 	syncServerNavigatorUserMenu();
+	refreshServerNavigatorSectionHeights();
+}
+
+void MainWindow::refreshServerNavigatorSectionHeights() {
+	if (!usesModernShell()) {
+		return;
+	}
+	if (modernShellMinimalSnapshotEnabled()) {
+		return;
+	}
+
 	refreshServerNavigatorMotdHeight();
+	updateServerNavigatorVoiceTreeHeight();
+	updatePersistentChatChannelListHeight();
 }
 
 void MainWindow::refreshServerNavigatorMotdHeight() {
@@ -6989,9 +7343,12 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 
 	static const int minimumExpandedMotdHeight = 48;
 
-	if (m_persistentChatWelcomeText.trimmed().isEmpty() || m_persistentChatMotdHidden
-		|| !m_serverNavigatorTextChannelsMotdFrame->isVisible() || !m_serverNavigatorTextChannelsMotdBody->isVisible()) {
+	if (m_persistentChatWelcomeText.trimmed().isEmpty() || !m_serverNavigatorTextChannelsMotdFrame->isVisible()
+		|| !m_serverNavigatorTextChannelsMotdBody->isVisible()) {
 		m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(0);
+		m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(QWIDGETSIZE_MAX);
+		m_serverNavigatorTextChannelsMotdBody->setToolTip(QString());
+		m_serverNavigatorTextChannelsMotdToggleButton->hide();
 		return;
 	}
 
@@ -7007,19 +7364,72 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 		return;
 	}
 
-	QTextDocument document;
-	document.setDocumentMargin(0);
-	document.setDefaultFont(m_serverNavigatorTextChannelsMotdBody->font());
-	document.setHtml(m_serverNavigatorTextChannelsMotdBody->text());
-	document.setTextWidth(availableWidth);
+	const bool compactNavigator = isServerNavigatorCompactHeight();
+	const QString fullHtml      = persistentChatContentHtml(m_persistentChatWelcomeText);
 
-	const int desiredHeight =
-		std::max(static_cast< int >(std::ceil(document.size().height())),
-				 std::max(m_serverNavigatorTextChannelsMotdBody->heightForWidth(availableWidth),
-						  m_serverNavigatorTextChannelsMotdBody->sizeHint().height()));
-	if (desiredHeight > 0) {
-		m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(std::max(desiredHeight, minimumExpandedMotdHeight));
+	QTextDocument fullDocument;
+	fullDocument.setDocumentMargin(0);
+	fullDocument.setDefaultFont(m_serverNavigatorTextChannelsMotdBody->font());
+	fullDocument.setHtml(fullHtml);
+	fullDocument.setTextWidth(availableWidth);
+
+	const int desiredHeight = std::max(static_cast< int >(std::ceil(fullDocument.size().height())),
+									   minimumExpandedMotdHeight);
+	int condensedHeightBudget = 0;
+	if (m_serverNavigatorContentFrame) {
+		const int navigatorHeight = m_serverNavigatorContentFrame->contentsRect().height();
+		if (navigatorHeight > 0) {
+			const double budgetRatio = compactNavigator ? 0.12 : 0.16;
+			const int minBudget      = compactNavigator ? 36 : 44;
+			const int maxBudget      = compactNavigator ? 52 : 68;
+			condensedHeightBudget =
+				std::clamp(static_cast< int >(std::round(navigatorHeight * budgetRatio)), minBudget, maxBudget);
+		}
 	}
+
+	const bool motdOverflows = condensedHeightBudget > 0 && desiredHeight > condensedHeightBudget;
+	if (!motdOverflows) {
+		m_persistentChatMotdExpanded = false;
+	}
+
+	const bool showCondensedMotd = motdOverflows && !m_persistentChatMotdExpanded;
+	if (showCondensedMotd) {
+		const QString teaserText =
+			persistentChatPlainTextSummary(m_persistentChatWelcomeText, compactNavigator ? 96 : 148);
+		const QString teaserHtml = QString::fromLatin1("<span>%1</span>").arg(teaserText.toHtmlEscaped());
+
+		QTextDocument teaserDocument;
+		teaserDocument.setDocumentMargin(0);
+		teaserDocument.setDefaultFont(m_serverNavigatorTextChannelsMotdBody->font());
+		teaserDocument.setHtml(teaserHtml);
+		teaserDocument.setTextWidth(availableWidth);
+
+		const int teaserHeight =
+			std::max(static_cast< int >(std::ceil(teaserDocument.size().height())), compactNavigator ? 26 : 30);
+		m_serverNavigatorTextChannelsMotdBody->setText(teaserHtml);
+		m_serverNavigatorTextChannelsMotdBody->setWordWrap(true);
+		m_serverNavigatorTextChannelsMotdBody->setTextInteractionFlags(Qt::NoTextInteraction);
+		m_serverNavigatorTextChannelsMotdBody->setToolTip(
+			QTextDocumentFragment::fromHtml(fullHtml).toPlainText().simplified());
+		m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(teaserHeight);
+		m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(
+			std::max(teaserHeight, compactNavigator ? 40 : 48));
+		m_serverNavigatorTextChannelsMotdToggleButton->setText(tr("More"));
+		m_serverNavigatorTextChannelsMotdToggleButton->setToolTip(tr("Show the full message of the day"));
+		m_serverNavigatorTextChannelsMotdToggleButton->show();
+	} else {
+		m_serverNavigatorTextChannelsMotdBody->setText(fullHtml);
+		m_serverNavigatorTextChannelsMotdBody->setWordWrap(true);
+		m_serverNavigatorTextChannelsMotdBody->setTextInteractionFlags(Qt::TextBrowserInteraction);
+		m_serverNavigatorTextChannelsMotdBody->setToolTip(QString());
+		m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(desiredHeight);
+		m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(QWIDGETSIZE_MAX);
+		m_serverNavigatorTextChannelsMotdToggleButton->setText(tr("Less"));
+		m_serverNavigatorTextChannelsMotdToggleButton->setToolTip(tr("Show a shorter message of the day"));
+		m_serverNavigatorTextChannelsMotdToggleButton->setVisible(motdOverflows);
+	}
+
+	m_serverNavigatorTextChannelsMotdBody->updateGeometry();
 }
 
 void MainWindow::refreshPersistentChatStyles() {
@@ -8394,8 +8804,8 @@ void MainWindow::refreshTextDocumentStylesheets() {
 }
 
 void MainWindow::setPersistentChatWelcomeText(const QString &message) {
-	if (m_persistentChatWelcomeText.trimmed().isEmpty() && !message.trimmed().isEmpty()) {
-		m_persistentChatMotdHidden = true;
+	if (m_persistentChatWelcomeText != message) {
+		m_persistentChatMotdExpanded = false;
 	}
 	m_persistentChatWelcomeText = message;
 	updatePersistentChatWelcome();
@@ -8849,6 +9259,16 @@ bool MainWindow::isUserIdle(unsigned int session) const {
 	return *idleSeconds >= static_cast< unsigned int >(Global::get().s.iPresenceIdleTimeoutMinutes * 60);
 }
 
+bool MainWindow::isServerNavigatorCompactHeight() const {
+	if (!m_serverNavigatorContentFrame) {
+		return false;
+	}
+
+	const QRect contentRect = m_serverNavigatorContentFrame->contentsRect();
+	return (contentRect.height() > 0 && contentRect.height() < 560)
+		   || (contentRect.width() > 0 && contentRect.width() < 272);
+}
+
 void MainWindow::updateServerNavigatorVoiceTreeHeight() {
 	if (!qtvUsers || !qtvUsers->model()) {
 		return;
@@ -8860,7 +9280,7 @@ void MainWindow::updateServerNavigatorVoiceTreeHeight() {
 		rowHeight = std::max(qtvUsers->fontMetrics().height() + 10, 24);
 	}
 
-	const int visibleRowsBeforeScroll = std::min(visibleRows, 4);
+	const int visibleRowsBeforeScroll = std::min(visibleRows, isServerNavigatorCompactHeight() ? 3 : 4);
 	const int minimumHeight = (visibleRowsBeforeScroll * rowHeight) + (qtvUsers->frameWidth() * 2);
 
 	qtvUsers->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -8893,7 +9313,7 @@ void MainWindow::updatePersistentChatChannelListHeight() {
 	const int desiredHeight = (itemCount * rowHeight)
 							  + std::max(0, itemCount - 1) * m_persistentChatChannelList->spacing()
 							  + (m_persistentChatChannelList->frameWidth() * 2);
-	const int visibleItemsBeforeScroll = std::min(itemCount, 3);
+	const int visibleItemsBeforeScroll = std::min(itemCount, isServerNavigatorCompactHeight() ? 2 : 3);
 	const int minimumHeight = (visibleItemsBeforeScroll * rowHeight)
 							  + std::max(0, visibleItemsBeforeScroll - 1) * m_persistentChatChannelList->spacing()
 							  + (m_persistentChatChannelList->frameWidth() * 2);
@@ -9813,6 +10233,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		if (preview.previewAssetID > 0) {
 			ensurePersistentChatPreviewAssetDownload(preview.previewAssetID, previewKey);
 		} else {
+			ensurePersistentChatPreviewSiteSnapshot(previewKey);
 			renderIfVisible();
 		}
 		return;
@@ -9834,7 +10255,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		oembedUrl.setQuery(oembedQuery);
 
 		QNetworkRequest oembedRequest(oembedUrl);
-		Network::prepareRequest(oembedRequest);
+		preparePreviewRequest(oembedRequest);
 		QNetworkReply *oembedReply = Global::get().nam->get(oembedRequest);
 		applyPreviewReplyGuards(oembedReply, PREVIEW_MAX_PAGE_BYTES);
 		connect(oembedReply, &QNetworkReply::finished, this, [this, oembedReply, previewKey, renderIfVisible]() {
@@ -9879,7 +10300,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 
 		QUrl thumbnailUrl(QString::fromLatin1("https://i.ytimg.com/vi/%1/hqdefault.jpg").arg(videoId));
 		QNetworkRequest thumbnailRequest(thumbnailUrl);
-		Network::prepareRequest(thumbnailRequest);
+		preparePreviewRequest(thumbnailRequest);
 		QNetworkReply *thumbnailReply = Global::get().nam->get(thumbnailRequest);
 		applyPreviewReplyGuards(thumbnailReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(thumbnailReply, &QNetworkReply::finished, this,
@@ -9951,7 +10372,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		m_persistentChatPreviews.insert(previewKey, preview);
 
 		QNetworkRequest imageRequest(previewUrl);
-		Network::prepareRequest(imageRequest);
+		preparePreviewRequest(imageRequest);
 		QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
 		applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
@@ -9989,15 +10410,18 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	m_persistentChatPreviews.insert(previewKey, preview);
 
 	QNetworkRequest pageRequest(previewUrl);
-	Network::prepareRequest(pageRequest);
+	preparePreviewRequest(pageRequest);
 	QNetworkReply *pageReply = Global::get().nam->get(pageRequest);
-	applyPreviewReplyGuards(pageReply, PREVIEW_MAX_PAGE_BYTES);
+	applyPreviewReplyGuards(pageReply, PREVIEW_MAX_PAGE_BYTES, false);
 	connect(pageReply, &QNetworkReply::finished, this,
 			[this, pageReply, previewKey, previewUrl, provider, renderIfVisible]() {
 		const QByteArray data = pageReply->readAll();
 		const bool success    = pageReply->error() == QNetworkReply::NoError;
 		const QString contentType = pageReply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
 		const QString failureText = previewFailureText(pageReply);
+		const bool allowPartialHtml =
+			previewAbortReason(pageReply) == QLatin1String("too_large") && !data.isEmpty()
+			&& previewContentTypeLooksHtml(contentType);
 		pageReply->deleteLater();
 
 		auto it = m_persistentChatPreviews.find(previewKey);
@@ -10007,19 +10431,23 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 
 		it->metadataFinished = true;
 
-		if (!success || (!contentType.contains(QLatin1String("html")) && !contentType.isEmpty()
-						 && !contentType.contains(QLatin1String("xml")))) {
+		if ((!success && !allowPartialHtml) || !previewContentTypeLooksHtml(contentType)) {
 			it->thumbnailFinished = true;
 			if (it->title == tr("Loading link preview...") || (provider && it->title == provider->fallbackTitle)) {
 				it->title = provider ? provider->fallbackTitle : previewDisplayHost(previewUrl);
 			}
-			it->description = success ? tr("Preview unavailable") : failureText;
-			it->failed      = !success;
+			it->description = (success || allowPartialHtml) ? tr("Preview unavailable") : failureText;
+			it->failed      = !allowPartialHtml && !success;
+			ensurePersistentChatPreviewSiteSnapshot(previewKey);
 			renderIfVisible();
 			return;
 		}
 
-		const QString html = QString::fromUtf8(data);
+		// Modern SPA pages often advertise a very large Content-Length even though the useful
+		// preview metadata is available near the start of <head>. Parse the prefix we did receive
+		// instead of failing the entire preview outright.
+		const QByteArray htmlBytes = data.size() > PREVIEW_MAX_PAGE_BYTES ? data.left(PREVIEW_MAX_PAGE_BYTES) : data;
+		const QString html = QString::fromUtf8(htmlBytes);
 		const QHash< QString, QString > metaTags = extractMetaTags(html);
 		const QString title = metaTags.value(QLatin1String("og:title"),
 											 metaTags.value(QLatin1String("twitter:title"), extractHtmlTitle(html)));
@@ -10029,8 +10457,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 										  metaTags.value(QLatin1String("description"))));
 		const QString siteName = metaTags.value(QLatin1String("og:site_name"),
 											 provider ? provider->siteLabel : previewDisplayHost(previewUrl));
-		const QString imageUrlString =
-			metaTags.value(QLatin1String("og:image"), metaTags.value(QLatin1String("twitter:image")));
+		const QString imageUrlString = previewImageMetaTag(metaTags);
 
 		it->title = title.isEmpty() ? (provider ? provider->fallbackTitle : previewDisplayHost(previewUrl)) : title;
 		it->subtitle = siteName.isEmpty() ? (provider ? provider->siteLabel : previewDisplayHost(previewUrl)) : siteName;
@@ -10038,6 +10465,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 
 		if (imageUrlString.isEmpty()) {
 			it->thumbnailFinished = true;
+			ensurePersistentChatPreviewSiteSnapshot(previewKey);
 			renderIfVisible();
 			return;
 		}
@@ -10045,12 +10473,13 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		const QUrl imageUrl = previewUrl.resolved(QUrl(imageUrlString));
 		if (!isSafePreviewTarget(imageUrl)) {
 			it->thumbnailFinished = true;
+			ensurePersistentChatPreviewSiteSnapshot(previewKey);
 			renderIfVisible();
 			return;
 		}
 
 		QNetworkRequest imageRequest(imageUrl);
-		Network::prepareRequest(imageRequest);
+		preparePreviewRequest(imageRequest);
 		QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
 		applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
@@ -10078,6 +10507,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 			if (it->description.isEmpty() || it->description == tr("Fetching page metadata")) {
 				it->description = failureText;
 			}
+			ensurePersistentChatPreviewSiteSnapshot(previewKey);
 			renderIfVisible();
 		});
 		renderIfVisible();
@@ -10107,6 +10537,74 @@ void MainWindow::ensurePersistentChatPreviewAssetDownload(unsigned int assetID, 
 	request.set_offset(it->nextOffset);
 	request.set_max_bytes(262144);
 	Global::get().sh->sendMessage(request);
+}
+
+void MainWindow::ensurePersistentChatPreviewSiteSnapshot(const QString &previewKey) {
+#if !defined(MUMBLE_HAS_MODERN_LAYOUT)
+	Q_UNUSED(previewKey);
+#else
+	if (previewKey.isEmpty() || previewKey.startsWith(QLatin1String("image:"))
+		|| previewKey.startsWith(QLatin1String("youtube:"))) {
+		return;
+	}
+
+	auto it = m_persistentChatPreviews.find(previewKey);
+	if (it == m_persistentChatPreviews.end()) {
+		return;
+	}
+
+	PersistentChatPreview &preview = it.value();
+	if (!preview.thumbnailImage.isNull() || preview.siteSnapshotRequested || preview.siteSnapshotFinished) {
+		return;
+	}
+	if (preview.previewAssetID > 0 && !preview.thumbnailFinished) {
+		return;
+	}
+	if (!preview.metadataFinished && !preview.failed) {
+		return;
+	}
+
+	const QUrl previewUrl(preview.canonicalUrl);
+	if (!isSafePreviewTarget(previewUrl)) {
+		preview.siteSnapshotFinished = true;
+		return;
+	}
+
+	PersistentChatPreviewSnapshotRenderer *renderer =
+		static_cast< PersistentChatPreviewSnapshotRenderer * >(m_persistentChatPreviewSnapshotRenderer);
+	if (!renderer) {
+		renderer = new PersistentChatPreviewSnapshotRenderer(this);
+		m_persistentChatPreviewSnapshotRenderer = renderer;
+		renderer->setResultCallback(
+			[this](const QString &key, const QImage &image, bool success) {
+				handlePersistentChatPreviewSiteSnapshotResult(key, image, success);
+			});
+	}
+
+	preview.siteSnapshotRequested = true;
+	renderer->requestSnapshot(previewKey, previewUrl);
+#endif
+}
+
+void MainWindow::handlePersistentChatPreviewSiteSnapshotResult(const QString &previewKey, const QImage &image,
+															   bool success) {
+	auto it = m_persistentChatPreviews.find(previewKey);
+	if (it == m_persistentChatPreviews.end()) {
+		return;
+	}
+
+	it->siteSnapshotRequested = false;
+	it->siteSnapshotFinished  = true;
+	if (success && !image.isNull()) {
+		it->thumbnailImage    = persistentChatThumbnailImage(image);
+		it->thumbnailFinished = true;
+		it->failed            = false;
+	} else if (!it->thumbnailFinished) {
+		it->thumbnailFinished = true;
+	}
+
+	queueModernShellSnapshotSync();
+	updatePersistentChatPreviewViewIfVisible(previewKey);
 }
 
 int MainWindow::persistentChatPreviewContentWidth(int leftPadding) const {
@@ -11034,6 +11532,58 @@ void MainWindow::attachPersistentChatImages(const QList< QUrl > &urls) {
 	qteChat->sendImagesFromUrls(urls);
 }
 
+bool MainWindow::attachPersistentChatClipboardImage() {
+	if (!qteChat || !qteChat->isEnabled() || !Global::get().bAllowHTML) {
+		return false;
+	}
+
+	const QClipboard *clipboard = QApplication::clipboard();
+	const QMimeData *mimeData   = clipboard ? clipboard->mimeData() : nullptr;
+	if (!mimeData) {
+		return false;
+	}
+
+	if (mimeData->hasImage()) {
+		const QVariant imageData = mimeData->imageData();
+		QImage image             = qvariant_cast< QImage >(imageData);
+		if (image.isNull()) {
+			const QPixmap pixmap = qvariant_cast< QPixmap >(imageData);
+			if (!pixmap.isNull()) {
+				image = pixmap.toImage();
+			}
+		}
+
+		if (!image.isNull()) {
+			attachPersistentChatImage(image);
+			return true;
+		}
+	}
+
+	if (mimeData->hasUrls()) {
+		QList< QUrl > imageUrls;
+		const QList< QUrl > urls = mimeData->urls();
+		for (const QUrl &url : urls) {
+			if (!url.isLocalFile()) {
+				continue;
+			}
+
+			const QString localPath = url.toLocalFile();
+			if (QImageReader::imageFormat(localPath).isEmpty()) {
+				continue;
+			}
+
+			imageUrls.push_back(url);
+		}
+
+		if (!imageUrls.isEmpty()) {
+			attachPersistentChatImages(imageUrls);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void MainWindow::attachPersistentChatImage(const QImage &image) {
 	if (!qteChat || !qteChat->isEnabled() || !Global::get().bAllowHTML || image.isNull()) {
 		return;
@@ -11440,32 +11990,16 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	}
 	if (nativeNavigatorChromeVisible && m_serverNavigatorTextChannelsMotdFrame && m_serverNavigatorTextChannelsMotdTitle
 		&& m_serverNavigatorTextChannelsMotdBody && m_serverNavigatorTextChannelsMotdToggleButton) {
-		const bool showMotdBody = showMotd && !m_persistentChatMotdHidden;
 		m_serverNavigatorTextChannelsMotdFrame->setVisible(showMotd);
 		if (showMotd) {
-			const QString teaserText = persistentChatPlainTextSummary(m_persistentChatWelcomeText, 44);
 			m_serverNavigatorTextChannelsMotdTitle->setText(tr("MOTD"));
 			m_serverNavigatorTextChannelsMotdBody->setVisible(true);
-			m_serverNavigatorTextChannelsMotdBody->setText(showMotdBody
-															 ? persistentChatContentHtml(m_persistentChatWelcomeText)
-															 : QString::fromLatin1("<span>%1</span>")
-																   .arg(teaserText.toHtmlEscaped()));
-			m_serverNavigatorTextChannelsMotdBody->setWordWrap(showMotdBody);
-			m_serverNavigatorTextChannelsMotdBody->setTextInteractionFlags(showMotdBody ? Qt::TextBrowserInteraction
-																					   : Qt::NoTextInteraction);
-			m_serverNavigatorTextChannelsMotdBody->setToolTip(showMotdBody ? QString() : teaserText);
-			m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(showMotdBody ? 48 : 0);
-			m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(showMotdBody ? QWIDGETSIZE_MAX : 18);
-			m_serverNavigatorTextChannelsMotdBody->updateGeometry();
-			if (showMotdBody) {
-				static const int motdRefreshDelaysMs[] = { 0, 150, 600, 1800, 4500 };
-				for (const int delayMs : motdRefreshDelaysMs) {
-					QTimer::singleShot(delayMs, this, [this]() { refreshServerNavigatorMotdHeight(); });
-				}
+			static const int motdRefreshDelaysMs[] = { 0, 150, 600, 1800, 4500 };
+			for (const int delayMs : motdRefreshDelaysMs) {
+				QTimer::singleShot(delayMs, this, [this]() { refreshServerNavigatorSectionHeights(); });
 			}
-			m_serverNavigatorTextChannelsMotdToggleButton->setText(showMotdBody ? tr("Hide") : tr("Open"));
-			m_serverNavigatorTextChannelsMotdToggleButton->setToolTip(showMotdBody ? tr("Hide message of the day")
-																				   : tr("Open message of the day"));
+		} else {
+			m_serverNavigatorTextChannelsMotdToggleButton->hide();
 		}
 	}
 
@@ -11503,13 +12037,15 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	}
 	if (m_persistentChatChannelList && nativeNavigatorChromeVisible) {
 		m_persistentChatChannelList->setVisible(showConversationList);
-		updatePersistentChatChannelListHeight();
 	}
 	if (m_serverNavigatorTextChannelsFrame && nativeNavigatorChromeVisible) {
 		m_serverNavigatorTextChannelsFrame->setVisible(showConversationList);
 		if (m_serverNavigatorTextChannelsDivider) {
 			m_serverNavigatorTextChannelsDivider->setVisible(false);
 		}
+	}
+	if (nativeNavigatorChromeVisible) {
+		refreshServerNavigatorSectionHeights();
 	}
 
 	qdwLog->setWindowTitle(tr("Server log"));
@@ -12072,7 +12608,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 			|| watched == m_serverNavigatorTextChannelsMotdBody)
 		&& (event->type() == QEvent::Resize || event->type() == QEvent::Show
 			|| event->type() == QEvent::LayoutRequest)) {
-		QTimer::singleShot(0, this, [this]() { refreshServerNavigatorMotdHeight(); });
+		QTimer::singleShot(0, this, [this]() { refreshServerNavigatorSectionHeights(); });
 	}
 
 	if (event && event->type() == QEvent::Wheel && watched

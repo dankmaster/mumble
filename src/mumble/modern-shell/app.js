@@ -6,7 +6,6 @@
 	let lastRenderedMessageCount = 0;
 	let lastRenderedTailKey = "";
 	let lastScopeToken = "";
-	let noteExpanded = false;
 	let openMenuId = null;
 	let railCollapsed = false;
 	let compactViewport = false;
@@ -18,6 +17,11 @@
 	let pendingBottomPinFrames = 0;
 	let pendingBottomPinHandle = 0;
 	let footerAlignmentFrame = 0;
+	let railLayoutFrame = 0;
+	let snapshotRenderFrame = 0;
+	let appMenuOpen = false;
+	let noteExpanded = false;
+	let lastMotdSignature = "";
 	let messageListMutationObserver = null;
 	let dragState = null;
 	let imageViewerDragState = null;
@@ -36,9 +40,11 @@
 		menuBar: document.getElementById("menu-bar"),
 		railToggleButton: document.getElementById("rail-toggle-button"),
 		utilityRail: document.querySelector(".utility-rail"),
+		utilityScroll: document.querySelector(".utility-scroll"),
 		utilityRailBackdrop: document.getElementById("utility-rail-backdrop"),
 		railCloseButton: document.getElementById("rail-close-button"),
 		noteCard: document.querySelector(".note-card"),
+		noteToggleButton: document.getElementById("note-toggle-button"),
 		serverEyebrow: document.getElementById("server-eyebrow"),
 		serverTitle: document.getElementById("server-title"),
 		serverSubtitle: document.getElementById("server-subtitle"),
@@ -51,7 +57,6 @@
 		settingsButton: document.getElementById("settings-button"),
 		muteButton: document.getElementById("mute-button"),
 		deafButton: document.getElementById("deaf-button"),
-		noteToggleButton: document.getElementById("note-toggle-button"),
 		textRoomCount: document.getElementById("text-room-count"),
 		voiceRoomCount: document.getElementById("voice-room-count"),
 		textRoomList: document.getElementById("text-room-list"),
@@ -80,6 +85,7 @@
 		selfAvatar: document.getElementById("self-avatar"),
 		selfName: document.getElementById("self-name"),
 		selfStatus: document.getElementById("self-status"),
+		appMenu: document.getElementById("app-menu-popover"),
 		selfMenu: document.getElementById("self-menu-popover"),
 		contextMenu: document.getElementById("context-menu"),
 		imageViewerLayer: document.getElementById("image-viewer-layer"),
@@ -133,6 +139,90 @@
 			railCollapsed = compactViewport ? true : false;
 		}
 		applyRailPresentation();
+	}
+
+	function measureRailSection(section, listElement, itemCount) {
+		if (!section || !listElement) {
+			return null;
+		}
+
+		const listRect = listElement.getBoundingClientRect();
+		const sectionRect = section.getBoundingClientRect();
+		const rootLabel = listElement.querySelector(".rail-root-label");
+		const row = listElement.querySelector(".rail-row, .rail-empty");
+		const rootHeight = rootLabel ? Math.ceil(rootLabel.getBoundingClientRect().height) : 0;
+		const fallbackRowHeight = compactViewport ? 36 : 40;
+		const rowHeight = row ? Math.max(Math.ceil(row.getBoundingClientRect().height), fallbackRowHeight) : fallbackRowHeight;
+		const targetRows = itemCount > 0 ? Math.min(itemCount, compactViewport ? 2 : 3) : 1;
+		const listMinHeight = rootHeight + (rowHeight * Math.max(targetRows, 1)) + 8;
+		const chromeHeight = Math.max(26, Math.ceil(sectionRect.height - listRect.height));
+		return {
+			section: section,
+			listElement: listElement,
+			listMinHeight: listMinHeight,
+			sectionMinHeight: chromeHeight + listMinHeight
+		};
+	}
+
+	function scheduleRailLayoutSync() {
+		if (railLayoutFrame) {
+			return;
+		}
+
+		railLayoutFrame = requestAnimationFrame(function() {
+			railLayoutFrame = 0;
+			syncRailLayout();
+		});
+	}
+
+	function syncRailLayout() {
+		if (!refs.appShell || !refs.utilityScroll || !refs.noteCard || !refs.serverSubtitle
+			|| !refs.voiceRoomList || !refs.textRoomList) {
+			return;
+		}
+
+		const utilityHeight = Math.ceil(refs.utilityScroll.clientHeight || 0);
+		if (utilityHeight <= 0) {
+			return;
+		}
+
+		const voiceSection = refs.voiceRoomList.closest(".room-card-block");
+		const textSection = refs.textRoomList.closest(".room-card-block");
+		const sections = [
+			measureRailSection(voiceSection, refs.voiceRoomList, Number(refs.voiceRoomCount.textContent || 0)),
+			measureRailSection(textSection, refs.textRoomList, Number(refs.textRoomCount.textContent || 0))
+		].filter(function(entry) {
+			return !!entry;
+		});
+
+		sections.forEach(function(entry) {
+			entry.listElement.style.minHeight = "";
+			entry.section.style.minHeight = "";
+			entry.section.style.flexBasis = "";
+		});
+
+		if (refs.noteCard.classList.contains("hidden")) {
+			refs.noteCard.style.maxHeight = "";
+			refs.serverSubtitle.style.maxHeight = "";
+			return;
+		}
+
+		const noteCardRect = refs.noteCard.getBoundingClientRect();
+		const noteBodyRect = refs.serverSubtitle.getBoundingClientRect();
+		const noteChromeHeight = Math.max(52, Math.ceil(noteCardRect.height - noteBodyRect.height));
+		const minimumNoteBodyHeight = compactViewport ? 52 : 72;
+		const sectionGapBudget = sections.length > 0 ? 10 : 0;
+		const minimumSectionBudget = sections.reduce(function(total, entry) {
+			return total + entry.sectionMinHeight;
+		}, 0);
+		const noteBudget = utilityHeight - minimumSectionBudget - sectionGapBudget;
+		const desiredNoteMaxHeight = compactViewport ? 160 : 220;
+		const minimumNoteMaxHeight = noteChromeHeight + minimumNoteBodyHeight;
+		const clampedNoteMaxHeight = Math.max(minimumNoteMaxHeight, Math.min(desiredNoteMaxHeight, noteBudget));
+		const noteBodyMaxHeight = Math.max(minimumNoteBodyHeight, clampedNoteMaxHeight - noteChromeHeight);
+
+		refs.noteCard.style.maxHeight = Math.round(clampedNoteMaxHeight) + "px";
+		refs.serverSubtitle.style.maxHeight = Math.round(noteBodyMaxHeight) + "px";
 	}
 
 	function dismissCompactRailAfterAction() {
@@ -211,6 +301,28 @@
 
 	function getSnapshot() {
 		return modernBridge ? (modernBridge.snapshot || {}) : {};
+	}
+
+	function scheduleSnapshotRender() {
+		if (snapshotRenderFrame) {
+			return;
+		}
+
+		snapshotRenderFrame = requestAnimationFrame(function() {
+			snapshotRenderFrame = 0;
+			syncCompactRailState(false);
+			render(getSnapshot());
+		});
+	}
+
+	function plainTextFromHtml(html) {
+		const template = document.createElement("template");
+		template.innerHTML = String(html || "");
+		return String(template.content.textContent || "").replace(/\s+/g, " ").trim();
+	}
+
+	function escapedMultilineText(value) {
+		return escapeHtml(value).replace(/\n/g, "<br>");
 	}
 
 	function escapeHtml(value) {
@@ -1086,9 +1198,14 @@
 		const depthValue = Number(room.depth);
 		const depth = Number.isFinite(depthValue) && depthValue > 0 ? depthValue : 0;
 		const roomPathLabel = room.pathLabel || "";
+		const unreadCount = Number(room.unreadCount || 0);
+		const memberCount = Number(room.memberCount || 0);
+		const roomKind = String(room.kindLabel || "").trim().toLowerCase();
 		const subtitleText = joinable
 			? ((room.joined || room.selected) ? (roomPathLabel || room.description || "") : "")
-			: (room.description || "");
+			: ((room.selected || unreadCount > 0 || roomKind === "activity" || roomKind === "direct message")
+				? (room.description || "")
+				: "");
 		const wrapper = document.createElement("div");
 		wrapper.className = "rail-row-wrapper" + (joinable ? " is-voice-room" : "");
 		wrapper.style.setProperty("--room-depth", String(depth));
@@ -1098,6 +1215,9 @@
 		button.className = "rail-row"
 			+ (room.selected ? " is-selected" : "")
 			+ (room.joined ? " is-joined" : "");
+		button.classList.toggle("has-subtitle", !!subtitleText);
+		button.classList.toggle("has-unread", unreadCount > 0);
+		button.classList.toggle("is-populated", joinable && memberCount > 0);
 		button.dataset.scopeToken = room.token || "";
 		button.dataset.canJoin = joinable && !room.joined ? "true" : "false";
 		button.dataset.roomLabel = room.label || "";
@@ -1131,15 +1251,19 @@
 		const meta = document.createElement("span");
 		meta.className = "rail-row-meta";
 
-		if (room.unreadCount > 0) {
+		if (unreadCount > 0) {
 			const unread = document.createElement("span");
 			unread.className = "row-badge";
-			unread.textContent = String(room.unreadCount);
+			unread.textContent = String(unreadCount);
 			meta.appendChild(unread);
-		} else if (!(room.participants || []).length && room.memberCount > 0) {
+		}
+
+		if (joinable && memberCount > 0) {
 			const count = document.createElement("span");
 			count.className = "row-count";
-			count.textContent = String(room.memberCount);
+			count.classList.toggle("is-active-room", !!room.joined);
+			count.textContent = String(memberCount);
+			count.title = memberCount === 1 ? "1 person in room" : (String(memberCount) + " people in room");
 			meta.appendChild(count);
 		}
 
@@ -1226,6 +1350,11 @@
 	}
 
 	function renderRoomList(container, rooms, options) {
+		const roomSection = container.closest(".room-card-block");
+		if (roomSection) {
+			roomSection.classList.toggle("is-empty", !(rooms || []).length);
+		}
+
 		container.innerHTML = "";
 
 		if (!(rooms || []).length) {
@@ -1292,6 +1421,24 @@
 		return imageFilesFromDataTransfer(dataTransfer).length > 0;
 	}
 
+	function clipboardTransferLooksImageLike(dataTransfer) {
+		if (!dataTransfer) {
+			return false;
+		}
+
+		if (hasImageFileTransfer(dataTransfer)) {
+			return true;
+		}
+
+		return Array.from(dataTransfer.types || []).some(function(type) {
+			const normalizedType = String(type || "").toLowerCase();
+			return normalizedType === "files"
+				|| normalizedType === "text/uri-list"
+				|| normalizedType === "application/x-qt-image"
+				|| normalizedType.indexOf("image/") === 0;
+		});
+	}
+
 	function readFileAsDataUrl(file) {
 		return new Promise(function(resolve, reject) {
 			const reader = new FileReader();
@@ -1333,13 +1480,12 @@
 			return;
 		}
 
-		const imageFiles = imageFilesFromDataTransfer(event.clipboardData);
-		if (!imageFiles.length) {
+		if (!clipboardTransferLooksImageLike(event.clipboardData)) {
 			return;
 		}
 
 		event.preventDefault();
-		attachImageFiles(imageFiles);
+		notifyBridge("attachClipboardImage");
 	}
 
 	function handleComposerImageDragEnter(event) {
@@ -1367,6 +1513,40 @@
 		setComposerImageDropTarget(false);
 	}
 
+	function bridgeClipboardHasImage(callback) {
+		if (!modernBridge || typeof modernBridge.clipboardHasImage !== "function") {
+			callback(false);
+			return;
+		}
+
+		try {
+			modernBridge.clipboardHasImage(function(result) {
+				callback(!!result);
+			});
+		} catch (error) {
+			console.warn("Unable to query clipboard image state:", error);
+			callback(false);
+		}
+	}
+
+	function pastePlainTextIntoComposer() {
+		try {
+			if (typeof document.execCommand === "function" && document.execCommand("paste")) {
+				return;
+			}
+		} catch (error) {}
+
+		if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
+			navigator.clipboard.readText().then(function(text) {
+				if (text) {
+					replaceComposerSelection(text);
+				}
+			}).catch(function() {});
+		} else {
+			document.execCommand("paste");
+		}
+	}
+
 	function handleComposerImageDrop(event) {
 		if (!composerCanAttachImages() || dragState || !hasImageFileTransfer(event.dataTransfer)) {
 			return;
@@ -1376,6 +1556,47 @@
 		clearComposerImageDropTarget();
 		attachImageFiles(imageFilesFromDataTransfer(event.dataTransfer));
 		refs.composerInput.focus();
+	}
+
+	function sendComposerDraft() {
+		const value = refs.composerInput.value.trim();
+		if (!value) {
+			return false;
+		}
+
+		notifyBridge("sendMessage", value);
+		refs.composerInput.value = "";
+		syncComposerHeight();
+		return true;
+	}
+
+	function handleComposerInputKeyDown(event) {
+		const key = String(event.key || "");
+		if ((key === "Enter" || key === "Return") && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+			event.preventDefault();
+			sendComposerDraft();
+			return;
+		}
+
+		if (!composerCanAttachImages()) {
+			return;
+		}
+
+		const isPasteShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+			&& String(event.key || "").toLowerCase() === "v";
+		if (!isPasteShortcut) {
+			return;
+		}
+
+		event.preventDefault();
+		bridgeClipboardHasImage(function(hasImage) {
+			if (hasImage) {
+				notifyBridge("attachClipboardImage");
+				return;
+			}
+
+			pastePlainTextIntoComposer();
+		});
 	}
 
 	function renderSystemMessage(message) {
@@ -1413,15 +1634,92 @@
 		return null;
 	}
 
+	function previewHostLabel(url) {
+		const rawUrl = String(url || "").trim();
+		if (!rawUrl) {
+			return "";
+		}
+
+		try {
+			return String(new URL(rawUrl).hostname || "").replace(/^www\./i, "");
+		} catch (error) {
+			return "";
+		}
+	}
+
+	function previewSourceLabel(preview, hostLabel) {
+		const subtitle = String((preview && preview.subtitle) || "").trim();
+		if (subtitle) {
+			return subtitle;
+		}
+		if (hostLabel) {
+			return hostLabel;
+		}
+		return "Link preview";
+	}
+
+	function previewDescriptionText(preview) {
+		const description = String((preview && preview.description) || "").trim();
+		if (description) {
+			return description;
+		}
+		if (preview && preview.loading) {
+			return "Loading preview...";
+		}
+		if (preview && preview.failed) {
+			return "Preview unavailable";
+		}
+		return "";
+	}
+
+	function previewBadgeText(preview, sourceLabel, hostLabel) {
+		if (hostLabel && hostLabel.toLowerCase() !== sourceLabel.toLowerCase()) {
+			return hostLabel;
+		}
+		if (preview && preview.loading) {
+			return "Loading";
+		}
+		if (preview && preview.failed) {
+			return "Limited";
+		}
+		return "";
+	}
+
+	function previewPlaceholderMark(preview, hostLabel) {
+		const fallbackSource = hostLabel
+			|| String((preview && preview.subtitle) || "").trim()
+			|| String((preview && preview.title) || "").trim()
+			|| "Link";
+		const simplified = fallbackSource
+			.replace(/^www\./i, "")
+			.replace(/\.[a-z0-9-]+$/i, "")
+			.replace(/[^a-z0-9]+/ig, " ")
+			.trim();
+		const tokens = simplified ? simplified.split(/\s+/).filter(Boolean) : [];
+		if (!tokens.length) {
+			return preview && preview.kind === "image" ? "IMG" : "LN";
+		}
+		if (tokens.length === 1) {
+			return tokens[0].slice(0, Math.min(2, tokens[0].length)).toUpperCase();
+		}
+		return (tokens[0][0] + tokens[1][0]).toUpperCase();
+	}
+
 	function renderPreviewCard(message) {
 		const preview = message && message.preview;
 		if (!preview || (!preview.url && !preview.title && !preview.description && !preview.thumbnailUrl)) {
 			return null;
 		}
+		const hasThumbnail = !!preview.thumbnailUrl;
+		const hostLabel = previewHostLabel(preview.url);
+		const sourceLabel = previewSourceLabel(preview, hostLabel);
+		const badgeText = previewBadgeText(preview, sourceLabel, hostLabel);
+		const descriptionText = previewDescriptionText(preview);
 
 		const card = document.createElement("button");
 		card.type = "button";
 		card.className = "preview-card"
+			+ (hasThumbnail ? " has-thumbnail" : "")
 			+ (preview.loading ? " is-loading" : "")
 			+ (preview.failed ? " is-failed" : "")
 			+ (preview.kind === "image" ? " is-image" : "");
@@ -1440,6 +1738,7 @@
 			media.className = "preview-card-media";
 			const image = document.createElement("img");
 			image.className = "preview-card-image";
+			image.loading = "lazy";
 			image.src = preview.thumbnailUrl;
 			image.alt = preview.title || preview.subtitle || "Preview";
 			media.appendChild(image);
@@ -1447,18 +1746,39 @@
 		} else {
 			const placeholder = document.createElement("div");
 			placeholder.className = "preview-card-media preview-card-media-placeholder";
-			placeholder.textContent = preview.loading ? "Loading" : "Preview";
+			const placeholderMark = document.createElement("span");
+			placeholderMark.className = "preview-card-placeholder-mark";
+			placeholderMark.textContent = previewPlaceholderMark(preview, hostLabel);
+			placeholder.appendChild(placeholderMark);
+
+			const placeholderLabel = document.createElement("span");
+			placeholderLabel.className = "preview-card-placeholder-label";
+			placeholderLabel.textContent = preview.loading
+				? "Loading preview"
+				: (preview.failed ? "No image available" : "Link preview");
+			placeholder.appendChild(placeholderLabel);
 			card.appendChild(placeholder);
 		}
 
 		const copy = document.createElement("div");
 		copy.className = "preview-card-copy";
 
-		if (preview.subtitle) {
+		const meta = document.createElement("div");
+		meta.className = "preview-card-meta";
+		if (sourceLabel) {
 			const subtitle = document.createElement("div");
 			subtitle.className = "preview-card-subtitle";
-			subtitle.textContent = preview.subtitle;
-			copy.appendChild(subtitle);
+			subtitle.textContent = sourceLabel;
+			meta.appendChild(subtitle);
+		}
+		if (badgeText) {
+			const badge = document.createElement("div");
+			badge.className = "preview-card-badge";
+			badge.textContent = badgeText;
+			meta.appendChild(badge);
+		}
+		if (meta.childNodes.length) {
+			copy.appendChild(meta);
 		}
 
 		const title = document.createElement("div");
@@ -1466,16 +1786,19 @@
 		title.textContent = preview.title || preview.url || "Link preview";
 		copy.appendChild(title);
 
-		if (preview.description) {
+		if (descriptionText) {
 			const description = document.createElement("div");
 			description.className = "preview-card-description";
-			description.textContent = preview.description;
+			description.textContent = descriptionText;
 			copy.appendChild(description);
 		}
 
 		const footer = document.createElement("div");
 		footer.className = "preview-card-footer";
-		footer.textContent = preview.openLabel || "Open link";
+		const action = document.createElement("span");
+		action.className = "preview-card-action";
+		action.textContent = preview.openLabel || "Open link";
+		footer.appendChild(action);
 		copy.appendChild(footer);
 
 		card.appendChild(copy);
@@ -1962,17 +2285,42 @@
 		const hasMotd = !!motdHtml;
 		refs.noteCard.classList.toggle("hidden", !hasMotd);
 		if (!hasMotd) {
-			noteExpanded = false;
+			noteExpanded = true;
+			lastMotdSignature = "";
+			refs.noteCard.style.maxHeight = "";
+			refs.serverSubtitle.style.maxHeight = "";
+			refs.noteToggleButton.classList.add("hidden");
+			refs.noteToggleButton.setAttribute("aria-expanded", "false");
 			return;
 		}
 
-		const expanded = noteExpanded || !motdSummary;
+		if (lastMotdSignature !== motdHtml) {
+			lastMotdSignature = motdHtml;
+			noteExpanded = true;
+		}
+
+		const fullText = plainTextFromHtml(motdHtml);
+		const hasSummary = !!motdSummary && motdSummary !== fullText;
+		const isExpandable = fullText.length > 0;
+		const expanded = noteExpanded;
+
 		refs.serverTitle.textContent = app.serverTitle || "Mumble";
-		refs.serverSubtitle.innerHTML = expanded ? motdHtml : escapeHtml(motdSummary);
-		refs.serverSubtitle.classList.toggle("is-collapsed", !expanded);
-		refs.serverSubtitle.title = expanded ? "" : motdSummary;
-		refs.noteToggleButton.textContent = expanded ? "Hide" : "Open";
-		refs.noteToggleButton.title = expanded ? "Hide message of the day" : "Open message of the day";
+		refs.noteToggleButton.classList.toggle("hidden", !isExpandable);
+		refs.noteToggleButton.setAttribute("aria-expanded", expanded ? "true" : "false");
+		refs.noteToggleButton.textContent = expanded ? "Hide" : "Show";
+		refs.noteToggleButton.title = expanded ? "Hide message of the day" : "Show the full message of the day";
+
+		if (expanded) {
+			refs.serverSubtitle.innerHTML = motdHtml;
+			refs.serverSubtitle.classList.remove("is-collapsed");
+			refs.serverSubtitle.title = "";
+		} else {
+			refs.serverSubtitle.innerHTML = hasSummary ? escapedMultilineText(motdSummary) : motdHtml;
+			refs.serverSubtitle.classList.add("is-collapsed");
+			refs.serverSubtitle.title = fullText;
+		}
+
+		scheduleRailLayoutSync();
 	}
 
 	function renderSelfCard(app) {
@@ -2035,6 +2383,116 @@
 				]
 			}
 		];
+	}
+
+	function resolvedAppMenus(app) {
+		if (app && Array.isArray(app.menus) && app.menus.length) {
+			return app.menus;
+		}
+
+		return fallbackMenus(app || {});
+	}
+
+	function hideAppMenu() {
+		appMenuOpen = false;
+		refs.appMenu.classList.add("hidden");
+		refs.appMenu.setAttribute("aria-hidden", "true");
+		refs.appMenu.innerHTML = "";
+		refs.settingsButton.setAttribute("aria-expanded", "false");
+	}
+
+	function positionAppMenu() {
+		if (refs.appMenu.classList.contains("hidden")) {
+			return;
+		}
+
+		const anchorBounds = refs.settingsButton.getBoundingClientRect();
+		const menuBounds = refs.appMenu.getBoundingClientRect();
+		const left = Math.max(8, Math.min(anchorBounds.right - menuBounds.width, window.innerWidth - menuBounds.width - 8));
+		const belowTop = anchorBounds.bottom + 10;
+		const aboveTop = anchorBounds.top - menuBounds.height - 10;
+		const top = (belowTop + menuBounds.height <= window.innerHeight - 8)
+			? belowTop
+			: Math.max(8, aboveTop);
+		refs.appMenu.style.left = left + "px";
+		refs.appMenu.style.top = top + "px";
+	}
+
+	function renderAppMenu(snapshot) {
+		const app = snapshot.app || {};
+		const menus = resolvedAppMenus(app);
+
+		refs.appMenu.innerHTML = "";
+
+		const header = document.createElement("div");
+		header.className = "app-menu-header";
+
+		const eyebrow = document.createElement("p");
+		eyebrow.className = "app-menu-eyebrow";
+		eyebrow.textContent = "Mumble menu";
+
+		const title = document.createElement("p");
+		title.className = "app-menu-title";
+		title.textContent = app.serverTitle || "Mumble";
+
+		const subtitle = document.createElement("p");
+		subtitle.className = "app-menu-subtitle";
+		subtitle.textContent = "Classic main menus collected behind the gear button.";
+
+		header.appendChild(eyebrow);
+		header.appendChild(title);
+		header.appendChild(subtitle);
+		refs.appMenu.appendChild(header);
+
+		menus.forEach(function(menu) {
+			if (!menu || !Array.isArray(menu.items) || !menu.items.length) {
+				return;
+			}
+
+			const section = document.createElement("section");
+			section.className = "app-menu-section";
+
+			const heading = document.createElement("div");
+			heading.className = "app-menu-section-heading";
+			heading.textContent = menu.label || "Menu";
+
+			const body = document.createElement("div");
+			body.className = "app-menu-section-body";
+
+			actionItemsFromActionStates(menu.items, {
+				invokeAction: function(actionId) {
+					hideAppMenu();
+					notifyBridge("invokeAppAction", actionId);
+				}
+			}).forEach(function(item) {
+				appendActionPanelItem(body, item, "menu", false);
+			});
+
+			section.appendChild(heading);
+			section.appendChild(body);
+			refs.appMenu.appendChild(section);
+		});
+
+		appMenuOpen = true;
+		refs.appMenu.classList.remove("hidden");
+		refs.appMenu.setAttribute("aria-hidden", "false");
+		refs.settingsButton.setAttribute("aria-expanded", "true");
+		positionAppMenu();
+	}
+
+	function toggleAppMenu(forceOpen) {
+		const nextOpen = typeof forceOpen === "boolean" ? forceOpen : !appMenuOpen;
+		if (!nextOpen) {
+			hideAppMenu();
+			return;
+		}
+
+		const snapshot = getSnapshot();
+		hideContextMenu();
+		hideSelfMenu();
+		openMenuId = null;
+		renderMenus(resolvedAppMenus(snapshot.app || {}));
+		renderAppMenu(snapshot);
 	}
 
 	function hideSelfMenu() {
@@ -2165,6 +2623,7 @@
 			return;
 		}
 
+		hideAppMenu();
 		hideContextMenu();
 		renderSelfMenu(getSnapshot());
 	}
@@ -2287,7 +2746,8 @@
 		refs.disconnectButton.disabled = !app.canDisconnect;
 		refs.muteButton.classList.toggle("is-active", !!app.selfMuted);
 		refs.deafButton.classList.toggle("is-active", !!app.selfDeafened);
-		renderMenus((app.menus && app.menus.length) ? app.menus : fallbackMenus(app));
+		renderMenus(resolvedAppMenus(app));
+		refs.settingsButton.setAttribute("aria-expanded", appMenuOpen ? "true" : "false");
 
 		refs.textRoomCount.textContent = String(textRooms.length);
 		refs.voiceRoomCount.textContent = String(voiceRooms.length);
@@ -2308,6 +2768,9 @@
 		renderMessages(snapshot);
 		renderSelfCard(app);
 		syncAmbientState(snapshot);
+		if (appMenuOpen) {
+			renderAppMenu(snapshot);
+		}
 		if (selfMenuOpen) {
 			renderSelfMenu(snapshot);
 		}
@@ -2324,6 +2787,7 @@
 		renderComposerReplyState(scope);
 		applyRailPresentation();
 		syncComposerHeight();
+		scheduleRailLayoutSync();
 
 		if (scope.autoMarkRead) {
 			notifyBridge("markRead");
@@ -2331,8 +2795,7 @@
 	}
 
 	function syncSnapshot() {
-		syncCompactRailState(false);
-		render(getSnapshot());
+		scheduleSnapshotRender();
 	}
 
 	function hideContextMenu() {
@@ -2418,20 +2881,19 @@
 					enabled: !input.disabled,
 					action: function() {
 						input.focus();
-						try {
-							if (typeof document.execCommand === "function" && document.execCommand("paste")) {
-								return;
-							}
-						} catch (error) {}
-						if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
-							navigator.clipboard.readText().then(function(text) {
-								if (text) {
-									replaceComposerSelection(text);
+						if (!!scope.canAttachImages) {
+							bridgeClipboardHasImage(function(hasImage) {
+								if (hasImage) {
+									notifyBridge("attachClipboardImage");
+									return;
 								}
-							}).catch(function() {});
-						} else {
-							document.execCommand("paste");
+
+								pastePlainTextIntoComposer();
+							});
+							return;
 						}
+
+						pastePlainTextIntoComposer();
 					}
 				},
 				{
@@ -2648,6 +3110,7 @@
 	}
 
 	function showContextMenu(items, clientX, clientY) {
+		hideAppMenu();
 		const filteredItems = [];
 		(items || []).forEach(function(item) {
 			const kind = actionPanelItemKind(item);
@@ -2688,7 +3151,10 @@
 		refs.connectButton.addEventListener("click", function() { notifyBridge("openConnectDialog"); });
 		refs.disconnectButton.addEventListener("click", function() { notifyBridge("disconnectServer"); });
 		refs.layoutSwitchButton.addEventListener("click", function() { notifyBridge("toggleLayout"); });
-		refs.settingsButton.addEventListener("click", function() { notifyBridge("openSettings"); });
+		refs.settingsButton.addEventListener("click", function(event) {
+			event.stopPropagation();
+			toggleAppMenu();
+		});
 		refs.muteButton.addEventListener("click", function() { notifyBridge("toggleSelfMute"); });
 		refs.deafButton.addEventListener("click", function() { notifyBridge("toggleSelfDeaf"); });
 		refs.loadOlderButton.addEventListener("click", function() { notifyBridge("loadOlderHistory"); });
@@ -2716,7 +3182,7 @@
 		});
 		refs.noteToggleButton.addEventListener("click", function() {
 			noteExpanded = !noteExpanded;
-			syncSnapshot();
+			renderNote(getSnapshot().app || {}, getSnapshot().activeScope || {});
 		});
 		refs.jumpLatestButton.addEventListener("click", function() {
 			keepMessageListPinnedToBottom = true;
@@ -2738,16 +3204,11 @@
 			setRailCollapsed(true);
 		});
 		refs.composerInput.addEventListener("input", syncComposerHeight);
+		refs.composerInput.addEventListener("keydown", handleComposerInputKeyDown);
 		refs.composerInput.addEventListener("paste", handleComposerImagePaste);
 		refs.composerForm.addEventListener("submit", function(event) {
 			event.preventDefault();
-			const value = refs.composerInput.value.trim();
-			if (!value) {
-				return;
-			}
-			notifyBridge("sendMessage", value);
-			refs.composerInput.value = "";
-			syncComposerHeight();
+			sendComposerDraft();
 		});
 		[refs.composerForm, refs.messageList].forEach(function(target) {
 			target.addEventListener("dragenter", handleComposerImageDragEnter);
@@ -2758,6 +3219,9 @@
 		document.addEventListener("click", function(event) {
 			if (!event.target.closest(".context-menu")) {
 				hideContextMenu();
+			}
+			if (!event.target.closest(".app-menu-popover") && !event.target.closest("#settings-button")) {
+				hideAppMenu();
 			}
 			if (!event.target.closest(".self-menu-popover") && !event.target.closest("#self-card")) {
 				hideSelfMenu();
@@ -2806,6 +3270,10 @@
 				setRailCollapsed(true);
 				return;
 			}
+			if (event.key === "Escape" && appMenuOpen) {
+				hideAppMenu();
+				return;
+			}
 			if (event.key === "Escape" && openMenuId !== null) {
 				openMenuId = null;
 				syncSnapshot();
@@ -2824,6 +3292,9 @@
 		window.addEventListener("resize", function() {
 			syncCompactRailState(false);
 			hideContextMenu();
+			if (appMenuOpen) {
+				positionAppMenu();
+			}
 			if (selfMenuOpen) {
 				positionSelfMenu();
 			}
@@ -2833,9 +3304,11 @@
 			}
 			refreshMessageListPinning(2);
 			scheduleFooterAlignmentSync();
+			scheduleRailLayoutSync();
 		});
 		window.addEventListener("blur", function() {
 			hideContextMenu();
+			hideAppMenu();
 			hideSelfMenu();
 			clearComposerImageDropTarget();
 		});
@@ -2844,6 +3317,12 @@
 				return;
 			}
 			refreshMessageListPinning(2);
+		}, true);
+		refs.utilityRail.addEventListener("load", function(event) {
+			if (!event.target || event.target.tagName !== "IMG") {
+				return;
+			}
+			scheduleRailLayoutSync();
 		}, true);
 		refs.messageList.addEventListener("click", handleMessageImageActivation);
 		refs.messageList.addEventListener("scroll", function() {

@@ -11,6 +11,12 @@
 
 #include <QtCore/QDateTime>
 #include <QtCore/QFile>
+#include <QtCore/QMimeData>
+#include <QtGui/QClipboard>
+#include <QtGui/QImage>
+#include <QtGui/QImageReader>
+#include <QtGui/QPixmap>
+#include <QtWidgets/QApplication>
 
 namespace {
 	void appendModernShellConnectTrace(const QString &message) {
@@ -28,6 +34,44 @@ namespace {
 		traceFile.write(line);
 		traceFile.flush();
 	}
+
+	QList< QUrl > extractLocalImageUrls(const QMimeData *mimeData) {
+		QList< QUrl > imageUrls;
+		if (!mimeData) {
+			return imageUrls;
+		}
+
+		const QList< QUrl > urls = mimeData->urls();
+		for (const QUrl &url : urls) {
+			if (!url.isLocalFile()) {
+				continue;
+			}
+
+			const QString localPath = url.toLocalFile();
+			if (QImageReader::imageFormat(localPath).isEmpty()) {
+				continue;
+			}
+
+			imageUrls.push_back(url);
+		}
+
+		return imageUrls;
+	}
+
+	QImage extractMimeImage(const QMimeData *mimeData) {
+		if (!mimeData || !mimeData->hasImage()) {
+			return QImage();
+		}
+
+		const QVariant imageData = mimeData->imageData();
+		QImage image             = qvariant_cast< QImage >(imageData);
+		if (!image.isNull()) {
+			return image;
+		}
+
+		const QPixmap pixmap = qvariant_cast< QPixmap >(imageData);
+		return pixmap.isNull() ? QImage() : pixmap.toImage();
+	}
 } // namespace
 
 ModernShellBridge::ModernShellBridge(QObject *parent) : QObject(parent) {
@@ -40,6 +84,10 @@ QVariantMap ModernShellBridge::snapshot() const {
 void ModernShellBridge::setSnapshot(const QVariantMap &snapshot) {
 	appendModernShellConnectTrace(
 		QStringLiteral("ModernShellBridge::setSnapshot enter keys=%1").arg(snapshot.keys().size()));
+	if (m_snapshot == snapshot) {
+		appendModernShellConnectTrace(QStringLiteral("ModernShellBridge::setSnapshot unchanged-skip"));
+		return;
+	}
 	m_snapshot = snapshot;
 	appendModernShellConnectTrace(QStringLiteral("ModernShellBridge::setSnapshot before-emit"));
 	emit snapshotChanged();
@@ -140,6 +188,16 @@ void ModernShellBridge::disconnectServer() {
 
 void ModernShellBridge::openSettings() {
 	emit settingsRequested();
+}
+
+bool ModernShellBridge::clipboardHasImage() const {
+	const QClipboard *clipboard = QApplication::clipboard();
+	const QMimeData *mimeData   = clipboard ? clipboard->mimeData() : nullptr;
+	return !extractMimeImage(mimeData).isNull() || !extractLocalImageUrls(mimeData).isEmpty();
+}
+
+void ModernShellBridge::attachClipboardImage() {
+	emit clipboardImageAttachmentRequested();
 }
 
 void ModernShellBridge::openImagePicker() {

@@ -45,6 +45,8 @@ public:
 	Q_INVOKABLE void openConnectDialog();
 	Q_INVOKABLE void disconnectServer();
 	Q_INVOKABLE void openSettings();
+	Q_INVOKABLE bool clipboardHasImage() const;
+	Q_INVOKABLE void attachClipboardImage();
 	Q_INVOKABLE void openImagePicker();
 	Q_INVOKABLE void attachImageData(const QString &dataUrl);
 	Q_INVOKABLE void activateLink(const QString &href);
@@ -75,6 +77,7 @@ signals:
 	void connectDialogRequested();
 	void disconnectRequested();
 	void settingsRequested();
+	void clipboardImageAttachmentRequested();
 	void imagePickerRequested();
 	void imageDataAttachmentRequested(const QString &dataUrl);
 	void linkActivationRequested(const QString &href);

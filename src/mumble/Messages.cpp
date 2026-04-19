@@ -1854,6 +1854,7 @@ void MainWindow::msgChatAssetChunk(const MumbleProto::ChatAssetChunk &msg) {
 			previewIt->failed         = false;
 		} else {
 			previewIt->failed = true;
+			ensurePersistentChatPreviewSiteSnapshot(previewKey);
 		}
 		updatePersistentChatPreviewViewIfVisible(previewKey);
 	}

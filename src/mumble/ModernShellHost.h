@@ -9,6 +9,7 @@
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 
 #include <QtCore/QUrl>
+#include <QtGui/QImage>
 #include <QtWidgets/QWidget>
 #include <QtWebEngineCore/QWebEnginePage>
 
@@ -32,6 +33,7 @@ public:
 
 signals:
 	void bootFailed(const QString &reason);
+	void imageDropped(const QImage &image);
 	void imageUrlsDropped(const QList< QUrl > &urls);
 
 private slots:
