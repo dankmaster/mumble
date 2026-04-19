@@ -662,26 +662,26 @@ bool Server::canAccessChatAsset(ServerUser *user, unsigned int assetID) {
 		return false;
 	}
 
-	QHash< unsigned int, ::msdb::DBTextChannel > textChannels;
+	QHash< unsigned int, ::mumble::server::db::DBTextChannel > textChannels;
 	for (const auto &textChannel : m_dbWrapper.getTextChannels(iServerNum)) {
 		textChannels.insert(textChannel.textChannelID, textChannel);
 	}
 
 	for (unsigned int threadID : m_dbWrapper.getChatAssetThreadIDs(iServerNum, assetID)) {
-		const ::msdb::DBChatThread thread = m_dbWrapper.getChatThread(iServerNum, threadID);
+		const ::mumble::server::db::DBChatThread thread = m_dbWrapper.getChatThread(iServerNum, threadID);
 		Channel *permissionChannel = nullptr;
 		const QString scopeKey     = QString::fromStdString(thread.scopeKey);
 		switch (thread.scope) {
-			case ::msdb::ChatThreadScope::Channel:
+			case ::mumble::server::db::ChatThreadScope::Channel:
 				if (!scopeKey.startsWith(QStringLiteral("channel:"))) {
 					continue;
 				}
 				permissionChannel = qhChannels.value(scopeKey.mid(8).toUInt());
 				break;
-			case ::msdb::ChatThreadScope::ServerGlobal:
+			case ::mumble::server::db::ChatThreadScope::ServerGlobal:
 				permissionChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
 				break;
-			case ::msdb::ChatThreadScope::TextChannel: {
+			case ::mumble::server::db::ChatThreadScope::TextChannel: {
 				if (!scopeKey.startsWith(QStringLiteral("text:"))) {
 					continue;
 				}
@@ -693,7 +693,7 @@ bool Server::canAccessChatAsset(ServerUser *user, unsigned int assetID) {
 				permissionChannel = qhChannels.value(it->aclChannelID);
 				break;
 			}
-			case ::msdb::ChatThreadScope::Private:
+			case ::mumble::server::db::ChatThreadScope::Private:
 				continue;
 		}
 		if (!permissionChannel) {
