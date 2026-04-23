@@ -34,7 +34,11 @@ jobs:
     steps:
     - uses: actions/checkout@v6
       with:
-          submodules: 'recursive'
+          fetch-depth: 1
+
+    - name: Initialize submodules with retry
+      shell: bash
+      run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL

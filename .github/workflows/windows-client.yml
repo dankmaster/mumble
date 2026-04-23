@@ -40,8 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: recursive
           fetch-depth: 1
+
+      - name: Initialize submodules with retry
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
 
       - name: Pin shared environment and enable bootstrap fallback
         shell: bash

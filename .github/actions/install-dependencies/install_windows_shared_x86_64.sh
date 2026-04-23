@@ -7,6 +7,34 @@ source "$( dirname "$0" )/common.sh"
 
 verify_required_env_variables_set
 
+shared_environment_has_webengine_webchannel_support() {
+	local webengine_targets_file="$1"
+
+	python - "$webengine_targets_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+targets_file = Path(sys.argv[1])
+text = targets_file.read_text(encoding="utf-8")
+
+enabled_match = re.search(r'QT_ENABLED_PUBLIC_FEATURES\s+"([^"]*)"', text)
+disabled_match = re.search(r'QT_DISABLED_PUBLIC_FEATURES\s+"([^"]*)"', text)
+
+if enabled_match is None or disabled_match is None:
+    raise SystemExit(1)
+
+enabled_features = {feature for feature in enabled_match.group(1).split(";") if feature}
+disabled_features = {feature for feature in disabled_match.group(1).split(";") if feature}
+
+raise SystemExit(
+    0
+    if "webengine_webchannel" in enabled_features and "webengine_webchannel" not in disabled_features
+    else 1
+)
+PY
+}
+
 shared_environment_has_webengine_runtime() {
 	local triplet_dir="$MUMBLE_ENVIRONMENT_DIR/installed/x64-windows"
 	local webengine_targets_file="$triplet_dir/share/Qt6WebEngineCore/Qt6WebEngineCoreTargets.cmake"
@@ -16,7 +44,7 @@ shared_environment_has_webengine_runtime() {
 		&& [[ -d "$triplet_dir/share/Qt6WebChannel" ]] \
 		&& [[ -d "$triplet_dir/share/Qt6WebEngineWidgets" ]] \
 		&& [[ -f "$webengine_targets_file" ]] \
-		&& ! grep -q 'QT_DISABLED_PUBLIC_FEATURES ".*webengine_webchannel' "$webengine_targets_file" \
+		&& shared_environment_has_webengine_webchannel_support "$webengine_targets_file" \
 		&& [[ -f "$triplet_dir/tools/Qt6/bin/windeployqt.exe" ]]
 }
 

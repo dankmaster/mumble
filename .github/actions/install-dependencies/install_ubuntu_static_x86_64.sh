@@ -11,6 +11,7 @@ sudo apt -y install \
 	build-essential \
 	g++-multilib \
 	ninja-build \
+	libbz2-dev \
 	libcli11-dev \
 	libprotobuf-dev \
 	libspdlog-dev \

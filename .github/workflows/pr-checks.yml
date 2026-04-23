@@ -20,9 +20,12 @@ jobs:
       with:
           # Assume that there are not >200 new commits that need checking
           fetch-depth: 200
-          submodules: 'recursive'
           # Don't create a merge commit
           ref: ${{ github.event.pull_request.head.sha }}
+
+    - name: Initialize submodules with retry
+      shell: bash
+      run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
 
     - name: Check commit style
       run: $GITHUB_WORKSPACE/.github/workflows/check_commit_style.py ${{ github.base_ref }}
