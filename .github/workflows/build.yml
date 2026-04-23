@@ -144,15 +144,45 @@ jobs:
         test -n "$helper_path"
         "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --print-capabilities-json > build/windows-screen-share-capabilities.json
         test -s build/windows-screen-share-capabilities.json
-        grep -q '"ffmpeg_available":true' build/windows-screen-share-capabilities.json
-        grep -q '"capture_supported":true' build/windows-screen-share-capabilities.json
-        grep -q '"browser_webrtc_available":true' build/windows-screen-share-capabilities.json
-        grep -Eq '"edge_available":true|"chrome_available":true|"firefox_available":true' build/windows-screen-share-capabilities.json
-        grep -Eq '"h264_mf_available":true|"h264_qsv_available":true|"libx264_available":true' build/windows-screen-share-capabilities.json
+        python - <<'PY'
+        import json
+        from pathlib import Path
+
+        capabilities_envelope = json.loads(Path("build/windows-screen-share-capabilities.json").read_text(encoding="utf-8"))
+        capabilities = capabilities_envelope.get("payload", capabilities_envelope)
+        runtime_support = capabilities.get("runtime_support", capabilities)
+
+        if not runtime_support.get("ffmpeg_available"):
+            raise SystemExit("Helper runtime probe reports ffmpeg_available=false.")
+        if not capabilities.get("capture_supported"):
+            raise SystemExit("Helper runtime probe reports capture_supported=false.")
+        if not runtime_support.get("browser_webrtc_available"):
+            raise SystemExit("Helper runtime probe reports browser_webrtc_available=false.")
+        if not any(runtime_support.get(key) for key in ("edge_available", "chrome_available", "firefox_available")):
+            raise SystemExit("Helper runtime probe found no supported browser on this machine.")
+        if not any(runtime_support.get(key) for key in ("h264_mf_available", "h264_qsv_available", "libx264_available")):
+            raise SystemExit("Helper runtime probe found no usable H.264 encoder.")
+        PY
         "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --self-test > build/windows-screen-share-self-test.json
         test -s build/windows-screen-share-self-test.json
-        grep -q '"success":true' build/windows-screen-share-self-test.json
-        grep -q '"output_file"' build/windows-screen-share-self-test.json
+        python - <<'PY'
+        import json
+        from pathlib import Path
+
+        self_test_envelope = json.loads(Path("build/windows-screen-share-self-test.json").read_text(encoding="utf-8"))
+        self_test = self_test_envelope.get("payload", self_test_envelope)
+        self_test_succeeded = bool(
+            self_test_envelope.get(
+                "ok",
+                self_test_envelope.get("success", self_test.get("success", False)),
+            )
+        )
+
+        if not self_test_succeeded:
+            raise SystemExit("Helper self-test reported success=false.")
+        if not self_test.get("output_file"):
+            raise SystemExit("Helper self-test did not report an output_file.")
+        PY
 
     - if: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
       name: Validate Windows Client/Server Binary Set
