@@ -376,10 +376,10 @@ QUrl RelayWindowHost::buildPageUrl() const {
 QString RelayWindowHost::windowTitle() const {
 	const QString role = roleLabel();
 	if (m_session.streamID.trimmed().isEmpty()) {
-		return tr("Mumble Screen Share Relay (%1)").arg(role);
+		return tr("Mumble Screen Share (%1)").arg(role);
 	}
 
-	return tr("Mumble Screen Share Relay (%1) - %2")
+	return tr("Mumble Screen Share (%1) - %2")
 		.arg(role, m_session.streamID.toHtmlEscaped());
 }
 

@@ -432,6 +432,7 @@ protected:
 	QAction *qaChannelScreenShareStop = nullptr;
 	QAction *qaChannelScreenShareWatch = nullptr;
 	QAction *qaChannelScreenShareStopWatching = nullptr;
+	QAction *qaChannelScreenShareOpenWindow = nullptr;
 
 	Search::SearchDialog *m_searchDialog = nullptr;
 
@@ -631,6 +632,7 @@ public slots:
 	void stopChannelScreenShare();
 	void watchChannelScreenShare();
 	void stopWatchingChannelScreenShare();
+	void openChannelScreenShareWindow();
 	void on_qaAudioReset_triggered();
 	void on_qaAudioMute_triggered();
 	void on_qaAudioDeaf_triggered();
@@ -824,6 +826,7 @@ public:
 	void selfRegister();
 	void openAudioStatsDialog();
 	void openConfigDialog();
+	void openConfigDialogPage(const QString &pageName);
 	void openAudioWizardDialog();
 	void openCertWizardDialog();
 	void enableAudioTTS(bool enable);

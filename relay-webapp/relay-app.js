@@ -878,7 +878,7 @@
 
 		if (state.isPublisher) {
 			setText(refs.title, "Ready to share your screen");
-			setText(refs.subtitle, "Mumble opened this relay window automatically. Start sharing when you are ready.");
+			setText(refs.subtitle, "Mumble opened this screen-share window automatically. Start sharing when you are ready.");
 			refs.publisherActions.classList.remove("hidden");
 			refs.viewerActions.classList.add("hidden");
 			refs.startShare.disabled = true;
@@ -887,7 +887,7 @@
 			showEmpty("No screen selected yet", "Click Start sharing to choose a screen or window.");
 		} else {
 			setText(refs.title, "Joining screen share");
-			setText(refs.subtitle, "Mumble opened this relay window automatically.");
+			setText(refs.subtitle, "Mumble opened this screen-share window automatically.");
 			refs.publisherActions.classList.add("hidden");
 			refs.viewerActions.classList.remove("hidden");
 			setHint("Connecting to the relay and waiting for the publisher.");

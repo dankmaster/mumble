@@ -1,4 +1,4 @@
-name: Windows Client
+name: Windows Shared Client Installer
 
 on:
   push:
@@ -6,12 +6,6 @@ on:
   pull_request:
     branches: '**'
   workflow_dispatch:
-    inputs:
-      SIGN_WINDOWS_INSTALLER:
-        description: 'Sign Windows Installer'
-        required: true
-        type: boolean
-        default: false
 
 env:
   BUILD_TYPE: Release
@@ -38,172 +32,8 @@ jobs:
           echo "Build Number: ${build_version}.${build_number}"
           echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
 
-  build-windows-client:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    needs: [ fetch_build_number ]
-    runs-on: windows-2025-vs2026
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-          fetch-depth: 1
-
-      - name: Set environment variables
-        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "static" "x86_64" "${{ github.workspace }}"
-        shell: bash
-
-      - uses: actions/cache/restore@v5
-        with:
-          path: ${{ env.MUMBLE_ENVIRONMENT_DIR }}
-          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
-
-      - uses: ./.github/actions/install-dependencies
-        env:
-          MUMBLE_SKIP_DATABASE_SETUP: ON
-        with:
-          type: static
-          os: windows-2025-vs2026
-          arch: x86_64
-
-      - name: Install Rust toolchain for DeepFilterNet
-        shell: powershell
-        run: |
-          $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
-          Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
-          & $rustupInit -y --profile minimal --default-toolchain stable
-          if ($LASTEXITCODE -ne 0) {
-            throw "rustup-init failed"
-          }
-          "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & "$env:USERPROFILE\.cargo\bin\cargo.exe" --version
-
-      - name: Download ONNX Runtime for DTLN
-        shell: powershell
-        run: |
-          $version = "1.18.1"
-          $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-win-x64-$version.zip"
-          $extractRoot = Join-Path $env:RUNNER_TEMP "onnxruntime"
-          $onnxRoot = Join-Path $extractRoot "onnxruntime-win-x64-$version"
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
-          if (Test-Path -LiteralPath $extractRoot) {
-            Remove-Item -LiteralPath $extractRoot -Recurse -Force
-          }
-          Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
-          if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
-            throw "Expanded ONNX Runtime archive is missing its include directory"
-          }
-          "ONNXRUNTIME_ROOT=$onnxRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install ffmpeg for helper runtime probe
-        shell: powershell
-        run: choco install ffmpeg -y
-
-      - name: Diagnostics
-        shell: bash
-        run: |
-          set -euxo pipefail
-          pwd
-          ls -la .github/workflows
-          test -f ./.github/workflows/set_environment_variables.sh
-          test -f ./.github/workflows/build.sh
-          bash --version
-          cmake --version
-          ninja --version
-          if [[ -f "C:/vcvars-bash/vcvarsall.sh" ]]; then
-            echo "Found C:/vcvars-bash/vcvarsall.sh"
-          else
-            echo "::error title=Missing vcvars::C:/vcvars-bash/vcvarsall.sh was not found"
-            exit 1
-          fi
-
-      - name: Configure
-        run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
-        shell: bash
-        env:
-          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
-          MUMBLE_CI_PHASE: configure
-
-      - name: Build
-        run: bash ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
-        shell: bash
-        env:
-          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
-          MUMBLE_CI_PHASE: build
-
-      - name: Verify screen-share helper runtime
-        shell: bash
-        env:
-          MUMBLE_SCREENSHARE_TEST_PATTERN: "1"
-          MUMBLE_SCREENSHARE_CAPTURE_SOURCE: test-pattern
-          MUMBLE_SCREENSHARE_HEADLESS_VIEW: "1"
-        run: |
-          set -euxo pipefail
-          ffmpeg -version
-          helper_path="$(find build -iname 'mumble-screen-helper.exe' | head -n1)"
-          test -n "$helper_path"
-          "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --print-capabilities-json > build/windows-screen-share-capabilities.json
-          test -s build/windows-screen-share-capabilities.json
-          grep -q '"ffmpeg_available":true' build/windows-screen-share-capabilities.json
-          grep -q '"capture_supported":true' build/windows-screen-share-capabilities.json
-          grep -q '"browser_webrtc_available":true' build/windows-screen-share-capabilities.json
-          grep -Eq '"edge_available":true|"chrome_available":true|"firefox_available":true' build/windows-screen-share-capabilities.json
-          grep -Eq '"h264_mf_available":true|"h264_qsv_available":true|"libx264_available":true' build/windows-screen-share-capabilities.json
-          "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --self-test > build/windows-screen-share-self-test.json
-          test -s build/windows-screen-share-self-test.json
-          grep -q '"success":true' build/windows-screen-share-self-test.json
-          grep -q '"output_file"' build/windows-screen-share-self-test.json
-          find build \( -iname 'mumble*.msi' -o -iname 'mumble*.exe' \) ! -iname 'mumble-screen-helper.exe' | sort > build/windows-client-artifacts.txt
-          test -s build/windows-client-artifacts.txt
-
-      - name: Validate Windows client/server binaries
-        shell: powershell
-        run: |
-          .\scripts\windows\assert-windows-build-artifacts.ps1 `
-            -BuildRoot .\build `
-            -ArtifactListPath .\build\windows-binary-artifacts.txt
-
-      - name: Validate signing configuration
-        if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
-        shell: bash
-        env:
-          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: |
-          if [[ -z "${SIGNPATH_TOKEN}" ]]; then
-            echo "::error title=Missing SignPath token::SIGN_WINDOWS_INSTALLER=true but repository secret SIGNPATH_API_TOKEN is not configured."
-            exit 1
-          fi
-
-      - if: ${{ inputs.SIGN_WINDOWS_INSTALLER }}
-        uses: ./.github/actions/sign-binaries
-        with:
-          signpath-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          build-number: ${{ needs.fetch_build_number.outputs.build_number }}
-          type: static
-          os: windows-2025-vs2026
-          arch: x86_64
-
-      - name: Publish
-        uses: actions/upload-artifact@v6
-        with:
-          name: Mumble-windows-client-${{ needs.fetch_build_number.outputs.build_number }}
-          compression-level: 9
-          path: |
-            build/mumble
-            build/windows-screen-share-capabilities.json
-            build/windows-screen-share-helper.log
-            build/windows-screen-share-self-test.json
-            build/windows-binary-artifacts.txt
-            build/windows-client-artifacts.txt
-            build/**/mumble*.msi
-            build/**/mumble*.exe
-
-      - uses: actions/cache/save@v5
-        with:
-          path: ${{ env.MUMBLE_ENVIRONMENT_DIR }}
-          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
-
   build-windows-client-shared:
+    name: windows-shared-client-installer
     needs: [ fetch_build_number ]
     runs-on: windows-2025-vs2026
 
@@ -212,15 +42,18 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
+
+      - name: Pin shared environment and enable bootstrap fallback
+        shell: bash
+        run: |
+          echo "MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE=https://github.com/mumble-voip/vcpkg/releases/download/2025-11" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_COMMIT_OVERRIDE=127cccc01d" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_DIR_OVERRIDE=$GITHUB_WORKSPACE/build_env/2025-11-127cccc01d-shared" >> "$GITHUB_ENV"
+          echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
 
       - name: Set environment variables
         run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "shared" "x86_64" "${{ github.workspace }}"
         shell: bash
-
-      - name: Enable shared environment bootstrap fallback
-        shell: bash
-        run: |
-          echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
 
       - name: Verify shared environment archive or use local bootstrap fallback
         shell: bash
@@ -270,18 +103,24 @@ jobs:
         run: |
           .\scripts\windows\build-local-windows-client.ps1 `
             -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
+            -EnvironmentRelease "2025-11" `
+            -EnvironmentCommit "127cccc01d" `
             -SharedWebEngine `
             -InstallDependencies `
+            -AdditionalCMakeOptions @('-Dserver=OFF') `
             -EnablePackaging `
             -AllowPendingReboot
 
-      - name: Validate shared Windows client/server binaries
+      - name: Validate shared Windows client binaries
         shell: powershell
         run: |
           .\scripts\windows\assert-windows-build-artifacts.ps1 `
             -BuildRoot .\build-shared-webengine `
             -StageRoot .\build-shared-webengine\shared-webengine-stage `
             -RequireStage `
+            -RequireClient `
+            -RequireScreenHelper `
+            -RequireSpeechCleanup `
             -ArtifactListPath .\build-shared-webengine\windows-binary-artifacts.txt
 
       - name: Verify shared helper runtime
@@ -289,6 +128,8 @@ jobs:
         run: |
           .\scripts\windows\build-local-windows-client.ps1 `
             -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
+            -EnvironmentRelease "2025-11" `
+            -EnvironmentCommit "127cccc01d" `
             -SharedWebEngine `
             -SkipConfigure `
             -SkipBuild `
@@ -298,7 +139,7 @@ jobs:
       - name: Publish Shared Client Artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: Mumble-windows-client-shared-${{ needs.fetch_build_number.outputs.build_number }}
+          name: Mumble-windows-shared-client-installer-${{ needs.fetch_build_number.outputs.build_number }}
           compression-level: 9
           path: |
             build-shared-webengine/shared-webengine-stage/**

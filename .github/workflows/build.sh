@@ -17,6 +17,44 @@ os=$(echo "$os" | sed 's/-.*//')
 build_type="${build_type,,}"
 arch="${arch,,}"
 
+normalize_component_toggle() {
+	local env_name=$1
+	local raw_value=${2:-}
+
+	if [[ -z "$raw_value" ]]; then
+		return 0
+	fi
+
+	local normalized_value="${raw_value^^}"
+	case "$normalized_value" in
+		"ON"|"OFF")
+			printf '%s\n' "$normalized_value"
+			;;
+		*)
+			echo "::error file=.github/workflows/build.sh,title=Invalid component toggle::${env_name} must be ON or OFF (got '${raw_value}')"
+			exit 1
+			;;
+	esac
+}
+
+component_cmake_options=""
+build_client="$(normalize_component_toggle "MUMBLE_BUILD_CLIENT" "${MUMBLE_BUILD_CLIENT:-}")"
+build_server="$(normalize_component_toggle "MUMBLE_BUILD_SERVER" "${MUMBLE_BUILD_SERVER:-}")"
+
+if [[ -n "$build_client" ]]; then
+	component_cmake_options="$component_cmake_options -Dclient=$build_client"
+fi
+
+if [[ -n "$build_server" ]]; then
+	component_cmake_options="$component_cmake_options -Dserver=$build_server"
+fi
+
+if [[ "$build_client" == "OFF" && "$build_server" == "OFF" ]]; then
+	echo "::error file=.github/workflows/build.sh,title=Invalid component selection::Both MUMBLE_BUILD_CLIENT and MUMBLE_BUILD_SERVER were set to OFF."
+	exit 1
+fi
+
+echo "::notice title=CI component selection::client=${build_client:-default}, server=${build_server:-default}"
 
 OS_SPECIFIC_CMAKE_OPTIONS=""
 
@@ -127,6 +165,7 @@ if [[ "$run_configure" == "yes" ]]; then
 	      -DCMAKE_UNITY_BUILD=ON \
 		  -Ddisplay-install-paths=ON \
 		  $ADDITIONAL_CMAKE_OPTIONS \
+		  $component_cmake_options \
 		  $VCPKG_CMAKE_OPTIONS
 fi
 

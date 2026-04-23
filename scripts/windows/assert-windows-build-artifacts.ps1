@@ -3,7 +3,11 @@ param(
 	[string]$BuildRoot = ".\build",
 	[string]$ArtifactListPath = "",
 	[string]$StageRoot = "",
-	[switch]$RequireStage
+	[switch]$RequireStage,
+	[switch]$RequireClient,
+	[switch]$RequireServer,
+	[switch]$RequireScreenHelper,
+	[switch]$RequireSpeechCleanup
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,11 +27,31 @@ function Resolve-ExistingPath {
 }
 
 function Get-RequiredBinaryNames {
-	return @(
-		"mumble.exe",
-		"mumble-server.exe",
-		"mumble-screen-helper.exe"
-	)
+	$explicitSelection = $RequireClient.IsPresent -or $RequireServer.IsPresent -or $RequireScreenHelper.IsPresent
+	if (-not $explicitSelection) {
+		return @(
+			"mumble.exe",
+			"mumble-server.exe",
+			"mumble-screen-helper.exe"
+		)
+	}
+
+	$required = New-Object System.Collections.Generic.List[string]
+	if ($RequireClient) {
+		$required.Add("mumble.exe")
+	}
+	if ($RequireServer) {
+		$required.Add("mumble-server.exe")
+	}
+	if ($RequireScreenHelper) {
+		$required.Add("mumble-screen-helper.exe")
+	}
+
+	if ($required.Count -eq 0) {
+		throw "No required Windows binaries were selected for validation."
+	}
+
+	return $required
 }
 
 function Find-Binary {
@@ -50,13 +74,16 @@ function Assert-BinarySet {
 		[string]$Label,
 
 		[Parameter(Mandatory = $true)]
-		[string]$Root
+		[string]$Root,
+
+		[Parameter(Mandatory = $true)]
+		[string[]]$BinaryNames
 	)
 
 	$verifiedPaths = New-Object System.Collections.Generic.List[string]
 	$missing = New-Object System.Collections.Generic.List[string]
 
-	foreach ($binaryName in Get-RequiredBinaryNames) {
+	foreach ($binaryName in $BinaryNames) {
 		$binary = Find-Binary -Root $Root -BinaryName $binaryName
 		if ($binary) {
 			$verifiedPaths.Add($binary.FullName)
@@ -77,6 +104,49 @@ function Assert-BinarySet {
 	return $verifiedPaths
 }
 
+function Assert-SpeechCleanupPayload {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$Label,
+
+		[Parameter(Mandatory = $true)]
+		[string]$Root
+	)
+
+	$requiredRelativePaths = @(
+		"onnxruntime.dll",
+		"deepfilter.dll",
+		"rnnoise.dll",
+		"dtln\baseline\model_1.onnx",
+		"dtln\baseline\model_2.onnx",
+		"dtln\norm_500h\model_1.onnx",
+		"dtln\norm_500h\model_2.onnx",
+		"dtln\norm_40h\model_1.onnx",
+		"dtln\norm_40h\model_2.onnx",
+		"rnnoise\rnnoise_little.weights_blob.bin"
+	)
+
+	$missing = New-Object System.Collections.Generic.List[string]
+	foreach ($relativePath in $requiredRelativePaths) {
+		$fullPath = Join-Path $Root $relativePath
+		if (-not (Test-Path -LiteralPath $fullPath)) {
+			$missing.Add($relativePath)
+		}
+	}
+
+	$deepFilterArchive = Get-ChildItem -Path (Join-Path $Root "deepfilternet") -File -Filter "*.tar.gz" -ErrorAction SilentlyContinue |
+		Select-Object -First 1
+	if (-not $deepFilterArchive) {
+		$missing.Add("deepfilternet\*.tar.gz")
+	}
+
+	if ($missing.Count -gt 0) {
+		throw "$Label is missing required speech-cleanup payload files: $($missing -join ', ')."
+	}
+
+	Write-Host "$Label speech-cleanup payload verified."
+}
+
 function Get-ArtifactPaths {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -90,9 +160,14 @@ function Get-ArtifactPaths {
 
 $buildRootPath = Resolve-ExistingPath -Path $BuildRoot
 $allArtifacts = New-Object System.Collections.Generic.List[string]
+$requiredBinaryNames = Get-RequiredBinaryNames
 
-foreach ($verifiedPath in Assert-BinarySet -Label "Build root '$buildRootPath'" -Root $buildRootPath) {
+foreach ($verifiedPath in Assert-BinarySet -Label "Build root '$buildRootPath'" -Root $buildRootPath -BinaryNames $requiredBinaryNames) {
 	$allArtifacts.Add($verifiedPath)
+}
+
+if ($RequireSpeechCleanup) {
+	Assert-SpeechCleanupPayload -Label "Build root '$buildRootPath'" -Root $buildRootPath
 }
 
 foreach ($artifactPath in Get-ArtifactPaths -Root $buildRootPath) {
@@ -105,8 +180,11 @@ if ($RequireStage) {
 	}
 
 	$stageRootPath = Resolve-ExistingPath -Path $StageRoot
-	foreach ($verifiedPath in Assert-BinarySet -Label "Stage root '$stageRootPath'" -Root $stageRootPath) {
+	foreach ($verifiedPath in Assert-BinarySet -Label "Stage root '$stageRootPath'" -Root $stageRootPath -BinaryNames $requiredBinaryNames) {
 		$allArtifacts.Add($verifiedPath)
+	}
+	if ($RequireSpeechCleanup) {
+		Assert-SpeechCleanupPayload -Label "Stage root '$stageRootPath'" -Root $stageRootPath
 	}
 	foreach ($artifactPath in Get-ArtifactPaths -Root $stageRootPath) {
 		$allArtifacts.Add($artifactPath)

@@ -6,12 +6,6 @@ on:
   pull_request:
     branches: '**'
   workflow_dispatch:
-    inputs:
-      SIGN_WINDOWS_INSTALLER:
-        description: 'Sign Windows Installer'
-        required: true
-        type: boolean
-        default: false
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -42,20 +36,24 @@ jobs:
 
   build:
     needs: [ fetch_build_number ]
+    name: ${{ matrix.lane }}
 
     strategy:
         fail-fast: false
         matrix:
-            os: [ubuntu-22.04, ubuntu-24.04, windows-2025-vs2026, macos-14]
-            type: [static, shared]
-            arch: [x86_64]
-            exclude:
-              - os: windows-2025-vs2026
-                type: shared
-              - os: macos-14
-                type: shared
-              - os: ubuntu-22.04
+            include:
+              - lane: windows-client-server
+                os: windows-2025-vs2026
                 type: static
+                arch: x86_64
+                build_client: ON
+                build_server: ON
+              - lane: linux-server
+                os: ubuntu-22.04
+                type: static
+                arch: x86_64
+                build_client: OFF
+                build_server: ON
             
     runs-on: ${{ matrix.os }}
 
@@ -65,15 +63,16 @@ jobs:
           submodules: 'recursive'
           fetch-depth: 1
 
-
-      # The Bash version installed on macOS is ancient. We need a newer version
-    - name: Install Bash
-      if: startswith(matrix.os, 'macos')
-      run: brew install bash
-
     - name: Set environment variables
       run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "${{ matrix.os }}" "${{ matrix.type }}" "${{ matrix.arch }}" "${{ github.workspace }}"
       shell: bash
+
+    - name: Select CI build components
+      shell: bash
+      run: |
+        set -euxo pipefail
+        echo "MUMBLE_BUILD_CLIENT=${{ matrix.build_client }}" >> "$GITHUB_ENV"
+        echo "MUMBLE_BUILD_SERVER=${{ matrix.build_server }}" >> "$GITHUB_ENV"
 
     - uses: actions/cache/restore@v5
       with:
@@ -86,72 +85,117 @@ jobs:
           os: ${{ matrix.os }}
           arch: ${{ matrix.arch }}
 
+    - name: Install Rust toolchain for DeepFilterNet
+      if: ${{ startsWith(matrix.os, 'windows') }}
+      shell: powershell
+      run: |
+        $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
+        Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
+        & $rustupInit -y --profile minimal --default-toolchain stable
+        if ($LASTEXITCODE -ne 0) {
+          throw "rustup-init failed"
+        }
+        "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        & "$env:USERPROFILE\.cargo\bin\cargo.exe" --version
+
+    - name: Download ONNX Runtime for DTLN
+      if: ${{ startsWith(matrix.os, 'windows') }}
+      shell: powershell
+      run: |
+        $version = "1.18.1"
+        $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-win-x64-$version.zip"
+        $extractRoot = Join-Path $env:RUNNER_TEMP "onnxruntime"
+        $onnxRoot = Join-Path $extractRoot "onnxruntime-win-x64-$version"
+        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+        if (Test-Path -LiteralPath $extractRoot) {
+          Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        }
+        Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
+        if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
+          throw "Expanded ONNX Runtime archive is missing its include directory"
+        }
+        "ONNXRUNTIME_ROOT=$onnxRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Install ffmpeg for helper runtime probe
+      if: ${{ startsWith(matrix.os, 'windows') }}
+      shell: powershell
+      run: choco install ffmpeg -y
+
     - name: Build
       run: ./.github/workflows/build.sh "${{ matrix.os }}" "${{ matrix.type }}" "${{ matrix.arch }}"
       shell: bash
       env:
           MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
-          MUMBLE_ENABLE_WINDOWS_PACKAGING: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' && inputs.SIGN_WINDOWS_INSTALLER && 'ON' || '' }}
-          MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' && inputs.SIGN_WINDOWS_INSTALLER && 'ON' || '' }}
 
     - if: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
-      name: Verify Screen Share Helper Starts
+      name: Verify Windows Screen-Share Helper Runtime
       shell: bash
       run: |
         set -euxo pipefail
+        ffmpeg -version
         helper_path="$(find build -iname 'mumble-screen-helper.exe' | head -n1)"
         test -n "$helper_path"
-        "$helper_path" --print-capabilities-json > build/windows-screen-share-capabilities.json
+        "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --print-capabilities-json > build/windows-screen-share-capabilities.json
         test -s build/windows-screen-share-capabilities.json
+        grep -q '"ffmpeg_available":true' build/windows-screen-share-capabilities.json
+        grep -q '"capture_supported":true' build/windows-screen-share-capabilities.json
         grep -q '"browser_webrtc_available":true' build/windows-screen-share-capabilities.json
         grep -Eq '"edge_available":true|"chrome_available":true|"firefox_available":true' build/windows-screen-share-capabilities.json
+        grep -Eq '"h264_mf_available":true|"h264_qsv_available":true|"libx264_available":true' build/windows-screen-share-capabilities.json
+        "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --self-test > build/windows-screen-share-self-test.json
+        test -s build/windows-screen-share-self-test.json
+        grep -q '"success":true' build/windows-screen-share-self-test.json
+        grep -q '"output_file"' build/windows-screen-share-self-test.json
 
     - if: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
-      name: Validate Windows Binary Set
+      name: Validate Windows Client/Server Binary Set
       shell: powershell
       run: |
         .\scripts\windows\assert-windows-build-artifacts.ps1 `
           -BuildRoot .\build `
+          -RequireClient `
+          -RequireServer `
+          -RequireScreenHelper `
+          -RequireSpeechCleanup `
           -ArtifactListPath .\build\windows-binary-artifacts.txt
+
+    - if: ${{ matrix.os == 'ubuntu-22.04' && matrix.type == 'static' }}
+      name: Validate Linux Server Binary Set
+      shell: bash
+      run: |
+        set -euxo pipefail
+        test -x build/mumble-server
+        test ! -e build/mumble
 
     - name: Test
       working-directory: ${{ github.workspace }}/build
       shell: bash
       run: ctest --output-on-failure -C $BUILD_TYPE
 
-    - name: Validate signing configuration
-      if: ${{ inputs.SIGN_WINDOWS_INSTALLER && startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
-      shell: bash
-      env:
-          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-      run: |
-          if [[ -z "${SIGNPATH_TOKEN}" ]]; then
-            echo "::error title=Missing SignPath token::SIGN_WINDOWS_INSTALLER=true but repository secret SIGNPATH_API_TOKEN is not configured."
-            exit 1
-          fi
-
-    - if: ${{ inputs.SIGN_WINDOWS_INSTALLER && startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
-      uses: ./.github/actions/sign-binaries
-      with:
-          signpath-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          build-number: ${{ needs.fetch_build_number.outputs.build_number }}
-          type: ${{ matrix.type }}
-          os: ${{ matrix.os }}
-          arch: ${{ matrix.arch }}
-
-    - if: ${{ !inputs.SIGN_WINDOWS_INSTALLER && matrix.type == 'static' }}
-      name: Publish
+    - if: ${{ github.event_name != 'pull_request' && startsWith(matrix.os, 'windows') }}
+      name: Publish Windows Client/Server Artifacts
       uses: actions/upload-artifact@v6
       with:
-        name: 'Mumble-${{ matrix.os }}'
+        name: 'Mumble-windows-client-server'
         compression-level: 9
         path: |
           build/mumble
           build/mumble-server
           build/windows-binary-artifacts.txt
           build/windows-screen-share-capabilities.json
+          build/windows-screen-share-helper.log
+          build/windows-screen-share-self-test.json
           build/**/mumble*.msi
           build/**/mumble*.exe
+
+    - if: ${{ github.event_name != 'pull_request' && matrix.os == 'ubuntu-22.04' }}
+      name: Publish Linux Server Artifacts
+      uses: actions/upload-artifact@v6
+      with:
+        name: 'Mumble-linux-server'
+        compression-level: 9
+        path: |
+          build/mumble-server
 
       # We don't want to save the build env in a cache on a PR as caches are scoped
       # to branches and while PRs can access caches from the default branch, they

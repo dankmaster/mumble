@@ -979,6 +979,8 @@ void Settings::legacyLoad(const QString &path) {
 	LOAD(qbaConnectDialogGeometry, "ui/connect/geometry");
 	LOAD(qbaConnectDialogHeader, "ui/connect/header");
 	LOAD(bShowTransmitModeComboBox, "ui/transmitmodecombobox");
+	LOAD(bScreenShareAutoOpenCurrentRoom, "ui/screenShareAutoOpenCurrentRoom");
+	LOAD(bScreenSharePreferInAppRelay, "ui/screenSharePreferInAppRelay");
 	LOAD(bHighContrast, "ui/HighContrast");
 	LOAD(iMaxLogBlocks, "ui/MaxLogBlocks");
 	LOAD(bLog24HourClock, "ui/24HourClock");

@@ -252,6 +252,8 @@ set(MUMBLE_SOURCES
 	"RichTextEditor.ui"
 	"Screen.cpp"
 	"Screen.h"
+	"ScreenShareConfig.cpp"
+	"ScreenShareConfig.h"
 	"ScreenShareHelperClient.cpp"
 	"ScreenShareHelperClient.h"
 	"ScreenShareManager.cpp"

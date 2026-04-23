@@ -195,6 +195,8 @@
 	PROCESS(ui, CONNECT_DIALOG_GEOMETRY_KEY, qbaConnectDialogGeometry)           \
 	PROCESS(ui, CONNECT_DIALOG_HEADER_STATE_KEY, qbaConnectDialogHeader)         \
 	PROCESS(ui, DISPLAY_TRANSMIT_MODE_COMBOBOX_KEY, bShowTransmitModeComboBox)   \
+	PROCESS(ui, SCREEN_SHARE_AUTO_OPEN_CURRENT_ROOM_KEY, bScreenShareAutoOpenCurrentRoom) \
+	PROCESS(ui, SCREEN_SHARE_PREFER_IN_APP_RELAY_KEY, bScreenSharePreferInAppRelay) \
 	PROCESS(ui, HIGH_CONTRAST_MODE_KEY, bHighContrast)                           \
 	PROCESS(ui, MAX_LOG_LENGTH_KEY, iMaxLogBlocks)                               \
 	PROCESS(ui, USE_24H_CLOCK_KEY, bLog24HourClock)                              \

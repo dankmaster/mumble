@@ -60,6 +60,9 @@ public:
 	bool canViewSession(const QString &streamID) const;
 	bool isPublishingSession(const QString &streamID) const;
 	bool isViewingSession(const QString &streamID) const;
+	bool hasDetachedWindow(const QString &streamID) const;
+	bool focusOrReopenDetachedWindow(const QString &streamID);
+	bool isUsingFallbackRuntime(const QString &streamID) const;
 	void requestStartChannelShare(unsigned int channelID = 0);
 	void requestStartViewing(const QString &streamID);
 	void requestStopViewing(const QString &streamID);

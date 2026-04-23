@@ -33,6 +33,7 @@ NetworkConfig::NetworkConfig(Settings &st) : ConfigWidget(st) {
 	qleAdvertisedRelease->setPlaceholderText(Version::getRelease());
 	qleAdvertisedOS->setPlaceholderText(OSInfo::getOS());
 	qleAdvertisedOSVersion->setPlaceholderText(OSInfo::getOSDisplayableVersion());
+	qcbScreenShareDiagnostics->hide();
 }
 
 QString NetworkConfig::title() const {
@@ -55,7 +56,6 @@ void NetworkConfig::load(const Settings &r) {
 	loadCheckBox(qcbDisablePublicList, s.bDisablePublicList);
 	loadCheckBox(qcbSuppressIdentity, s.bSuppressIdentity);
 	loadCheckBox(qcbLinkPreviews, s.bEnableLinkPreviews);
-	loadCheckBox(qcbScreenShareDiagnostics, s.bScreenShareDiagnostics);
 	loadComboBox(qcbType, s.ptProxyType);
 
 	qleHostname->setText(r.qsProxyHost);
@@ -97,7 +97,6 @@ void NetworkConfig::save() const {
 	s.bDisablePublicList = true;
 	s.bSuppressIdentity  = qcbSuppressIdentity->isChecked();
 	s.bEnableLinkPreviews = qcbLinkPreviews->isChecked();
-	s.bScreenShareDiagnostics = qcbScreenShareDiagnostics->isChecked();
 	s.bHideOS            = qcbHideOS->isChecked();
 	s.qsAdvertisedReleaseOverride   = qleAdvertisedRelease->text().trimmed();
 	s.qsAdvertisedOSOverride        = qleAdvertisedOS->text().trimmed();

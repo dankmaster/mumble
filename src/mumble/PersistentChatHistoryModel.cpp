@@ -5,7 +5,15 @@
 
 #include "PersistentChatHistoryModel.h"
 
+#include <limits>
+
 namespace {
+	int toModelRow(qsizetype value) {
+		Q_ASSERT(value >= 0);
+		Q_ASSERT(value <= static_cast< qsizetype >(std::numeric_limits< int >::max()));
+		return static_cast< int >(value);
+	}
+
 	QString messageGroupSignature(const PersistentChatHistoryRow &row) {
 		if (!row.messageGroup) {
 			return row.signature;
@@ -61,7 +69,7 @@ PersistentChatHistoryModel::PersistentChatHistoryModel(QObject *parent) : QAbstr
 }
 
 int PersistentChatHistoryModel::rowCount(const QModelIndex &parent) const {
-	return parent.isValid() ? 0 : m_rows.size();
+	return parent.isValid() ? 0 : toModelRow(m_rows.size());
 }
 
 QVariant PersistentChatHistoryModel::data(const QModelIndex &index, int role) const {
@@ -83,7 +91,7 @@ QVariant PersistentChatHistoryModel::data(const QModelIndex &index, int role) co
 }
 
 const PersistentChatHistoryRow *PersistentChatHistoryModel::rowAt(int row) const {
-	return row >= 0 && row < m_rows.size() ? &m_rows.at(row) : nullptr;
+	return row >= 0 && row < toModelRow(m_rows.size()) ? &m_rows.at(row) : nullptr;
 }
 
 QString PersistentChatHistoryModel::rowIdAt(int row) const {
@@ -102,7 +110,7 @@ int PersistentChatHistoryModel::rowForId(const QString &rowId) const {
 }
 
 QString PersistentChatHistoryModel::lastMessageGroupRowId() const {
-	for (int i = m_rows.size() - 1; i >= 0; --i) {
+	for (int i = toModelRow(m_rows.size()) - 1; i >= 0; --i) {
 		if (m_rows.at(i).kind == PersistentChatHistoryRowKind::MessageGroup) {
 			return m_rows.at(i).rowId;
 		}
@@ -112,6 +120,9 @@ QString PersistentChatHistoryModel::lastMessageGroupRowId() const {
 }
 
 void PersistentChatHistoryModel::setRows(const QVector< PersistentChatHistoryRow > &rows) {
+	const int currentRowCount = toModelRow(m_rows.size());
+	const int nextRowCount    = toModelRow(rows.size());
+
 	if (m_rows.isEmpty()) {
 		beginResetModel();
 		m_rows = rows;
@@ -129,53 +140,53 @@ void PersistentChatHistoryModel::setRows(const QVector< PersistentChatHistoryRow
 	if (sameRowIds(m_rows, rows)) {
 		const QVector< PersistentChatHistoryRow > oldRows = m_rows;
 		m_rows = rows;
-		emitChangedSignatureRanges(this, oldRows, m_rows, 0, 0, m_rows.size());
+		emitChangedSignatureRanges(this, oldRows, m_rows, 0, 0, nextRowCount);
 		return;
 	}
 
-	if (rows.size() > m_rows.size()
-		&& sameRowIds(m_rows, rows, 0, 0, m_rows.size())) {
+	if (nextRowCount > currentRowCount
+		&& sameRowIds(m_rows, rows, 0, 0, currentRowCount)) {
 		const QVector< PersistentChatHistoryRow > oldRows = m_rows;
-		const int firstInsertedRow = oldRows.size();
-		const int lastInsertedRow  = rows.size() - 1;
+		const int firstInsertedRow = currentRowCount;
+		const int lastInsertedRow  = nextRowCount - 1;
 		beginInsertRows(QModelIndex(), firstInsertedRow, lastInsertedRow);
 		m_rows = rows;
 		endInsertRows();
-		emitChangedSignatureRanges(this, oldRows, m_rows, 0, 0, oldRows.size());
+		emitChangedSignatureRanges(this, oldRows, m_rows, 0, 0, currentRowCount);
 		return;
 	}
 
-	if (rows.size() > m_rows.size()
-		&& sameRowIds(m_rows, rows, 0, rows.size() - m_rows.size(), m_rows.size())) {
+	if (nextRowCount > currentRowCount
+		&& sameRowIds(m_rows, rows, 0, nextRowCount - currentRowCount, currentRowCount)) {
 		const QVector< PersistentChatHistoryRow > oldRows = m_rows;
-		const int insertedCount = rows.size() - oldRows.size();
+		const int insertedCount = nextRowCount - currentRowCount;
 		beginInsertRows(QModelIndex(), 0, insertedCount - 1);
 		m_rows = rows;
 		endInsertRows();
-		emitChangedSignatureRanges(this, oldRows, m_rows, 0, insertedCount, oldRows.size());
+		emitChangedSignatureRanges(this, oldRows, m_rows, 0, insertedCount, currentRowCount);
 		return;
 	}
 
-	if (rows.size() < m_rows.size()
-		&& sameRowIds(rows, m_rows, 0, 0, rows.size())) {
+	if (nextRowCount < currentRowCount
+		&& sameRowIds(rows, m_rows, 0, 0, nextRowCount)) {
 		const QVector< PersistentChatHistoryRow > oldRows = m_rows;
-		const int firstRemovedRow = rows.size();
-		const int lastRemovedRow  = oldRows.size() - 1;
+		const int firstRemovedRow = nextRowCount;
+		const int lastRemovedRow  = currentRowCount - 1;
 		beginRemoveRows(QModelIndex(), firstRemovedRow, lastRemovedRow);
 		m_rows = rows;
 		endRemoveRows();
-		emitChangedSignatureRanges(this, oldRows, m_rows, 0, 0, m_rows.size());
+		emitChangedSignatureRanges(this, oldRows, m_rows, 0, 0, nextRowCount);
 		return;
 	}
 
-	if (rows.size() < m_rows.size()
-		&& sameRowIds(rows, m_rows, 0, m_rows.size() - rows.size(), rows.size())) {
+	if (nextRowCount < currentRowCount
+		&& sameRowIds(rows, m_rows, 0, currentRowCount - nextRowCount, nextRowCount)) {
 		const QVector< PersistentChatHistoryRow > oldRows = m_rows;
-		const int removedCount = oldRows.size() - rows.size();
+		const int removedCount = currentRowCount - nextRowCount;
 		beginRemoveRows(QModelIndex(), 0, removedCount - 1);
 		m_rows = rows;
 		endRemoveRows();
-		emitChangedSignatureRanges(this, oldRows, m_rows, removedCount, 0, m_rows.size());
+		emitChangedSignatureRanges(this, oldRows, m_rows, removedCount, 0, nextRowCount);
 		return;
 	}
 
@@ -237,8 +248,16 @@ bool PersistentChatHistoryModel::sameRowIds(const QVector< PersistentChatHistory
 		return false;
 	}
 
-	const int resolvedLength = length >= 0 ? length : std::min(lhs.size() - lhsOffset, rhs.size() - rhsOffset);
-	if ((lhsOffset + resolvedLength) > lhs.size() || (rhsOffset + resolvedLength) > rhs.size()) {
+	const qsizetype lhsOffsetSize = static_cast< qsizetype >(lhsOffset);
+	const qsizetype rhsOffsetSize = static_cast< qsizetype >(rhsOffset);
+	if (lhsOffsetSize > lhs.size() || rhsOffsetSize > rhs.size()) {
+		return false;
+	}
+
+	const int resolvedLength =
+		length >= 0 ? length : toModelRow(std::min(lhs.size() - lhsOffsetSize, rhs.size() - rhsOffsetSize));
+	const qsizetype resolvedLengthSize = static_cast< qsizetype >(resolvedLength);
+	if ((lhsOffsetSize + resolvedLengthSize) > lhs.size() || (rhsOffsetSize + resolvedLengthSize) > rhs.size()) {
 		return false;
 	}
 

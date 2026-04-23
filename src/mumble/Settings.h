@@ -553,6 +553,8 @@ struct Settings {
 	KeyPair kpCertificate = {};
 
 	bool bShowTransmitModeComboBox = false;
+	bool bScreenShareAutoOpenCurrentRoom = false;
+	bool bScreenSharePreferInAppRelay    = true;
 
 	// Accessibility
 	bool bHighContrast = false;

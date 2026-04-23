@@ -6,7 +6,7 @@ env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
   CMAKE_OPTIONS: |
-      -Dtests=OFF -Dsymbols=ON -Dwarnings-as-errors=OFF
+      -Dtests=OFF -Dsymbols=ON -Dwarnings-as-errors=OFF -Dtest-lto=OFF
 
 jobs:
   pre_run:
@@ -24,11 +24,7 @@ jobs:
     needs: pre_run
     if: needs.pre_run.outputs.should_skip != 'true'
 
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-22.04
 
     permissions:
       security-events: write
@@ -46,24 +42,27 @@ jobs:
       with:
           languages: python, cpp
 
+    - name: Set environment variables
+      run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "ubuntu-22.04" "static" "x86_64" "${{ github.workspace }}"
+      shell: bash
+
+    - name: Select Linux server components
+      shell: bash
+      run: |
+          echo "MUMBLE_BUILD_CLIENT=OFF" >> "$GITHUB_ENV"
+          echo "MUMBLE_BUILD_SERVER=ON" >> "$GITHUB_ENV"
+
     - uses: ./.github/actions/install-dependencies
       with:
-          type: shared
-          os: ${{ matrix.os }}
+          type: static
+          os: ubuntu-22.04
           arch: x86_64
 
-    - name: Create build dir
-      run: cmake -E make_directory ${{runner.workspace}}/build
-
-    - name: Run CMake
-      run: |
-          cmake -G Ninja -S $GITHUB_WORKSPACE -B ${{runner.workspace}}/build -DCMAKE_BUILD_TYPE=Release $CMAKE_OPTIONS -DCMAKE_UNITY_BUILD=ON
+    - name: Build Linux server for CodeQL
+      run: ./.github/workflows/build.sh "ubuntu-22.04" "static" "x86_64"
       shell: bash
-
-    - name: Build
-      working-directory: ${{runner.workspace}}/build
-      run: cmake --build . --config $BUILD_TYPE
-      shell: bash
+      env:
+          MUMBLE_BUILD_NUMBER: 0
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

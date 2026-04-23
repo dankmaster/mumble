@@ -5,7 +5,7 @@
 
 #include <QtTest>
 
-#include "PersistentChatHistoryModel.h"
+#include "mumble/PersistentChatHistoryModel.h"
 
 namespace {
 	PersistentChatHistoryRow makeStateRow(const QString &rowId, const QString &signature) {

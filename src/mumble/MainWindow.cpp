@@ -978,11 +978,11 @@ namespace {
 		return lhs.message_id() < rhs.message_id();
 	}
 
-	QString persistentChatScopeCacheKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
+	[[maybe_unused]] QString persistentChatScopeCacheKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
 		return QString::fromLatin1("%1:%2").arg(static_cast< int >(scope)).arg(scopeID);
 	}
 
-	QString persistentChatScopeJumpUrl(MumbleProto::ChatScope scope, unsigned int scopeID) {
+	[[maybe_unused]] QString persistentChatScopeJumpUrl(MumbleProto::ChatScope scope, unsigned int scopeID) {
 		switch (scope) {
 			case MumbleProto::TextChannel:
 				return QString::fromLatin1("mumble-chat://scope/text/%1").arg(scopeID);
@@ -994,8 +994,8 @@ namespace {
 		}
 	}
 
-	std::size_t unreadMessagesAfter(const std::vector< MumbleProto::ChatMessage > &messages,
-									unsigned int lastReadMessageID) {
+	[[maybe_unused]] std::size_t unreadMessagesAfter(const std::vector< MumbleProto::ChatMessage > &messages,
+													 unsigned int lastReadMessageID) {
 		std::size_t unreadCount = 0;
 		for (const MumbleProto::ChatMessage &message : messages) {
 			if (message.message_id() > lastReadMessageID) {
@@ -1101,7 +1101,7 @@ namespace {
 		return count == 1 ? QObject::tr("1 person here") : QObject::tr("%1 people here").arg(count);
 	}
 
-	QSize persistentChatMeasuredItemHint(QWidget *widget, int itemWidth) {
+	[[maybe_unused]] QSize persistentChatMeasuredItemHint(QWidget *widget, int itemWidth) {
 		if (!widget) {
 			return QSize(std::max(0, itemWidth), 1);
 		}
@@ -1223,7 +1223,7 @@ namespace {
 		return reader.read();
 	}
 
-	QString modernShellAvatarDataUrl(const ClientUser *user, int avatarSize) {
+	[[maybe_unused]] QString modernShellAvatarDataUrl(const ClientUser *user, int avatarSize) {
 		const QImage image = persistentChatAvatarTexture(user, avatarSize);
 		if (image.isNull()) {
 			return QString();
@@ -1327,7 +1327,7 @@ namespace {
 		return colors;
 	}
 
-	QString peopleHereLabel(int count) {
+	[[maybe_unused]] QString peopleHereLabel(int count) {
 		const QString countLabel = QLocale().toString(std::max(0, count));
 		return count == 1 ? QObject::tr("%1 person here").arg(countLabel)
 						  : QObject::tr("%1 people here").arg(countLabel);
@@ -1727,9 +1727,10 @@ namespace {
 		return lhsScope == rhsScope && lhsScopeID == rhsScopeID;
 	}
 
-	bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
-								   const QDateTime &previousCreatedAt, const MumbleProto::ChatMessage &message,
-								   const QDateTime &createdAt) {
+	[[maybe_unused]] bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
+													const QDateTime &previousCreatedAt,
+													const MumbleProto::ChatMessage &message,
+													const QDateTime &createdAt) {
 		if (!previousMessage.has_value()) {
 			return true;
 		}
@@ -2063,7 +2064,7 @@ QImage persistentChatInlineDataImagePreviewImage(const QString &source, const Pe
 	return image;
 }
 
-QString persistentChatInlineDataImageThumbnailSource(const QImage &image) {
+[[maybe_unused]] QString persistentChatInlineDataImageThumbnailSource(const QImage &image) {
 	if (image.isNull()) {
 		return QString();
 	}
@@ -2375,7 +2376,7 @@ QString persistentChatMessageBodyHtml(
 		return persistentChatContentHtml(u8(message.message()), buildInlineDataImageReplacement);
 	}
 
-	QString mirroredServerLogHtml(const QString &html) {
+	[[maybe_unused]] QString mirroredServerLogHtml(const QString &html) {
 		const QString fragmentHtml = persistentChatContentHtml(html);
 		return QString::fromLatin1(
 				   "<div style='margin:0; padding:0; border:none; background:transparent;'>%1</div>")
@@ -3523,11 +3524,13 @@ MainWindow::MainWindow(QWidget *p)
 	qaChannelScreenShareStop = new QAction(tr("Stop Screen Share"), this);
 	qaChannelScreenShareWatch = new QAction(tr("Watch Screen Share"), this);
 	qaChannelScreenShareStopWatching = new QAction(tr("Stop Watching Screen Share"), this);
+	qaChannelScreenShareOpenWindow = new QAction(tr("Open Screen Share Window"), this);
 	connect(qaChannelScreenShareStart, &QAction::triggered, this, &MainWindow::startChannelScreenShare);
 	connect(qaChannelScreenShareStop, &QAction::triggered, this, &MainWindow::stopChannelScreenShare);
 	connect(qaChannelScreenShareWatch, &QAction::triggered, this, &MainWindow::watchChannelScreenShare);
 	connect(qaChannelScreenShareStopWatching, &QAction::triggered, this,
 			&MainWindow::stopWatchingChannelScreenShare);
+	connect(qaChannelScreenShareOpenWindow, &QAction::triggered, this, &MainWindow::openChannelScreenShareWindow);
 	setupGui();
 	connect(qmUser, SIGNAL(aboutToShow()), this, SLOT(qmUser_aboutToShow()));
 	connect(qmChannel, SIGNAL(aboutToShow()), this, SLOT(qmChannel_aboutToShow()));
@@ -3562,6 +3565,12 @@ MainWindow::MainWindow(QWidget *p)
 					 &PluginManager::on_serverSynchronized);
 	QObject::connect(this, &MainWindow::disconnectedFromServer, m_screenShareManager.get(),
 					 &ScreenShareManager::resetState);
+	QObject::connect(m_screenShareManager.get(), &ScreenShareManager::sessionUpdated, this,
+					 &MainWindow::queueModernShellSnapshotSync);
+	QObject::connect(m_screenShareManager.get(), &ScreenShareManager::sessionStopped, this,
+					 &MainWindow::queueModernShellSnapshotSync);
+	QObject::connect(&m_screenShareManager->helperClient(), &ScreenShareHelperClient::capabilitiesChanged, this,
+					 &MainWindow::queueModernShellSnapshotSync);
 
 	// Set up initial client side talking state without the need for the user to do anything.
 	// This will, for example, make sure the correct status tray icon is used on connect.
@@ -5456,6 +5465,17 @@ ModernShellMenuSerializer::ActionDefinition MainWindow::modernShellActionDefinit
 				definition.id = QStringLiteral("textMessage");
 			} else if (action == qaUserInformation) {
 				definition.id = QStringLiteral("userInfo");
+			} else if (action == qaChannelScreenShareStart) {
+				definition.id = QStringLiteral("screenShareStart");
+			} else if (action == qaChannelScreenShareStop) {
+				definition.id = QStringLiteral("screenShareStop");
+				assignTone(QStringLiteral("danger"));
+			} else if (action == qaChannelScreenShareWatch) {
+				definition.id = QStringLiteral("screenShareWatch");
+			} else if (action == qaChannelScreenShareStopWatching) {
+				definition.id = QStringLiteral("screenShareStopWatching");
+			} else if (action == qaChannelScreenShareOpenWindow) {
+				definition.id = QStringLiteral("screenShareOpenWindow");
 			} else if (action == qaUserRegister || action == qaSelfRegister) {
 				definition.id = QStringLiteral("register");
 			} else if (action == qaUserFriendAdd) {
@@ -5495,6 +5515,8 @@ ModernShellMenuSerializer::ActionDefinition MainWindow::modernShellActionDefinit
 				definition.id = QStringLiteral("screenShareWatch");
 			} else if (action == qaChannelScreenShareStopWatching) {
 				definition.id = QStringLiteral("screenShareStopWatching");
+			} else if (action == qaChannelScreenShareOpenWindow) {
+				definition.id = QStringLiteral("screenShareOpenWindow");
 			} else if (action == qaChannelAdd) {
 				definition.id = QStringLiteral("add");
 			} else if (action == qaChannelACL) {
@@ -5656,6 +5678,19 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			   serializeModernShellMenu(qmConfig, ModernShellMenuContext::AppConfigure));
 	addAppMenu(QStringLiteral("help"), ModernShellMenuSerializer::normalizedActionLabel(qmHelp->title()),
 			   serializeModernShellMenu(qmHelp, ModernShellMenuContext::AppHelp));
+	for (QVariant &menuEntryVariant : appMenus) {
+		QVariantMap menuEntry = menuEntryVariant.toMap();
+		if (menuEntry.value(QStringLiteral("id")).toString() != QLatin1String("configure")) {
+			continue;
+		}
+
+		QVariantList menuItems = menuEntry.value(QStringLiteral("items")).toList();
+		menuItems.push_back(ModernShellMenuSerializer::separatorItem());
+		menuItems.push_back(ModernShellMenuSerializer::actionItem(
+			QStringLiteral("configure.screenShare"), tr("Screen sharing settings"), true, false));
+		menuEntry.insert(QStringLiteral("items"), ModernShellMenuSerializer::normalize(menuItems));
+		menuEntryVariant = menuEntry;
+	}
 	appState.insert(QStringLiteral("menus"), appMenus);
 
 	const bool selfIdle = connected && selfUser && isUserIdle(selfUser->uiSession);
@@ -5709,6 +5744,9 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
 	selfMenuActions.push_back(
 		ModernShellMenuSerializer::actionItem(QStringLiteral("configure.settings"), tr("Settings"),
+											  qaConfigDialog->isEnabled(), false));
+	selfMenuActions.push_back(
+		ModernShellMenuSerializer::actionItem(QStringLiteral("configure.screenShare"), tr("Screen sharing settings"),
 											  qaConfigDialog->isEnabled(), false));
 	selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
 	selfMenuActions.push_back(
@@ -5780,7 +5818,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		restoreModernShellInputState();
 		return actions;
 	};
-	const auto buildChannelActions = [this, restoreModernShellInputState](Channel *channel) {
+	const auto buildChannelActions = [this, restoreModernShellInputState](Channel *channel, bool allowScreenShare) {
 		QVariantList actions;
 		if (!channel) {
 			return actions;
@@ -5795,6 +5833,23 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		qpContextPosition = QPoint();
 		qmChannel_aboutToShow();
 		actions = serializeModernShellMenu(qmChannel, ModernShellMenuContext::Scope);
+		if (!allowScreenShare) {
+			QVariantList filteredActions;
+			for (const QVariant &actionVariant : actions) {
+				const QVariantMap action = actionVariant.toMap();
+				const QString actionID = action.value(QStringLiteral("id")).toString();
+				if (actionID == QLatin1String("screenShareStart")
+					|| actionID == QLatin1String("screenShareStop")
+					|| actionID == QLatin1String("screenShareWatch")
+					|| actionID == QLatin1String("screenShareStopWatching")
+					|| actionID == QLatin1String("screenShareOpenWindow")) {
+					continue;
+				}
+
+				filteredActions.push_back(actionVariant);
+			}
+			actions = ModernShellMenuSerializer::normalize(filteredActions);
+		}
 
 		cuContextUser     = previousUser;
 		cContextChannel   = previousChannel;
@@ -5809,7 +5864,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		channelMenu.insert(QStringLiteral("id"), QStringLiteral("channel"));
 		channelMenu.insert(QStringLiteral("label"),
 						   ModernShellMenuSerializer::normalizedActionLabel(qmChannel->title()));
-		channelMenu.insert(QStringLiteral("items"), buildChannelActions(target.channel));
+		channelMenu.insert(QStringLiteral("items"),
+						   buildChannelActions(target.channel, target.scope == MumbleProto::Channel));
 		appMenus.insert(1, channelMenu);
 		appState.insert(QStringLiteral("menus"), appMenus);
 		snapshot.insert(QStringLiteral("app"), appState);
@@ -5973,6 +6029,125 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			}
 			return roomParticipants;
 		};
+	const auto buildVoiceRoomScreenShareState = [this, selfUser, joinedVoiceChannel](const Channel *channel) {
+		QVariantMap shareState;
+		shareState.insert(QStringLiteral("visible"), channel != nullptr && m_screenShareManager != nullptr);
+		shareState.insert(QStringLiteral("available"), channel != nullptr && m_screenShareManager != nullptr);
+		shareState.insert(QStringLiteral("mode"), QStringLiteral("idle"));
+		shareState.insert(QStringLiteral("ownerLabel"), QString());
+		shareState.insert(QStringLiteral("ownerSession"), 0);
+		shareState.insert(QStringLiteral("streamId"), QString());
+		shareState.insert(QStringLiteral("detachedWindowOpen"), false);
+		shareState.insert(QStringLiteral("usingFallback"), false);
+		shareState.insert(QStringLiteral("statusLabel"), QString());
+		shareState.insert(QStringLiteral("statusTone"), QStringLiteral("muted"));
+		shareState.insert(QStringLiteral("fallbackLabel"), QString());
+		shareState.insert(QStringLiteral("primaryActionId"), QString());
+		shareState.insert(QStringLiteral("primaryLabel"), QString());
+		shareState.insert(QStringLiteral("primaryEnabled"), false);
+		shareState.insert(QStringLiteral("primaryHint"), QString());
+		shareState.insert(QStringLiteral("primaryTone"), QString());
+		shareState.insert(QStringLiteral("overflowActions"), QVariantList());
+		shareState.insert(QStringLiteral("badgeLabel"), QString());
+		shareState.insert(QStringLiteral("badgeTone"), QString());
+		shareState.insert(QStringLiteral("scopeToken"),
+						  channel ? modernShellScopeToken(static_cast< int >(MumbleProto::Channel), channel->iId)
+								  : QString());
+
+		if (!channel || !m_screenShareManager) {
+			return shareState;
+		}
+
+		const bool joinedRoom = joinedVoiceChannel && joinedVoiceChannel->iId == channel->iId;
+		const QString streamID = screenShareStreamForChannel(channel);
+		const bool hasShare = !streamID.isEmpty();
+		QVariantList overflowActions;
+
+		const auto setPrimaryAction =
+			[&shareState](const QString &id, const QString &actionLabel, const bool enabled, const QString &hint,
+						  const QString &tone = QString()) {
+				shareState.insert(QStringLiteral("primaryActionId"), id);
+				shareState.insert(QStringLiteral("primaryLabel"), actionLabel);
+				shareState.insert(QStringLiteral("primaryEnabled"), enabled);
+				shareState.insert(QStringLiteral("primaryHint"), hint);
+				shareState.insert(QStringLiteral("primaryTone"), tone);
+			};
+
+		if (!hasShare) {
+			const QString unavailableReason =
+				joinedRoom ? m_screenShareManager->localShareUnavailableReason()
+						   : tr("Join this voice room before starting a share.");
+			shareState.insert(QStringLiteral("statusLabel"),
+							  joinedRoom ? tr("Ready to share") : tr("Join this room to share"));
+			shareState.insert(QStringLiteral("statusTone"),
+							  unavailableReason.isEmpty() ? QStringLiteral("success") : QStringLiteral("warning"));
+			setPrimaryAction(QStringLiteral("screenShareStart"), tr("Share screen"), unavailableReason.isEmpty(),
+							 unavailableReason);
+			return shareState;
+		}
+
+		const ScreenShareSession session = m_screenShareManager->sessions().value(streamID);
+		const ClientUser *owner = ClientUser::get(session.ownerSession);
+		const QString ownerLabel =
+			owner ? owner->qsName
+				  : tr("session %1").arg(QString::number(session.ownerSession));
+		const bool selfOwned = selfUser && session.ownerSession == selfUser->uiSession;
+		const bool publishing = selfOwned && m_screenShareManager->isPublishingSession(streamID);
+		const bool viewing = !selfOwned && m_screenShareManager->isViewingSession(streamID);
+		const bool detachedWindowOpen = m_screenShareManager->hasDetachedWindow(streamID);
+		const bool usingFallback = m_screenShareManager->isUsingFallbackRuntime(streamID);
+
+		shareState.insert(QStringLiteral("streamId"), streamID);
+		shareState.insert(QStringLiteral("ownerLabel"), ownerLabel);
+		shareState.insert(QStringLiteral("ownerSession"), static_cast< qulonglong >(session.ownerSession));
+		shareState.insert(QStringLiteral("detachedWindowOpen"), detachedWindowOpen);
+		shareState.insert(QStringLiteral("usingFallback"), usingFallback);
+		shareState.insert(QStringLiteral("fallbackLabel"),
+						  usingFallback ? tr("Using helper/browser fallback.") : QString());
+		shareState.insert(QStringLiteral("badgeLabel"), tr("Live"));
+		shareState.insert(QStringLiteral("badgeTone"),
+						  selfOwned ? QStringLiteral("success") : QStringLiteral("accent"));
+
+		if (selfOwned) {
+			shareState.insert(QStringLiteral("mode"),
+							  usingFallback ? QStringLiteral("fallback")
+											: (publishing ? QStringLiteral("publishing") : QStringLiteral("error")));
+			shareState.insert(QStringLiteral("statusLabel"), tr("You are sharing in this room"));
+			shareState.insert(QStringLiteral("statusTone"),
+							  usingFallback ? QStringLiteral("warning") : QStringLiteral("success"));
+			setPrimaryAction(QStringLiteral("screenShareOpenWindow"), tr("Open share window"), detachedWindowOpen,
+							 detachedWindowOpen ? QString()
+												: tr("The share window is not available right now."));
+			overflowActions.push_back(ModernShellMenuSerializer::actionItem(
+				QStringLiteral("screenShareStop"), tr("Stop sharing"), true, false, QStringLiteral("danger")));
+		} else if (viewing) {
+			shareState.insert(QStringLiteral("mode"),
+							  usingFallback ? QStringLiteral("fallback") : QStringLiteral("viewing"));
+			shareState.insert(QStringLiteral("statusLabel"), tr("Watching %1's share").arg(ownerLabel));
+			shareState.insert(QStringLiteral("statusTone"),
+							  usingFallback ? QStringLiteral("warning") : QStringLiteral("accent"));
+			setPrimaryAction(QStringLiteral("screenShareOpenWindow"), tr("Open share window"), detachedWindowOpen,
+							 detachedWindowOpen ? QString()
+												: tr("The share window is not available right now."));
+			overflowActions.push_back(ModernShellMenuSerializer::actionItem(
+				QStringLiteral("screenShareStopWatching"), tr("Stop watching"), true, false));
+		} else {
+			const bool canWatch = m_screenShareManager->canViewSession(streamID);
+			const QString unavailableReason =
+				canWatch ? QString()
+						 : (joinedRoom ? tr("This share is not viewable on this client right now.")
+									   : tr("Join this voice room before watching."));
+			shareState.insert(QStringLiteral("mode"),
+							  canWatch || !joinedRoom ? QStringLiteral("available") : QStringLiteral("error"));
+			shareState.insert(QStringLiteral("statusLabel"), tr("%1 is sharing in this room").arg(ownerLabel));
+			shareState.insert(QStringLiteral("statusTone"),
+							  canWatch ? QStringLiteral("accent") : QStringLiteral("warning"));
+			setPrimaryAction(QStringLiteral("screenShareWatch"), tr("Watch share"), canWatch, unavailableReason);
+		}
+
+		shareState.insert(QStringLiteral("overflowActions"), ModernShellMenuSerializer::normalize(overflowActions));
+		return shareState;
+	};
 
 	if (m_persistentChatChannelList) {
 		for (int i = 0; i < m_persistentChatChannelList->count(); ++i) {
@@ -6019,7 +6194,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 					}
 				}
 				if (roomChannel) {
-					room.insert(QStringLiteral("actions"), buildChannelActions(roomChannel));
+					room.insert(QStringLiteral("actions"), buildChannelActions(roomChannel, false));
 				}
 				if (scopeValue == LocalDirectMessageScope) {
 					if (ClientUser *roomUser = ClientUser::get(scopeID)) {
@@ -6062,7 +6237,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 						static_cast< qulonglong >(
 							cachedPersistentChatUnreadCount(MumbleProto::Channel, channel->iId)));
 			room.insert(QStringLiteral("kindLabel"), tr("Voice room"));
-			room.insert(QStringLiteral("actions"), buildChannelActions(const_cast< Channel * >(channel)));
+			room.insert(QStringLiteral("actions"), buildChannelActions(const_cast< Channel * >(channel), true));
+			room.insert(QStringLiteral("screenShare"), buildVoiceRoomScreenShareState(channel));
 			voiceRooms.push_back(room);
 
 			appendVoiceRooms(channel, depth + 1);
@@ -6177,6 +6353,16 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	}
 	if ((target.serverLog || target.legacyTextPath) && qteLog && qteLog->document()) {
 		activeScope.insert(QStringLiteral("serverLogHtml"), qteLog->document()->toHtml());
+	}
+	if (target.scope == MumbleProto::Channel && target.channel) {
+		activeScope.insert(QStringLiteral("screenShare"), buildVoiceRoomScreenShareState(target.channel));
+	} else {
+		QVariantMap hiddenScreenShare;
+		hiddenScreenShare.insert(QStringLiteral("visible"), false);
+		hiddenScreenShare.insert(QStringLiteral("available"), false);
+		hiddenScreenShare.insert(QStringLiteral("mode"), QStringLiteral("idle"));
+		hiddenScreenShare.insert(QStringLiteral("overflowActions"), QVariantList());
+		activeScope.insert(QStringLiteral("screenShare"), hiddenScreenShare);
 	}
 	snapshot.insert(QStringLiteral("textRooms"), textRooms);
 	snapshot.insert(QStringLiteral("voiceRooms"), voiceRooms);
@@ -6416,6 +6602,15 @@ bool MainWindow::handleModernShellScopeAction(const QString &scopeToken, const Q
 	const QString normalizedActionID = actionId.trimmed();
 	if (normalizedActionID.isEmpty()) {
 		return false;
+	}
+	if (normalizedActionID == QLatin1String("screenShareOpenWindow")) {
+		const QString streamID = screenShareStreamForChannel(channel);
+		const bool handled =
+			!streamID.isEmpty() && m_screenShareManager && m_screenShareManager->focusOrReopenDetachedWindow(streamID);
+		if (handled) {
+			queueModernShellSnapshotSync();
+		}
+		return handled;
 	}
 
 	const QPointer< ClientUser > previousUser = cuContextUser;
@@ -6686,6 +6881,15 @@ bool MainWindow::handleModernShellParticipantAction(const qulonglong session, co
 	if (normalizedActionID.isEmpty()) {
 		return false;
 	}
+	if (normalizedActionID == QLatin1String("screenShareOpenWindow")) {
+		const QString streamID = screenShareStreamForChannel(participant->cChannel);
+		const bool handled =
+			!streamID.isEmpty() && m_screenShareManager && m_screenShareManager->focusOrReopenDetachedWindow(streamID);
+		if (handled) {
+			queueModernShellSnapshotSync();
+		}
+		return handled;
+	}
 
 	const QPointer< ClientUser > previousUser = cuContextUser;
 	const QPointer< Channel > previousChannel = cContextChannel;
@@ -6764,6 +6968,10 @@ bool MainWindow::handleModernShellAppAction(const QString &actionId) {
 		handled = true;
 	} else if (actionId == QLatin1String("self.presence.away")) {
 		return false;
+	} else if (actionId == QLatin1String("configure.screenShare")) {
+		openConfigDialogPage(QStringLiteral("ScreenShareConfig"));
+		queueModernShellSnapshotSync();
+		return true;
 	}
 
 	if (handled) {
@@ -9761,7 +9969,6 @@ MainWindow::PersistentChatTarget MainWindow::legacyChatTarget() const {
 		target.user           = selectedUser;
 		target.label          = selectedUser->qsName;
 		target.description    = tr("Classic direct message");
-		target.statusMessage = tr("This server uses classic direct messages. Incoming messages still appear in Activity.");
 		return target;
 	}
 
@@ -9779,8 +9986,6 @@ MainWindow::PersistentChatTarget MainWindow::legacyChatTarget() const {
 	target.scopeID        = selectedChannel->iId;
 	target.label          = selectedChannel->qsName;
 	target.description    = tr("Classic channel chat");
-	target.statusMessage = tr("This server uses classic channel chat. New messages are still mirrored in Activity.");
-
 	return target;
 }
 
@@ -13819,6 +14024,40 @@ void MainWindow::qmUser_aboutToShow() {
 		qmUser->addSeparator();
 	}
 
+	if (p && p->cChannel && m_screenShareManager) {
+		const QString streamID = screenShareStreamForChannel(p->cChannel);
+		if (!streamID.isEmpty()) {
+			const ScreenShareSession session = m_screenShareManager->sessions().value(streamID);
+			if (session.ownerSession == p->uiSession) {
+				bool addedShareAction = false;
+				if (session.ownerSession == Global::get().uiSession) {
+					if (m_screenShareManager->isPublishingSession(streamID)
+						|| m_screenShareManager->hasDetachedWindow(streamID)) {
+						qmUser->addAction(qaChannelScreenShareOpenWindow);
+						qaChannelScreenShareOpenWindow->setEnabled(true);
+					}
+					qmUser->addAction(qaChannelScreenShareStop);
+					qaChannelScreenShareStop->setEnabled(true);
+					addedShareAction = true;
+				} else if (m_screenShareManager->isViewingSession(streamID)) {
+					qmUser->addAction(qaChannelScreenShareOpenWindow);
+					qaChannelScreenShareOpenWindow->setEnabled(true);
+					qmUser->addAction(qaChannelScreenShareStopWatching);
+					qaChannelScreenShareStopWatching->setEnabled(true);
+					addedShareAction = true;
+				} else {
+					qmUser->addAction(qaChannelScreenShareWatch);
+					qaChannelScreenShareWatch->setEnabled(m_screenShareManager->canViewSession(streamID));
+					addedShareAction = true;
+				}
+
+				if (addedShareAction) {
+					qmUser->addSeparator();
+				}
+			}
+		}
+	}
+
 	if (Global::get().pPermissions & (ChanACL::Kick | ChanACL::Ban | ChanACL::Write))
 		qmUser->addAction(qaUserKick);
 	if (Global::get().pPermissions & (ChanACL::Ban | ChanACL::Write))
@@ -14022,6 +14261,20 @@ void MainWindow::stopWatchingChannelScreenShare() {
 	}
 
 	m_screenShareManager->requestStopViewing(streamID);
+}
+
+void MainWindow::openChannelScreenShareWindow() {
+	Channel *c = getContextMenuChannel();
+	if (!c || !m_screenShareManager) {
+		return;
+	}
+
+	const QString streamID = screenShareStreamForChannel(c);
+	if (streamID.isEmpty()) {
+		return;
+	}
+
+	m_screenShareManager->focusOrReopenDetachedWindow(streamID);
 }
 
 void MainWindow::on_qaUserMute_triggered() {
@@ -14530,9 +14783,16 @@ void MainWindow::qmChannel_aboutToShow() {
 		} else if (hasScreenShare) {
 			const ScreenShareSession session = m_screenShareManager->sessions().value(streamID);
 			if (session.ownerSession == self->uiSession) {
+				if (m_screenShareManager->isPublishingSession(streamID)
+					|| m_screenShareManager->hasDetachedWindow(streamID)) {
+					qmChannel->addAction(qaChannelScreenShareOpenWindow);
+					qaChannelScreenShareOpenWindow->setEnabled(true);
+				}
 				qmChannel->addAction(qaChannelScreenShareStop);
 				qaChannelScreenShareStop->setEnabled(true);
 			} else if (m_screenShareManager->isViewingSession(streamID)) {
+				qmChannel->addAction(qaChannelScreenShareOpenWindow);
+				qaChannelScreenShareOpenWindow->setEnabled(true);
 				qmChannel->addAction(qaChannelScreenShareStopWatching);
 				qaChannelScreenShareStopWatching->setEnabled(true);
 			} else {
@@ -16682,7 +16942,15 @@ void MainWindow::openAudioStatsDialog() {
 }
 
 void MainWindow::openConfigDialog() {
+	openConfigDialogPage(QString());
+}
+
+void MainWindow::openConfigDialogPage(const QString &pageName) {
 	ConfigDialog *dlg = new ConfigDialog(this);
+
+	if (!pageName.trimmed().isEmpty()) {
+		dlg->selectPage(pageName);
+	}
 
 	Global::get().inConfigUI = true;
 
@@ -16702,6 +16970,7 @@ void MainWindow::openConfigDialog() {
 		updateTransmitModeComboBox(Global::get().s.atTransmit);
 		updateUserModel();
 		emit talkingStatusChanged();
+		queueModernShellSnapshotSync();
 
 		if (Global::get().s.requireRestartToApply) {
 			if (Global::get().s.requireRestartToApply

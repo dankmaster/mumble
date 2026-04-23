@@ -314,6 +314,18 @@ ConfigWidget *ConfigDialog::getConfigWidget(const QString &name) {
 	return s_existingWidgets.value(name, nullptr);
 }
 
+bool ConfigDialog::selectPage(const QString &name) {
+	for (auto it = qmIconWidgets.cbegin(); it != qmIconWidgets.cend(); ++it) {
+		ConfigWidget *widget = it.value();
+		if (widget && widget->getName() == name) {
+			qlwIcons->setCurrentItem(it.key());
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void ConfigDialog::on_pageButtonBox_clicked(QAbstractButton *b) {
 	ConfigWidget *conf = qobject_cast< ConfigWidget * >(qswPages->currentWidget());
 	if (!conf) {

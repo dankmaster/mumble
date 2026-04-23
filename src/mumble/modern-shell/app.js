@@ -66,6 +66,13 @@
 		scopeBanner: document.getElementById("scope-banner"),
 		conversationMeta: document.getElementById("conversation-meta"),
 		voicePresenceStack: document.getElementById("voice-presence-stack"),
+		screenShareButton: document.getElementById("screen-share-button"),
+		screenShareCard: document.getElementById("screen-share-card"),
+		screenShareCardStatus: document.getElementById("screen-share-card-status"),
+		screenShareCardTitle: document.getElementById("screen-share-card-title"),
+		screenShareCardSummary: document.getElementById("screen-share-card-summary"),
+		screenShareCardNote: document.getElementById("screen-share-card-note"),
+		screenShareCardActions: document.getElementById("screen-share-card-actions"),
 		messageList: document.getElementById("message-list"),
 		jumpLatestButton: document.getElementById("jump-latest-button"),
 		composerForm: document.getElementById("composer-form"),
@@ -750,6 +757,122 @@
 		});
 	}
 
+	function screenShareVisible(share) {
+		return !!(share && share.visible);
+	}
+
+	function screenShareStatusText(share) {
+		switch (String(share && share.mode || "")) {
+			case "publishing":
+				return "Publishing";
+			case "available":
+				return "Available";
+			case "viewing":
+				return "Viewing";
+			case "fallback":
+				return "Fallback";
+			case "error":
+				return "Unavailable";
+			default:
+				return "Idle";
+		}
+	}
+
+	function compactScreenShareActionLabel(label) {
+		switch (String(label || "").toLowerCase()) {
+			case "share screen":
+				return "Share";
+			case "watch share":
+				return "Watch";
+			case "open share window":
+				return "Open";
+			default:
+				return label || "Share";
+		}
+	}
+
+	function renderScreenShareHeader(scope, share) {
+		const visible = screenShareVisible(share);
+		refs.screenShareButton.classList.toggle("hidden", !visible);
+		if (!visible) {
+			refs.screenShareButton.disabled = true;
+			refs.screenShareButton.textContent = "Share screen";
+			refs.screenShareButton.title = "Share screen";
+			refs.screenShareButton.dataset.scopeToken = "";
+			refs.screenShareButton.dataset.actionId = "";
+			return;
+		}
+
+		const label = share.primaryLabel || "Share screen";
+		const hint = share.primaryHint || label;
+		refs.screenShareButton.textContent = label;
+		refs.screenShareButton.disabled = share.primaryEnabled === false;
+		refs.screenShareButton.title = hint;
+		refs.screenShareButton.dataset.scopeToken = scope.scopeToken || share.scopeToken || "";
+		refs.screenShareButton.dataset.actionId = share.primaryActionId || "";
+		refs.screenShareButton.classList.toggle("is-active",
+			String(share.mode || "") === "publishing"
+			|| String(share.mode || "") === "viewing"
+			|| String(share.mode || "") === "fallback");
+	}
+
+	function renderScreenShareCard(scope, share) {
+		const visible = screenShareVisible(share);
+		refs.screenShareCard.classList.toggle("hidden", !visible);
+		if (!visible) {
+			refs.screenShareCardActions.innerHTML = "";
+			return;
+		}
+
+		const statusTone = share.statusTone ? " is-" + share.statusTone : "";
+		const mode = String(share.mode || "idle");
+		let title = "Screen sharing";
+		if (mode === "publishing") {
+			title = "Your screen share";
+		} else if ((mode === "available" || mode === "viewing" || mode === "fallback") && share.ownerLabel) {
+			title = share.ownerLabel;
+		} else if (mode === "idle") {
+			title = "No active share";
+		}
+
+		refs.screenShareCardStatus.className = "meta-pill" + statusTone + (share.statusLabel ? "" : " hidden");
+		refs.screenShareCardStatus.textContent = screenShareStatusText(share);
+		refs.screenShareCardTitle.textContent = title;
+		refs.screenShareCardSummary.textContent = share.statusLabel || "Screen sharing is available in voice rooms.";
+
+		const note = share.fallbackLabel || ((share.primaryEnabled === false && share.primaryHint) ? share.primaryHint : "");
+		refs.screenShareCardNote.textContent = note;
+		refs.screenShareCardNote.classList.toggle("hidden", !note);
+
+		refs.screenShareCardActions.innerHTML = "";
+		actionItemsFromActionStates(share.overflowActions, {
+			invokeAction: function(actionId) {
+				notifyBridge("invokeScopeAction", scope.scopeToken || share.scopeToken || "", actionId);
+			}
+		}).forEach(function(item) {
+			if (!item || item.kind !== "action") {
+				return;
+			}
+
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "chip-button screen-share-card-action"
+				+ (item.tone ? " is-" + item.tone : "");
+			button.textContent = item.label || "Action";
+			button.disabled = item.enabled === false;
+			if (item.hint) {
+				button.title = item.hint;
+			}
+			button.addEventListener("click", function() {
+				if (item.enabled === false || typeof item.action !== "function") {
+					return;
+				}
+				item.action();
+			});
+			refs.screenShareCardActions.appendChild(button);
+		});
+	}
+
 	function findRoomState(snapshot, scopeToken) {
 		const token = String(scopeToken || "");
 		return (snapshot.voiceRooms || []).concat(snapshot.textRooms || []).find(function(room) {
@@ -1200,6 +1323,7 @@
 		const roomPathLabel = room.pathLabel || "";
 		const unreadCount = Number(room.unreadCount || 0);
 		const memberCount = Number(room.memberCount || 0);
+		const screenShare = room.screenShare || {};
 		const roomKind = String(room.kindLabel || "").trim().toLowerCase();
 		const subtitleText = joinable
 			? ((room.joined || room.selected) ? (roomPathLabel || room.description || "") : "")
@@ -1267,6 +1391,15 @@
 			meta.appendChild(count);
 		}
 
+		if (joinable && screenShareVisible(screenShare) && screenShare.badgeLabel) {
+			const shareBadge = document.createElement("span");
+			shareBadge.className = "meta-pill row-share-badge"
+				+ (screenShare.badgeTone ? " is-" + screenShare.badgeTone : "");
+			shareBadge.textContent = screenShare.badgeLabel;
+			shareBadge.title = screenShare.statusLabel || screenShare.badgeLabel;
+			meta.appendChild(shareBadge);
+		}
+
 		if (joinable) {
 			const joinButton = document.createElement("button");
 			joinButton.type = "button";
@@ -1279,6 +1412,22 @@
 				dismissCompactRailAfterAction();
 			});
 			meta.appendChild(joinButton);
+		}
+
+		if (joinable && room.joined && screenShareVisible(screenShare) && screenShare.primaryActionId) {
+			const shareActionButton = document.createElement("button");
+			shareActionButton.type = "button";
+			shareActionButton.className = "mini-action room-share-action"
+				+ (screenShare.primaryTone ? " is-" + screenShare.primaryTone : "");
+			shareActionButton.textContent = compactScreenShareActionLabel(screenShare.primaryLabel);
+			shareActionButton.disabled = screenShare.primaryEnabled === false;
+			shareActionButton.title = screenShare.primaryHint || screenShare.primaryLabel || "Screen share";
+			shareActionButton.addEventListener("click", function(event) {
+				event.stopPropagation();
+				notifyBridge("invokeScopeAction", room.token, screenShare.primaryActionId);
+				dismissCompactRailAfterAction();
+			});
+			meta.appendChild(shareActionButton);
 		}
 
 		button.appendChild(chip);
@@ -2373,6 +2522,7 @@
 				label: "Configure",
 				items: [
 					{ id: "configure.settings", label: "Settings", enabled: true },
+					{ id: "configure.screenShare", label: "Screen sharing settings", enabled: true },
 					{ id: "configure.audioWizard", label: "Audio wizard", enabled: true },
 					{ id: "configure.certificate", label: "Certificate wizard", enabled: true },
 					{ id: "configure.minimal", label: "Minimal view", enabled: true },
@@ -2734,7 +2884,6 @@
 		const voiceRooms = snapshot.voiceRooms || [];
 		const voicePresence = snapshot.voicePresence || [];
 		const headerPresence = voicePresence.length ? voicePresence : (snapshot.participants || []);
-		const classicServer = String(app.compatibilityLabel || "").toLowerCase() === "standard server";
 
 		refs.brandTitle.textContent = app.serverTitle || "Mumble";
 		refs.brandSubtitle.textContent = app.serverSubtitle || "Room-first shell";
@@ -2771,6 +2920,8 @@
 
 		renderVoicePresenceStack(headerPresence);
 		renderMeta(scope.meta || []);
+		renderScreenShareHeader(scope, scope.screenShare || null);
+		renderScreenShareCard(scope, scope.screenShare || null);
 		renderNote(app, scope);
 		renderMessages(snapshot);
 		renderSelfCard(app);
@@ -3164,6 +3315,14 @@
 		});
 		refs.muteButton.addEventListener("click", function() { notifyBridge("toggleSelfMute"); });
 		refs.deafButton.addEventListener("click", function() { notifyBridge("toggleSelfDeaf"); });
+		refs.screenShareButton.addEventListener("click", function() {
+			const scopeToken = refs.screenShareButton.dataset.scopeToken || "";
+			const actionId = refs.screenShareButton.dataset.actionId || "";
+			if (!scopeToken || !actionId || refs.screenShareButton.disabled) {
+				return;
+			}
+			notifyBridge("invokeScopeAction", scopeToken, actionId);
+		});
 		refs.loadOlderButton.addEventListener("click", function() { notifyBridge("loadOlderHistory"); });
 		refs.markReadButton.addEventListener("click", function() { notifyBridge("markRead"); });
 		refs.attachButton.addEventListener("click", function() { notifyBridge("openImagePicker"); });

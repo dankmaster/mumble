@@ -37,6 +37,7 @@ public:
 	/// @returns The pointer to the existing ConfigWidget with the given name or nullptr,
 	/// 	if no such widget exists.
 	static ConfigWidget *getConfigWidget(const QString &name);
+	bool selectPage(const QString &name);
 
 signals:
 	/// Emitted whenever the settings dialog has been accepted. For potential slots this

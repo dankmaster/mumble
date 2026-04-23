@@ -5,7 +5,7 @@
 
 #include <QtTest>
 
-#include "PersistentChatRender.h"
+#include "mumble/PersistentChatRender.h"
 
 namespace {
 	MumbleProto::ChatMessage makeMessage(unsigned int messageID, quint64 createdAt, unsigned int actorSession,
@@ -30,7 +30,7 @@ class TestPersistentChatRender : public QObject {
 
 private slots:
 	void groupsMessagesByActorScopeAndTime();
-	void breaksGroupWhenGapExceedsFiveMinutes();
+	void breaksGroupWhenGapExceedsEightMinutes();
 	void detectsSelfAuthoredGroups();
 };
 
@@ -51,10 +51,10 @@ void TestPersistentChatRender::groupsMessagesByActorScopeAndTime() {
 	QCOMPARE(groups[2].scopeID, 12U);
 }
 
-void TestPersistentChatRender::breaksGroupWhenGapExceedsFiveMinutes() {
+void TestPersistentChatRender::breaksGroupWhenGapExceedsEightMinutes() {
 	std::vector< MumbleProto::ChatMessage > messages;
 	messages.push_back(makeMessage(10, 5000, 3, 3, QStringLiteral("Alice"), MumbleProto::TextChannel, 11));
-	messages.push_back(makeMessage(11, 5301, 3, 3, QStringLiteral("Alice"), MumbleProto::TextChannel, 11));
+	messages.push_back(makeMessage(11, 5481, 3, 3, QStringLiteral("Alice"), MumbleProto::TextChannel, 11));
 
 	const auto groups = PersistentChatRender::buildGroups(messages, {});
 
