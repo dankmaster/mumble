@@ -112,6 +112,29 @@ namespace {
 		return QString();
 	}
 
+	QString configuredExecutablePath(const char *envName) {
+		const QString configuredPath = qEnvironmentVariable(envName).trimmed();
+		if (configuredPath.isEmpty()) {
+			return QString();
+		}
+
+		const QFileInfo configuredInfo(configuredPath);
+		if (configuredInfo.isFile() && configuredInfo.isExecutable()) {
+			return configuredInfo.absoluteFilePath();
+		}
+
+		return QStandardPaths::findExecutable(configuredPath);
+	}
+
+	QString preferredExecutablePath(const char *envName, const QStringList &candidates) {
+		const QString configuredPath = configuredExecutablePath(envName);
+		if (!configuredPath.isEmpty()) {
+			return configuredPath;
+		}
+
+		return findExecutableAny(candidates);
+	}
+
 #ifdef Q_OS_WIN
 	QString existingWindowsBrowserPath(const QStringList &relativePaths) {
 		QStringList roots;
@@ -802,8 +825,12 @@ ScreenShareExternalProcess::RuntimeSupport ScreenShareExternalProcess::probeRunt
 	}
 
 	RuntimeSupport support;
-	support.ffmpegPath     = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
-	support.ffplayPath     = QStandardPaths::findExecutable(QStringLiteral("ffplay"));
+	support.ffmpegPath     =
+		preferredExecutablePath("MUMBLE_SCREENSHARE_FFMPEG_PATH",
+								QStringList{ QStringLiteral("ffmpeg"), QStringLiteral("ffmpeg.exe") });
+	support.ffplayPath     =
+		preferredExecutablePath("MUMBLE_SCREENSHARE_FFPLAY_PATH",
+								QStringList{ QStringLiteral("ffplay"), QStringLiteral("ffplay.exe") });
 #ifdef Q_OS_WIN
 	support.edgePath = findExecutableAny(QStringList{ QStringLiteral("msedge.exe") });
 	if (support.edgePath.isEmpty()) {
