@@ -12,3 +12,5 @@ set_target_properties(TestUserModelNavigator PROPERTIES AUTOMOC ON)
 target_link_libraries(TestUserModelNavigator PRIVATE mumble_client_object_lib shared Qt6::Test)
 
 add_test(NAME TestUserModelNavigator COMMAND $<TARGET_FILE:TestUserModelNavigator>)
+
+configure_client_test_runtime(TestUserModelNavigator TestUserModelNavigator)

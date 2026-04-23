@@ -37,11 +37,6 @@ set_target_properties(TestSettingsJSONSerialization PROPERTIES AUTOMOC ON)
 add_test(
 	NAME TestSettingsJSONSerialization
 	COMMAND $<TARGET_FILE:TestSettingsJSONSerialization>
-	# Specifying the working directory is necessary, to make sure the dependent DLLs are found (on Windows)
-	WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
-set_tests_properties(
-	TestSettingsJSONSerialization
-	PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-)
+configure_client_test_runtime(TestSettingsJSONSerialization TestSettingsJSONSerialization)

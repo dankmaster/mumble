@@ -15,6 +15,23 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${test-lto})
 # Set output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+function(configure_client_test_runtime TEST_NAME TARGET_NAME)
+	if(WIN32 AND dtln AND DEFINED ONNXRUNTIME_RUNTIME AND NOT "${ONNXRUNTIME_RUNTIME}" STREQUAL "")
+		add_custom_command(
+			TARGET ${TARGET_NAME}
+			POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ONNXRUNTIME_RUNTIME}" "$<TARGET_FILE_DIR:${TARGET_NAME}>"
+		)
+	endif()
+
+	set_tests_properties(
+		${TEST_NAME}
+		PROPERTIES
+			WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+			ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+	)
+endfunction()
+
 if (static)
 	find_pkg(Qt6 VERSION 6 COMPONENTS Widgets REQUIRED)
 	if (NOT TARGET Qt6::QOffscreenIntegrationPlugin)
