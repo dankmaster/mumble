@@ -48,12 +48,16 @@ jobs:
                 arch: x86_64
                 build_client: ON
                 build_server: ON
+                run_tests: ON
+                extra_cmake_options: ""
               - lane: linux-server
                 os: ubuntu-24.04
                 type: static
                 arch: x86_64
-                build_client: ON
+                build_client: OFF
                 build_server: ON
+                run_tests: OFF
+                extra_cmake_options: "-Dtests=OFF"
             
     runs-on: ${{ matrix.os }}
 
@@ -73,6 +77,9 @@ jobs:
         set -euxo pipefail
         echo "MUMBLE_BUILD_CLIENT=${{ matrix.build_client }}" >> "$GITHUB_ENV"
         echo "MUMBLE_BUILD_SERVER=${{ matrix.build_server }}" >> "$GITHUB_ENV"
+        if [[ -n "${{ matrix.extra_cmake_options }}" ]]; then
+          echo "CMAKE_OPTIONS=${CMAKE_OPTIONS} ${{ matrix.extra_cmake_options }}" >> "$GITHUB_ENV"
+        fi
 
     - uses: actions/cache/restore@v5
       with:
@@ -165,8 +172,10 @@ jobs:
       run: |
         set -euxo pipefail
         test -x build/mumble-server
+        test ! -e build/mumble
 
-    - name: Test
+    - if: ${{ matrix.run_tests != 'OFF' }}
+      name: Test
       working-directory: ${{ github.workspace }}/build
       shell: bash
       run: ctest --output-on-failure -C $BUILD_TYPE
@@ -187,7 +196,7 @@ jobs:
           build/**/mumble*.msi
           build/**/mumble*.exe
 
-    - if: ${{ github.event_name != 'pull_request' && matrix.os == 'ubuntu-22.04' }}
+    - if: ${{ github.event_name != 'pull_request' && startsWith(matrix.os, 'ubuntu') }}
       name: Publish Linux Server Artifacts
       uses: actions/upload-artifact@v6
       with:

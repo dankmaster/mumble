@@ -49,6 +49,7 @@ jobs:
     - name: Select Linux build components
       shell: bash
       run: |
+          echo "MUMBLE_BUILD_CLIENT=OFF" >> "$GITHUB_ENV"
           echo "MUMBLE_BUILD_SERVER=ON" >> "$GITHUB_ENV"
 
     - uses: ./.github/actions/install-dependencies
