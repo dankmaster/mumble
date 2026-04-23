@@ -109,6 +109,37 @@ download_file() {
 	fi
 }
 
+git_clone_with_retry() {
+	local repository_url="$1"
+	local target_dir="$2"
+	shift 2
+
+	if [[ -z "$repository_url" || -z "$target_dir" ]]; then
+		echo "git_clone_with_retry requires a repository URL and target directory" 1>&2
+		exit 1
+	fi
+
+	local max_attempts="${GIT_CLONE_MAX_ATTEMPTS:-3}"
+	local retry_delay_seconds="${GIT_CLONE_RETRY_DELAY_SECONDS:-15}"
+	local attempt
+
+	for (( attempt=1; attempt<=max_attempts; attempt++ )); do
+		remove_tree_force "$target_dir"
+
+		if git -c protocol.version=2 -c http.version=HTTP/1.1 clone "$@" "$repository_url" "$target_dir"; then
+			return 0
+		fi
+
+		if (( attempt == max_attempts )); then
+			echo "Failed to clone $repository_url after ${max_attempts} attempts" 1>&2
+			return 1
+		fi
+
+		echo "Retrying clone of $repository_url in ${retry_delay_seconds}s (attempt ${attempt}/${max_attempts})" 1>&2
+		sleep "$retry_delay_seconds"
+	done
+}
+
 have_archive_extractor() {
 	command -v 7z > /dev/null 2>&1 || command -v tar > /dev/null 2>&1
 }
@@ -283,7 +314,7 @@ ensure_build_env_repo_checkout() {
 	rm -rf "$temp_dir"
 	mkdir -p "$env_dir"
 
-	git clone --filter=blob:none "$MUMBLE_ENVIRONMENT_REPOSITORY" "$temp_dir"
+	git_clone_with_retry "$MUMBLE_ENVIRONMENT_REPOSITORY" "$temp_dir" --filter=blob:none
 	git -C "$temp_dir" checkout "$MUMBLE_ENVIRONMENT_COMMIT"
 	rm -rf "$temp_dir/.git"
 

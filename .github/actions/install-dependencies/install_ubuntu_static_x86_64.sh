@@ -12,6 +12,7 @@ sudo apt -y install \
 	g++-multilib \
 	ninja-build \
 	libbz2-dev \
+	libboost-dev \
 	libcli11-dev \
 	libprotobuf-dev \
 	libspdlog-dev \

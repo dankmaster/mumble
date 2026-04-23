@@ -84,7 +84,7 @@ extract_with_progress "WixSharp.7z" "C:/WixSharp"
 
 if [[ ! -d "C:/vcvars-bash/.git" ]]; then
 	rm -rf "C:/vcvars-bash"
-	git clone "https://github.com/nathan818fr/vcvars-bash.git" "C:/vcvars-bash"
+	git_clone_with_retry "https://github.com/nathan818fr/vcvars-bash.git" "C:/vcvars-bash"
 fi
 
 if [[ "${MUMBLE_SKIP_DATABASE_SETUP:-}" = "ON" ]]; then
