@@ -13,6 +13,7 @@ sudo apt -y install \
 	ninja-build \
 	libbz2-dev \
 	libboost-dev \
+	libcap-dev \
 	libcli11-dev \
 	libprotobuf-dev \
 	libspdlog-dev \
