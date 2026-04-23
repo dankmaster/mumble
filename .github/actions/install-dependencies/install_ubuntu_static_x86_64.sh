@@ -11,6 +11,8 @@ sudo apt -y install \
 	build-essential \
 	g++-multilib \
 	ninja-build \
+	libprotobuf-dev \
+	protobuf-compiler \
 	qt6-base-dev \
 	`# Still required for qtbase vcpkg package` \
 	'^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libegl1-mesa-dev \
