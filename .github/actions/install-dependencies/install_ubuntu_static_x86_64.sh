@@ -11,7 +11,9 @@ sudo apt -y install \
 	build-essential \
 	g++-multilib \
 	ninja-build \
+	libcli11-dev \
 	libprotobuf-dev \
+	libspdlog-dev \
 	protobuf-compiler \
 	qt6-base-dev \
 	`# Still required for qtbase vcpkg package` \
