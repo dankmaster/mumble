@@ -1,175 +1,170 @@
-![Mumble screenshot](screenshots/Mumble.png)
-
 # Mumble - Dankmaster Fork
 
-[![https://www.mumble.info](https://img.shields.io/badge/Website-https%3A%2F%2Fwww.mumble.info-blue?style=for-the-badge)](https://www.mumble.info)
+<p align="center">
+  <img src="icons/mumble_256x256.png" width="96" height="96" alt="Mumble logo">
+</p>
 
-[![#mumble:matrix.org](https://img.shields.io/matrix/mumble:matrix.org?label=%23mumble:matrix.org&style=for-the-badge)](https://matrix.to/#/#mumble:matrix.org)
+<p align="center">
+  <strong>A fork of Mumble for a small community server, focused on persistent chat, richer media, and screen-share experiments.</strong>
+</p>
 
-[![Codacy](https://img.shields.io/codacy/grade/262a5e20c83a40599050e22e700d8a3e?label=Codacy&style=for-the-badge)](https://app.codacy.com/manual/mumble-voip/mumble)
-[![Azure](https://img.shields.io/azure-devops/build/Mumble-VoIP/c819eb06-7b22-4ef3-bbcd-860094454eb3/1?label=Azure&style=for-the-badge)](https://dev.azure.com/Mumble-VoIP/Mumble)
-[![Cirrus CI](https://img.shields.io/cirrus/github/mumble-voip/mumble?label=Cirrus%20CI&style=for-the-badge)](https://cirrus-ci.com/github/mumble-voip/mumble)
-[![Travis CI](https://img.shields.io/travis/com/mumble-voip/mumble?label=Travis%20CI&style=for-the-badge)](https://travis-ci.com/mumble-voip/mumble)
+<p align="center">
+  <a href="https://www.mumble.info"><img alt="Mumble website" src="https://img.shields.io/badge/Mumble-website-2f80ed?style=for-the-badge"></a>
+  <a href="https://github.com/mumble-voip/mumble"><img alt="Upstream project" src="https://img.shields.io/badge/upstream-mumble--voip%2Fmumble-555?style=for-the-badge"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-BSD--3--Clause-green?style=for-the-badge"></a>
+  <a href="https://github.com/dankmaster/mumble/actions/workflows/build.yml"><img alt="Build workflow" src="https://img.shields.io/github/actions/workflow/status/dankmaster/mumble/build.yml?branch=master&label=build&style=for-the-badge"></a>
+  <a href="https://github.com/dankmaster/mumble/actions/workflows/windows-client.yml"><img alt="Windows client workflow" src="https://img.shields.io/github/actions/workflow/status/dankmaster/mumble/windows-client.yml?branch=master&label=windows&style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <img src="screenshots/Mumble.png" alt="Mumble client in light and dark themes" width="900">
+</p>
+
+## What This Is
 
 This repository is a fork of [Mumble](https://github.com/mumble-voip/mumble).
-Full credit for the original project, core architecture, and the vast majority
-of the codebase belongs to the Mumble team and all upstream contributors.
+Full credit for the original project, architecture, and the vast majority of
+the codebase belongs to the Mumble team and upstream contributors.
 
-This fork is a small, server-specific build for one group of friends running a
-single community server. The goal is to keep the core Mumble voice experience
-intact while experimenting with features that are useful for that server.
+Mumble is an open source, low-latency, high-quality voice chat application
+built on Qt and Opus. The project contains the desktop client, `mumble`, and
+the server, `mumble-server` (formerly Murmur).
 
-Mumble is an Open Source, low-latency and high-quality voice-chat program
-written on top of Qt and Opus.
+This fork is not an official Mumble release. It is an experimental,
+server-specific build for one group of friends running a private community
+server. The goal is to keep the core Mumble voice experience intact while
+adding features that make that server feel more modern and easier to live in.
 
-There are two modules in Mumble; the client (mumble) and the server (mumble-server formerly known as murmur).
-The client works on Windows, Linux, FreeBSD, OpenBSD, and macOS,
-while the server should work on anything Qt can be installed on.
+If you want the official stable Mumble project, start at
+[mumble.info](https://www.mumble.info/) or
+[mumble-voip/mumble](https://github.com/mumble-voip/mumble).
 
-The documentation of the project can be found on [the website](https://www.mumble.info/documentation/).
+## Fork Highlights
 
-## About this fork
+| Area | Status | Notes |
+| --- | --- | --- |
+| Persistent chat | Active fork feature | Stored channel history, unread state, and history sync for forked clients and servers. |
+| Server-global chat | Optional server feature | A persistent global thread can be enabled per server. |
+| Aggregate chat | Active fork feature | Users can view an ACL-filtered stream across readable channels. |
+| Rich chat surface | Active fork feature | Reworked chat layout, MOTD treatment, inline images, and link preview groundwork. |
+| Screen sharing | Experimental | Capability negotiation, server config, external helper plumbing, and relay scaffolding are in progress. |
+| Identity overrides | Fork-specific utility | Optional advertised release and OS strings for controlled community deployments. |
 
-This is not an official Mumble release. It is an experimental fork built for a
-small private community and should be treated as such.
+## Screenshots
 
-Current fork-specific features include:
+| Main Client | Developer Tooling |
+| --- | --- |
+| <img src="screenshots/Mumble.png" alt="Mumble client screenshot" width="520"> | <img src="docs/media/images/Mumble_Settings_DeveloperMenu.png" alt="Mumble developer menu setting" width="520"> |
 
-- persistent text chat with stored history and unread state
-- optional server-global chat
-- an ACL-filtered aggregate chat view across channels a user can read
-- a reworked chat surface with the MOTD pinned above chat history
-- richer inline media handling for images and link previews
-- optional announced identity overrides for displayed client release and OS strings
+## Repository Map
 
-Experimental work in progress:
-
-- screen-sharing capability negotiation and server config scaffolding on the
-  `feature/screen-recording` branch
-
-
-## Contributing
-
-We always welcome contributions to the project. If you have some code that you would like to contribute, please go ahead and create a PR. While doing so,
-please try to make sure that you follow our [commit guidelines](COMMIT_GUIDELINES.md).
-
-If you are new to the Mumble project, you may want to check out the general [introduction to the Mumble source code](docs/dev/TheMumbleSourceCode.md).
-
-### Translating
-
-Mumble supports various languages. We are always looking for qualified people to contribute translations.
-
-We are using Weblate as a translation platform. [Register on Weblate](https://hosted.weblate.org/accounts/register/), and join [our translation project](https://hosted.weblate.org/projects/mumble/).
-
-### Writing plugins
-
-Mumble supports general-purpose plugins that can provide functionality that is not implemented in the main Mumble application. You can find more
-information on how this works and how these have to be created in the [plugin documentation](docs/dev/plugins/README.md).
+- [`src/`](src/) contains the client, server, protocol, helper, and test code.
+- [`relay-webapp/`](relay-webapp/) contains the experimental browser relay shell for screen sharing.
+- [`docs/chat-architecture.md`](docs/chat-architecture.md) describes the fork-specific persistent chat direction.
+- [`docs/rich-chat-server.md`](docs/rich-chat-server.md) covers server-side rich chat storage and configuration.
+- [`docs/screen-sharing-architecture.md`](docs/screen-sharing-architecture.md) explains the screen-share architecture.
+- [`docs/screen-sharing-relay-deployment.md`](docs/screen-sharing-relay-deployment.md) covers relay deployment notes.
+- [`docs/dev/build-instructions/README.md`](docs/dev/build-instructions/README.md) is the upstream build documentation.
+- [`docs/windows-builds.md`](docs/windows-builds.md) captures this fork's tracked Windows build notes.
 
 ## Building
 
-For information on how to build Mumble, check out [the dedicated documentation](docs/dev/build-instructions/README.md).
+General Mumble build instructions live in
+[`docs/dev/build-instructions/README.md`](docs/dev/build-instructions/README.md).
+Those docs are version-specific, so make sure you are reading them from the
+branch you intend to build.
 
-Make sure to switch to the appropriate branch in this repository to get the correct build documentation. The current ``master`` branch contains
-the unstable code for a future release of Mumble. If you want to build an already released stable version of Mumble, e.g. ``1.5.735``, select the
-corresponding branch, e.g. ``1.5.x``, in the dropdown menu above. Alternatively, use the documentation in the respective release tarball.
+For this fork, the main CMake switches are still the standard Mumble ones:
 
+```bash
+cmake -S . -B build
+cmake --build build --parallel
+```
 
-## Reporting issues
+Useful optional features in this tree include:
 
-If you want to report a bug or create a feature request, you can open a new issue (after you have checked that there is none already) on
-[GitHub](https://github.com/mumble-voip/mumble/issues/new/choose).
+```bash
+-Dclient=ON
+-Dserver=ON
+-Dscreen-helper=ON
+-Dmodern-layout-webengine=ON
+-Drnnoise=ON
+-Ddtln=ON
+-Ddeepfilternet=ON
+```
 
+Windows-specific notes for the tracked build flow are in
+[`docs/windows-builds.md`](docs/windows-builds.md).
 
-## Code Signing
+## Server Configuration
 
-We graciously acknowledge that this program uses free code signing provided by
-[SignPath.io](https://signpath.io?utm_source=foundation&utm_medium=github&utm_campaign=mumble), and a free code signing certificate by the
+The server configuration template is
+[`auxiliary_files/mumble-server.ini`](auxiliary_files/mumble-server.ini).
+
+Fork-specific settings include:
+
+```ini
+persistentglobalchat=false
+chat_asset_storage_path=chat-assets
+chat_asset_max_bytes=26214400
+chat_asset_total_quota_bytes=2147483648
+
+screen_share_enabled=false
+screen_share_relay_url="wss://relay.example.com/mumble-screen"
+screen_share_max_width=1920
+screen_share_max_height=1080
+screen_share_max_fps=60
+```
+
+Persistent chat media storage is documented in
+[`docs/rich-chat-server.md`](docs/rich-chat-server.md). Screen-share relay
+deployment is documented in
+[`docs/screen-sharing-relay-deployment.md`](docs/screen-sharing-relay-deployment.md).
+
+## Compatibility
+
+Core Mumble voice behavior is intended to remain compatible with ordinary
+Mumble clients and servers wherever possible.
+
+Fork-specific features are capability-gated. A forked client connected to an
+older server should keep voice and basic text chat working, while features such
+as persistent rich chat or screen-share controls may be hidden or disabled.
+Stock Mumble clients are not expected to receive full fork feature parity.
+
+## Contributing
+
+Small, focused pull requests are welcome. Please follow the existing style and
+the upstream [commit guidelines](COMMIT_GUIDELINES.md).
+
+If a change is generally useful to Mumble, consider contributing it upstream to
+[mumble-voip/mumble](https://github.com/mumble-voip/mumble). If a change is
+specific to this community build, open it against this fork.
+
+Useful starting points:
+
+- [Introduction to the Mumble source code](docs/dev/TheMumbleSourceCode.md)
+- [Plugin documentation](docs/dev/plugins/README.md)
+- [Build documentation](docs/dev/build-instructions/README.md)
+- [Fork chat architecture](docs/chat-architecture.md)
+- [Fork screen-share architecture](docs/screen-sharing-architecture.md)
+
+## Reporting Issues
+
+For bugs or feature requests specific to this fork, use this repository's
+[GitHub issues](https://github.com/dankmaster/mumble/issues).
+
+For official Mumble bugs that reproduce in upstream builds, report them to
+[mumble-voip/mumble](https://github.com/mumble-voip/mumble/issues/new/choose).
+
+## License And Credits
+
+This fork keeps Mumble's original license. See [LICENSE](LICENSE).
+
+Mumble is made possible by the Mumble team, upstream contributors, translators,
+plugin authors, packagers, and everyone who has maintained the project over the
+years.
+
+The official project uses free code signing provided by
+[SignPath.io](https://signpath.io?utm_source=foundation&utm_medium=github&utm_campaign=mumble)
+and a free code signing certificate by the
 [SignPath Foundation](https://signpath.org?utm_source=foundation&utm_medium=github&utm_campaign=mumble).
-
-## Windows
-
-### Running Mumble
-
-After installation, you should have a new Mumble folder in your
-Start Menu, from which you can start Mumble.
-
-### Running Mumble-Server
-
-Double-click the icon to start ``mumble-server``. There will be a small icon on your
-taskbar from which you can view the log.
-
-To set the superuser password, run ``mumble-server`` with the parameters `--set-su-pw <password>`.
-
-
-## MacOS
-
-### Running Mumble
-
-To install Mumble, drag the application from the downloaded
-disk image into your `/Applications` folder.
-
-### Running Mumble-Server
-
-``mumble-server`` is distributed separately from the Mumble client on MacOS.
-It is called Static OS X Server and can be downloaded from the main webpage.
-
-Once downloaded it can be run in the same way as on any other Unix-like system.
-For more information please see the "Running mumble-server" in the Linux/Unix section below.
-
-
-## Linux/Unix
-
-### Running Mumble
-
-If you have installed Mumble through your distribution package
-repository, you should be able to find Mumble in your start menu. No
-additional steps are necessary.
-
-### Running Mumble-Server
-
-``mumble-server`` should be run from the command line, so start a shell (command prompt)
-and go to wherever you installed Mumble. Run ``mumble-server`` as
-
-```
-mumble-server [--set-su-pw <password>] [--ini <inifile>] [--foreground] [--verbose]
-
---set-su-pw     Set a new password for the user SuperUser, which is hardcoded to
-                bypass ACLs. Keep this password safe. Until you set a password,
-                the SuperUser is disabled. If you use this option, mumble-server will
-                set the password in the database and then exit.
-
---ini           Use an inifile other than mumble-server.ini, use this to run several instances
-                of mumble-server from the same directory. Make sure each instance is using
-                a separate database.
-
---foreground    Run in the foreground, logging to standard output.
-
---verbose       More verbose logging.
-```
-
-#### Docker image
-
-Our official Docker image along with instructions on how to use it can be found at https://github.com/mumble-voip/mumble-docker
-
-
-### Server configuration
-
-You can find an up-to-date ``mumble-server`` configuration template in [this repository](auxiliary_files/mumble-server.ini).
-Further server configuration documentation can be found [on the project website](https://www.mumble.info/documentation/administration/).
-
-### OpenGL Overlay
-
-The OpenGL overlay works by intercepting the call to switch buffers, and just
-before the buffer switch, we draw our nice GUI.
-
-To load a game with the overlay enabled, start the game like this:
-```bash
-LD_PRELOAD=/path/to/libmumble.so.1.1 gamename
-```
-
-If you have Mumble installed through the binary packages, this can be done by
-simply typing:
-```bash
-mumble-overlay gamename
-```
