@@ -14,6 +14,7 @@ sudo apt -y install \
 	libcli11-dev \
 	libprotobuf-dev \
 	libspdlog-dev \
+	libzeroc-ice-dev \
 	protobuf-compiler \
 	qt6-base-dev \
 	`# Still required for qtbase vcpkg package` \
