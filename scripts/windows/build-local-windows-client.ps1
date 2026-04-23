@@ -696,22 +696,6 @@ function Assert-RemoteEnvironmentArchiveAvailable {
 	throw "The requested build environment archive is not published: $archiveUrl"
 }
 
-function Get-SubstMappings {
-	$mappingTable = @{}
-	$output = & cmd /c subst 2>$null
-	if (-not $output) {
-		return $mappingTable
-	}
-
-	foreach ($line in $output) {
-		if ($line -match '^(?<drive>[A-Z]:)\\: => (?<target>.+)$') {
-			$mappingTable[$Matches.drive.ToUpperInvariant()] = $Matches.target
-		}
-	}
-
-	return $mappingTable
-}
-
 function Get-ShortSharedEnvironmentPath {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -721,26 +705,56 @@ function Get-ShortSharedEnvironmentPath {
 	$resolvedTarget = [System.IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
 	New-Item -ItemType Directory -Force -Path $resolvedTarget | Out-Null
 
-	$mappings = Get-SubstMappings
-	foreach ($entry in $mappings.GetEnumerator()) {
-		if ([System.StringComparer]::OrdinalIgnoreCase.Equals($entry.Value.TrimEnd('\'), $resolvedTarget)) {
-			return "$($entry.Key)\"
-		}
+	# Keep the shared environment on the same drive as the checkout. Some Windows
+	# dependency builds (for example harfbuzz) invoke Python helpers that compute
+	# relative paths and fail when the source tree is seen through a different
+	# drive letter than the generated source root.
+	$driveRoot = [System.IO.Path]::GetPathRoot($resolvedTarget)
+	if ([string]::IsNullOrWhiteSpace($driveRoot)) {
+		return $resolvedTarget
 	}
 
-	foreach ($driveLetter in @('V', 'W', 'X', 'Y', 'Z')) {
-		$driveName = "${driveLetter}:"
-		if ($mappings.ContainsKey($driveName)) {
-			continue
+	$junctionRoot = Join-Path $driveRoot ".mbe"
+	New-Item -ItemType Directory -Force -Path $junctionRoot | Out-Null
+
+	$leafName = Split-Path -Path $resolvedTarget -Leaf
+	$sha256 = [System.Security.Cryptography.SHA256]::Create()
+	try {
+		$hashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($resolvedTarget.ToLowerInvariant()))
+	}
+	finally {
+		$sha256.Dispose()
+	}
+	$hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').Substring(0, 8).ToLowerInvariant()
+	$junctionPath = Join-Path $junctionRoot "$leafName-$hash"
+
+	if (Test-Path -LiteralPath $junctionPath) {
+		$existingItem = Get-Item -LiteralPath $junctionPath -ErrorAction SilentlyContinue
+		$existingTarget = @($existingItem.Target | ForEach-Object {
+			if ([string]::IsNullOrWhiteSpace($_)) {
+				return $null
+			}
+
+			[System.IO.Path]::GetFullPath($_).TrimEnd('\')
+		}) | Select-Object -First 1
+
+		if ($existingItem `
+			-and ($existingItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) `
+			-and $existingItem.LinkType -eq 'Junction' `
+			-and [System.StringComparer]::OrdinalIgnoreCase.Equals($existingTarget, $resolvedTarget)) {
+			return $junctionPath
 		}
 
-		& cmd /c subst $driveName $resolvedTarget | Out-Null
-		if ($LASTEXITCODE -eq 0) {
-			return "$driveName\"
-		}
+		Write-Warning "Shared environment shortcut path '$junctionPath' already exists but is not the expected junction. Continuing with the original path."
+		return $resolvedTarget
 	}
 
-	Write-Warning "Unable to create a short SUBST drive for '$resolvedTarget'. Continuing with the original path."
+	& cmd /d /c "mklink /J `"$junctionPath`" `"$resolvedTarget`"" | Out-Null
+	if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $junctionPath)) {
+		return $junctionPath
+	}
+
+	Write-Warning "Unable to create a short same-drive junction for '$resolvedTarget'. Continuing with the original path."
 	return $resolvedTarget
 }
 
