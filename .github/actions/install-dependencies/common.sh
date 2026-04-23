@@ -307,9 +307,9 @@ ensure_vcpkg_bootstrapped() {
 			exit 1
 		fi
 
-		local env_dir_windows
-		env_dir_windows="$( cygpath -aw "$env_dir" )"
-		cmd.exe //d //c "cd /d \"$env_dir_windows\" && bootstrap-vcpkg.bat -disableMetrics"
+		local bootstrap_script_windows
+		bootstrap_script_windows="$( cygpath -aw "$env_dir/bootstrap-vcpkg.bat" )"
+		powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& \"$bootstrap_script_windows\" -disableMetrics"
 	else
 		if [[ ! -f "$env_dir/bootstrap-vcpkg.sh" ]]; then
 			echo "bootstrap-vcpkg.sh not found in $env_dir" 1>&2

@@ -46,10 +46,9 @@ jobs:
       run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "ubuntu-24.04" "static" "x86_64" "${{ github.workspace }}"
       shell: bash
 
-    - name: Select Linux server components
+    - name: Select Linux build components
       shell: bash
       run: |
-          echo "MUMBLE_BUILD_CLIENT=OFF" >> "$GITHUB_ENV"
           echo "MUMBLE_BUILD_SERVER=ON" >> "$GITHUB_ENV"
 
     - uses: ./.github/actions/install-dependencies

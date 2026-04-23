@@ -156,6 +156,13 @@ esac
 
 if [[ "$run_configure" == "yes" ]]; then
 	echo "::notice title=CI phase::Running CMake configure"
+	configure_log="${RUNNER_TEMP:-/tmp}/mumble-configure.log"
+	normalized_configure_log="${configure_log}.normalized"
+	rm -f "$configure_log"
+	rm -f "$normalized_configure_log"
+
+	trap - ERR
+	set +e
 	cmake -G Ninja \
 		  -S "$GITHUB_WORKSPACE" \
 		  -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
@@ -166,7 +173,41 @@ if [[ "$run_configure" == "yes" ]]; then
 		  -Ddisplay-install-paths=ON \
 		  $ADDITIONAL_CMAKE_OPTIONS \
 		  $component_cmake_options \
-		  $VCPKG_CMAKE_OPTIONS
+		  $VCPKG_CMAKE_OPTIONS 2>&1 | tee "$configure_log"
+	configure_status=${PIPESTATUS[0]}
+	set -e
+	trap 'exit_code=$?; echo "::error file=.github/workflows/build.sh,line=${LINENO},title=CI build failed::Command \"${BASH_COMMAND}\" exited with status ${exit_code}"; exit "${exit_code}"' ERR
+
+	if [[ "$configure_status" -ne 0 ]]; then
+		if [[ -f "$configure_log" ]]; then
+			tr -d '\000' < "$configure_log" | sed $'s/\r$//' > "$normalized_configure_log" || cp "$configure_log" "$normalized_configure_log"
+
+			echo "::group::Configure log tail"
+			tail -n 200 "$normalized_configure_log" || true
+			echo "::endgroup::"
+
+			error_excerpt=$(grep -E 'CMake Error|Could NOT find|not found|No package|fatal error' "$normalized_configure_log" | tail -n 20 || true)
+			if [[ -z "$error_excerpt" ]]; then
+				error_excerpt=$(tail -n 40 "$normalized_configure_log" | sed '/^[[:space:]]*$/d' | tail -n 20 || true)
+			fi
+
+			if [[ -n "$error_excerpt" ]]; then
+				echo "::group::Configure error excerpt"
+				printf '%s\n' "$error_excerpt"
+				echo "::endgroup::"
+
+				while IFS= read -r line; do
+					[[ -z "$line" ]] && continue
+					line=${line//'%'/'%25'}
+					line=${line//$'\r'/'%0D'}
+					line=${line//$'\n'/'%0A'}
+					echo "::error file=.github/workflows/build.sh,title=Configure log excerpt::${line}"
+				done <<< "$error_excerpt"
+			fi
+		fi
+
+		exit "$configure_status"
+	fi
 fi
 
 if [[ "$run_build" == "yes" ]]; then
