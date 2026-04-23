@@ -35,7 +35,8 @@
 	--header-action-size: 24px;
 	--utility-scroll-top-inset: 10px;
 	--utility-rail-inline-padding: 14px;
-	--utility-note-max-height: clamp(96px, 18vh, 168px);
+	--utility-note-max-height: clamp(124px, 22vh, 208px);
+	--utility-note-expanded-max-height: clamp(208px, 42vh, 360px);
 	--room-card-min-height: 136px;
 	--room-list-min-height: 92px;
 	--footer-divider-padding-inline: 14px;
@@ -1505,6 +1506,10 @@ textarea:focus-visible {
 	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.note-card.is-expanded {
+	max-block-size: var(--utility-note-expanded-max-height);
+}
+
 .room-section-stack {
 	display: flex;
 	flex: 1 0 auto;
@@ -1589,11 +1594,19 @@ textarea:focus-visible {
 .note-body {
 	margin-top: 0;
 	color: var(--text-muted);
-	font-size: 11px;
-	line-height: 1.45;
+	font-size: 11.5px;
+	line-height: 1.52;
 	min-height: 0;
 	overflow: auto;
-	padding-right: 6px;
+	overscroll-behavior: contain;
+	scrollbar-gutter: stable;
+	padding-right: 8px;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+}
+
+.note-card.is-expanded .note-body {
+	font-size: 12px;
 }
 
 .note-body > *:first-child {
@@ -1604,6 +1617,97 @@ textarea:focus-visible {
 	margin-bottom: 0 !important;
 }
 
+.note-body > * {
+	max-inline-size: 100%;
+}
+
+.note-body-content {
+	display: block;
+	width: 100%;
+	transform-origin: top center;
+}
+
+.note-card.is-expanded.has-rich-note .note-body-content {
+	zoom: 0.9;
+}
+
+.note-body h1,
+.note-body h2,
+.note-body h3,
+.note-body h4,
+.note-body h5,
+.note-body h6 {
+	margin: 0.2em 0 0.45em;
+	color: var(--text-strong);
+	line-height: 1.14;
+	font-weight: 700;
+}
+
+.note-body h1 {
+	font-size: 1.6em;
+}
+
+.note-body h2 {
+	font-size: 1.38em;
+}
+
+.note-body h3 {
+	font-size: 1.22em;
+}
+
+.note-body h4 {
+	font-size: 1.12em;
+}
+
+.note-body h5 {
+	font-size: 1.04em;
+}
+
+.note-body h6 {
+	font-size: 0.98em;
+}
+
+.note-body p,
+.note-body ul,
+.note-body ol,
+.note-body pre,
+.note-body blockquote,
+.note-body table {
+	margin: 0.45em 0 0.75em;
+}
+
+.note-body ul,
+.note-body ol {
+	padding-left: 1.25em;
+}
+
+.note-body blockquote {
+	margin-left: 0;
+	padding-left: 10px;
+	border-left: 3px solid rgba(255, 255, 255, 0.14);
+	color: var(--text-main);
+}
+
+.note-body pre {
+	padding: 8px 10px;
+	border-radius: 10px;
+	background: rgba(0, 0, 0, 0.18);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.note-body code,
+.note-body pre {
+	font-family: "Cascadia Code", "Cascadia Mono", "Consolas", monospace;
+	font-size: 0.92em;
+}
+
+.note-body hr {
+	margin: 10px 0;
+	border: 0;
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .note-body img,
 .note-body svg,
 .note-body video,
@@ -1612,6 +1716,8 @@ textarea:focus-visible {
 	display: block;
 	max-width: 100%;
 	height: auto;
+	margin-inline: auto;
+	max-height: 184px;
 }
 
 .note-body table {
@@ -1620,8 +1726,22 @@ textarea:focus-visible {
 	overflow-x: auto;
 }
 
+.note-body th,
+.note-body td {
+	padding: 4px 6px;
+	vertical-align: top;
+}
+
 .note-body a {
 	word-break: break-word;
+	color: #8fc9eb;
+	overflow-wrap: anywhere;
+}
+
+@supports not (zoom: 1) {
+	.note-card.is-expanded.has-rich-note .note-body-content {
+		font-size: 0.9em;
+	}
 }
 
 .note-body.is-collapsed {
@@ -2835,7 +2955,11 @@ textarea:focus-visible {
 	}
 
 	.note-card {
-		max-block-size: clamp(104px, 22vh, 180px);
+		max-block-size: clamp(120px, 26vh, 196px);
+	}
+
+	.note-card.is-expanded {
+		max-block-size: clamp(190px, 48vh, 320px);
 	}
 
 	.message-stack {

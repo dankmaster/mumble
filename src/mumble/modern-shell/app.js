@@ -160,7 +160,7 @@
 		const rootHeight = rootLabel ? Math.ceil(rootLabel.getBoundingClientRect().height) : 0;
 		const fallbackRowHeight = compactViewport ? 36 : 40;
 		const rowHeight = row ? Math.max(Math.ceil(row.getBoundingClientRect().height), fallbackRowHeight) : fallbackRowHeight;
-		const targetRows = itemCount > 0 ? Math.min(itemCount, compactViewport ? 2 : 3) : 1;
+		const targetRows = itemCount > 0 ? Math.min(itemCount, (compactViewport || noteExpanded) ? 2 : 3) : 1;
 		const listMinHeight = rootHeight + (rowHeight * Math.max(targetRows, 1)) + 8;
 		const chromeHeight = Math.max(26, Math.ceil(sectionRect.height - listRect.height));
 		return {
@@ -217,15 +217,19 @@
 		const noteCardRect = refs.noteCard.getBoundingClientRect();
 		const noteBodyRect = refs.serverSubtitle.getBoundingClientRect();
 		const noteChromeHeight = Math.max(52, Math.ceil(noteCardRect.height - noteBodyRect.height));
-		const minimumNoteBodyHeight = compactViewport ? 52 : 72;
+		const minimumNoteBodyHeight = noteExpanded ? (compactViewport ? 92 : 124) : (compactViewport ? 52 : 72);
 		const sectionGapBudget = sections.length > 0 ? 10 : 0;
 		const minimumSectionBudget = sections.reduce(function(total, entry) {
 			return total + entry.sectionMinHeight;
 		}, 0);
 		const noteBudget = utilityHeight - minimumSectionBudget - sectionGapBudget;
-		const desiredNoteMaxHeight = compactViewport ? 160 : 220;
+		const desiredNoteMaxHeight = noteExpanded
+			? Math.round(Math.max(compactViewport ? 208 : 260,
+				Math.min(compactViewport ? 272 : 360, utilityHeight * (compactViewport ? 0.44 : 0.5))))
+			: (compactViewport ? 160 : 220);
 		const minimumNoteMaxHeight = noteChromeHeight + minimumNoteBodyHeight;
-		const clampedNoteMaxHeight = Math.max(minimumNoteMaxHeight, Math.min(desiredNoteMaxHeight, noteBudget));
+		const availableNoteBudget = Math.max(minimumNoteMaxHeight, noteBudget);
+		const clampedNoteMaxHeight = Math.max(minimumNoteMaxHeight, Math.min(desiredNoteMaxHeight, availableNoteBudget));
 		const noteBodyMaxHeight = Math.max(minimumNoteBodyHeight, clampedNoteMaxHeight - noteChromeHeight);
 
 		refs.noteCard.style.maxHeight = Math.round(clampedNoteMaxHeight) + "px";
@@ -2445,6 +2449,7 @@
 			lastMotdSignature = "";
 			refs.noteCard.style.maxHeight = "";
 			refs.serverSubtitle.style.maxHeight = "";
+			refs.noteCard.classList.remove("is-expanded", "has-rich-note");
 			refs.noteToggleButton.classList.add("hidden");
 			refs.noteToggleButton.setAttribute("aria-expanded", "false");
 			return;
@@ -2457,17 +2462,20 @@
 
 		const fullText = plainTextFromHtml(motdHtml);
 		const hasSummary = !!motdSummary && motdSummary !== fullText;
+		const hasRichMotdLayout = /<(img|svg|table|h[1-6]|font|center|div|p|span)\b/i.test(motdHtml);
 		const isExpandable = fullText.length > 0;
 		const expanded = noteExpanded;
 
 		refs.serverTitle.textContent = app.serverTitle || "Mumble";
+		refs.noteCard.classList.toggle("is-expanded", expanded);
+		refs.noteCard.classList.toggle("has-rich-note", hasRichMotdLayout);
 		refs.noteToggleButton.classList.toggle("hidden", !isExpandable);
 		refs.noteToggleButton.setAttribute("aria-expanded", expanded ? "true" : "false");
 		refs.noteToggleButton.textContent = expanded ? "Hide" : "Show";
 		refs.noteToggleButton.title = expanded ? "Hide message of the day" : "Show the full message of the day";
 
 		if (expanded) {
-			refs.serverSubtitle.innerHTML = motdHtml;
+			refs.serverSubtitle.innerHTML = "<div class=\"note-body-content\">" + motdHtml + "</div>";
 			refs.serverSubtitle.classList.remove("is-collapsed");
 			refs.serverSubtitle.title = "";
 		} else {
