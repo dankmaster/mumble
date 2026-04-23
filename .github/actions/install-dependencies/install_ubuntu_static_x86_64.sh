@@ -17,7 +17,9 @@ sudo apt -y install \
 	libsm-dev \
 	libspeechd-dev \
 	libavahi-compat-libdnssd-dev \
-	libasound2-dev
+	libasound2-dev \
+	mysql-server \
+	postgresql
 
 verify_required_env_variables_set
 

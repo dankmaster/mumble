@@ -49,7 +49,7 @@ jobs:
                 build_client: ON
                 build_server: ON
               - lane: linux-server
-                os: ubuntu-22.04
+                os: ubuntu-24.04
                 type: static
                 arch: x86_64
                 build_client: OFF
@@ -159,7 +159,7 @@ jobs:
           -RequireSpeechCleanup `
           -ArtifactListPath .\build\windows-binary-artifacts.txt
 
-    - if: ${{ matrix.os == 'ubuntu-22.04' && matrix.type == 'static' }}
+    - if: ${{ startsWith(matrix.os, 'ubuntu') && matrix.type == 'static' }}
       name: Validate Linux Server Binary Set
       shell: bash
       run: |

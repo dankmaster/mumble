@@ -4,7 +4,31 @@
 # Mumble source tree or at <https://www.mumble.info/LICENSE>.
 
 set -e
+set -E
 set -x
+
+trap 'exit_code=$?; echo "::error file=.github/actions/install-dependencies/common.sh,line=${LINENO},title=Dependency install failed::Command \"${BASH_COMMAND}\" exited with status ${exit_code}" 1>&2; exit "${exit_code}"' ERR
+
+get_vcpkg_executable_path() {
+	local env_dir="$1"
+
+	if [[ -z "$env_dir" ]]; then
+		echo "get_vcpkg_executable_path requires an environment directory" 1>&2
+		return 1
+	fi
+
+	if [[ -f "$env_dir/vcpkg.exe" ]]; then
+		echo "$env_dir/vcpkg.exe"
+		return 0
+	fi
+
+	if [[ -f "$env_dir/vcpkg" ]]; then
+		echo "$env_dir/vcpkg"
+		return 0
+	fi
+
+	return 1
+}
 
 verify_required_env_variables_set() {
 	if [[ -z "$MUMBLE_ENVIRONMENT_SOURCE" ]]; then
@@ -35,8 +59,11 @@ verify_required_env_variables_set() {
 
 is_environment_ready() {
 	local env_dir="$1"
+	local vcpkg_executable
 
-	[[ -f "$env_dir/vcpkg.exe" ]] \
+	vcpkg_executable="$( get_vcpkg_executable_path "$env_dir" 2> /dev/null )" || return 1
+
+	[[ -f "$vcpkg_executable" ]] \
 		&& [[ -f "$env_dir/scripts/buildsystems/vcpkg.cmake" ]] \
 		&& [[ -d "$env_dir/installed/$MUMBLE_VCPKG_TRIPLET" ]]
 }
@@ -270,21 +297,31 @@ ensure_build_env_repo_checkout() {
 ensure_vcpkg_bootstrapped() {
 	local env_dir="$MUMBLE_ENVIRONMENT_DIR"
 
-	if [[ -f "$env_dir/vcpkg.exe" ]]; then
+	if get_vcpkg_executable_path "$env_dir" > /dev/null 2>&1; then
 		return
 	fi
 
-	if [[ ! -f "$env_dir/bootstrap-vcpkg.bat" ]]; then
-		echo "bootstrap-vcpkg.bat not found in $env_dir" 1>&2
-		exit 1
+	if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* || -n "${WINDIR:-}" ]]; then
+		if [[ ! -f "$env_dir/bootstrap-vcpkg.bat" ]]; then
+			echo "bootstrap-vcpkg.bat not found in $env_dir" 1>&2
+			exit 1
+		fi
+
+		local env_dir_windows
+		env_dir_windows="$( cygpath -aw "$env_dir" )"
+		cmd.exe //d //c "cd /d \"$env_dir_windows\" && bootstrap-vcpkg.bat -disableMetrics"
+	else
+		if [[ ! -f "$env_dir/bootstrap-vcpkg.sh" ]]; then
+			echo "bootstrap-vcpkg.sh not found in $env_dir" 1>&2
+			exit 1
+		fi
+
+		chmod +x "$env_dir/bootstrap-vcpkg.sh"
+		( cd "$env_dir" && ./bootstrap-vcpkg.sh -disableMetrics )
 	fi
 
-	local env_dir_windows
-	env_dir_windows="$( cygpath -aw "$env_dir" )"
-	cmd.exe //d //c "cd /d \"$env_dir_windows\" && bootstrap-vcpkg.bat -disableMetrics"
-
-	if [[ ! -f "$env_dir/vcpkg.exe" ]]; then
-		echo "vcpkg bootstrap did not produce $env_dir/vcpkg.exe" 1>&2
+	if ! get_vcpkg_executable_path "$env_dir" > /dev/null 2>&1; then
+		echo "vcpkg bootstrap did not produce a vcpkg executable in $env_dir" 1>&2
 		exit 1
 	fi
 }
@@ -453,11 +490,17 @@ report_malformed_qt_package_state() {
 install_mumble_vcpkg_dependencies() {
 	local triplet="$1"
 	local dependency_file="$MUMBLE_ENVIRONMENT_DIR/mumble_dependencies.txt"
+	local vcpkg_executable
 
 	if [[ -z "$triplet" ]]; then
 		echo "install_mumble_vcpkg_dependencies requires a triplet" 1>&2
 		exit 1
 	fi
+
+	vcpkg_executable="$( get_vcpkg_executable_path "$MUMBLE_ENVIRONMENT_DIR" )" || {
+		echo "Unable to find vcpkg executable under $MUMBLE_ENVIRONMENT_DIR" 1>&2
+		exit 1
+	}
 
 	if [[ ! -f "$dependency_file" ]]; then
 		echo "Missing dependency file: $dependency_file" 1>&2
@@ -504,7 +547,7 @@ install_mumble_vcpkg_dependencies() {
 			repair_malformed_qt_package_state "$triplet" || true
 		fi
 
-		if "$MUMBLE_ENVIRONMENT_DIR/vcpkg.exe" "${vcpkg_install_args[@]}" "${dependencies[@]}"; then
+		if "$vcpkg_executable" "${vcpkg_install_args[@]}" "${dependencies[@]}"; then
 			return
 		fi
 

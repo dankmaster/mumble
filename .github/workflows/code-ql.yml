@@ -24,7 +24,7 @@ jobs:
     needs: pre_run
     if: needs.pre_run.outputs.should_skip != 'true'
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     permissions:
       security-events: write
@@ -43,7 +43,7 @@ jobs:
           languages: python, cpp
 
     - name: Set environment variables
-      run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "ubuntu-22.04" "static" "x86_64" "${{ github.workspace }}"
+      run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "ubuntu-24.04" "static" "x86_64" "${{ github.workspace }}"
       shell: bash
 
     - name: Select Linux server components
@@ -55,11 +55,11 @@ jobs:
     - uses: ./.github/actions/install-dependencies
       with:
           type: static
-          os: ubuntu-22.04
+          os: ubuntu-24.04
           arch: x86_64
 
     - name: Build Linux server for CodeQL
-      run: ./.github/workflows/build.sh "ubuntu-22.04" "static" "x86_64"
+      run: ./.github/workflows/build.sh "ubuntu-24.04" "static" "x86_64"
       shell: bash
       env:
           MUMBLE_BUILD_NUMBER: 0

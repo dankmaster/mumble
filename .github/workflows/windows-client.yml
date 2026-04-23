@@ -35,7 +35,7 @@ jobs:
   build-windows-client-shared:
     name: windows-shared-client-installer
     needs: [ fetch_build_number ]
-    runs-on: windows-2025-vs2026
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v6
@@ -52,7 +52,7 @@ jobs:
           echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
 
       - name: Set environment variables
-        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "shared" "x86_64" "${{ github.workspace }}"
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2022" "shared" "x86_64" "${{ github.workspace }}"
         shell: bash
 
       - name: Verify shared environment archive or use local bootstrap fallback

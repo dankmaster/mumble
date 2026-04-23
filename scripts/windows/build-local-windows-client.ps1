@@ -1244,8 +1244,14 @@ try {
 		Write-Host "Windows build artifacts:"
 		$finalArtifacts | ForEach-Object { Write-Host $_.FullName }
 	}
-}
-finally {
+} catch {
+	$message = $_.Exception.Message
+	if ($env:GITHUB_ACTIONS -eq "true") {
+		$escapedMessage = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+		Write-Host "::error file=scripts/windows/build-local-windows-client.ps1,title=Windows build wrapper failed::$escapedMessage"
+	}
+	throw
+} finally {
 	if (Test-Path -LiteralPath $githubEnvFile) {
 		Remove-Item -LiteralPath $githubEnvFile -Force
 	}
