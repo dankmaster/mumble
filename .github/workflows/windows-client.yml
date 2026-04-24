@@ -7,6 +7,10 @@ on:
     branches: '**'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   BUILD_TYPE: Release
   CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
@@ -165,7 +169,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: Mumble-windows-shared-client-installer-${{ needs.fetch_build_number.outputs.build_number }}
-          compression-level: 9
+          compression-level: 0
           path: |
             build-shared-webengine/shared-webengine-stage/**
             build-shared-webengine/windows-screen-share-capabilities.json

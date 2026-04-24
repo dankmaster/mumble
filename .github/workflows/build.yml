@@ -7,6 +7,10 @@ on:
     branches: '**'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
@@ -90,7 +94,8 @@ jobs:
           echo "CMAKE_OPTIONS=${CMAKE_OPTIONS} ${{ matrix.extra_cmake_options }}" >> "$GITHUB_ENV"
         fi
 
-    - uses: actions/cache/restore@v5
+    - id: restore-build-env-cache
+      uses: actions/cache/restore@v5
       with:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
@@ -270,7 +275,7 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         name: 'Mumble-windows-client-server'
-        compression-level: 9
+        compression-level: 0
         path: |
           build/windows-client-payload/**
           build/windows-binary-artifacts.txt
@@ -288,7 +293,7 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         name: 'Mumble-linux-server'
-        compression-level: 9
+        compression-level: 0
         path: |
           build/mumble-server
 
@@ -296,7 +301,7 @@ jobs:
       # to branches and while PRs can access caches from the default branch, they
       # can't access the cache of other PRs. Hence, it is kind of a waste to save
       # the cache on a PR
-    - if: ${{ (matrix.type == 'static' || matrix.type == 'shared') && github.event_name != 'pull_request' }}
+    - if: ${{ (matrix.type == 'static' || matrix.type == 'shared') && github.event_name != 'pull_request' && steps.restore-build-env-cache.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v5
       with:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
