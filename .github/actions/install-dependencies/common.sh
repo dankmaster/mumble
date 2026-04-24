@@ -518,6 +518,46 @@ report_malformed_qt_package_state() {
 	return "$found"
 }
 
+report_qt_build_failure_logs() {
+	local triplet="$1"
+	local found=1
+	local buildtrees_root="$( get_vcpkg_buildtrees_root "$triplet" )"
+
+	for package_name in qtdeclarative qtwebchannel qtwebengine; do
+		local package_root="$buildtrees_root/$package_name"
+		local log_path=""
+		local log_candidates=(
+			"$package_root/error-logs-$triplet.txt"
+			"$package_root/error-logs-$triplet-dbg.txt"
+			"$package_root/config-$triplet-out.log"
+			"$package_root/config-$triplet-dbg-out.log"
+			"$package_root/install-$triplet-out.log"
+			"$package_root/install-$triplet-dbg-out.log"
+			"$package_root/stdout-$triplet.log"
+			"$package_root/stdout-$triplet-dbg.log"
+		)
+
+		for candidate in "${log_candidates[@]}"; do
+			if [[ -f "$candidate" ]]; then
+				log_path="$candidate"
+				break
+			fi
+		done
+
+		if [[ -z "$log_path" || ! -f "$log_path" ]]; then
+			continue
+		fi
+
+		found=0
+		echo "::group::Qt dependency failure excerpt: $package_name"
+		echo "Source log: $log_path"
+		grep -E '(^FAILED:|: error:| fatal error | error C[0-9]+:| fatal error C[0-9]+:|LINK : fatal error LNK[0-9]+:|cl : Command line warning D9025|ninja: build stopped:)' "$log_path" | tail -n 40 || tail -n 80 "$log_path"
+		echo "::endgroup::"
+	done
+
+	return "$found"
+}
+
 install_mumble_vcpkg_dependencies() {
 	local triplet="$1"
 	local dependency_file="$MUMBLE_ENVIRONMENT_DIR/mumble_dependencies.txt"
@@ -569,6 +609,18 @@ install_mumble_vcpkg_dependencies() {
 	local retried_qt_state=0
 	local -a vcpkg_install_args=( install --triplet "$triplet" )
 	if [[ "$triplet" == "x64-windows" ]]; then
+		local effective_vcpkg_max_concurrency="${MUMBLE_VCPKG_MAX_CONCURRENCY:-${VCPKG_MAX_CONCURRENCY:-}}"
+		local effective_cmake_build_parallel_level="${MUMBLE_CMAKE_BUILD_PARALLEL_LEVEL:-${CMAKE_BUILD_PARALLEL_LEVEL:-}}"
+		if [[ -z "$effective_vcpkg_max_concurrency" ]]; then
+			effective_vcpkg_max_concurrency=2
+		fi
+		if [[ -z "$effective_cmake_build_parallel_level" ]]; then
+			effective_cmake_build_parallel_level=2
+		fi
+		export VCPKG_MAX_CONCURRENCY="$effective_vcpkg_max_concurrency"
+		export CMAKE_BUILD_PARALLEL_LEVEL="$effective_cmake_build_parallel_level"
+		echo "Using shared Windows vcpkg bootstrap concurrency: VCPKG_MAX_CONCURRENCY=$VCPKG_MAX_CONCURRENCY, CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL"
+
 		local short_buildtrees_root="$( get_vcpkg_buildtrees_root "$triplet" )"
 		mkdir -p "$short_buildtrees_root"
 		vcpkg_install_args+=( --x-buildtrees-root="$short_buildtrees_root" )
@@ -580,6 +632,10 @@ install_mumble_vcpkg_dependencies() {
 
 		if "$vcpkg_executable" "${vcpkg_install_args[@]}" "${dependencies[@]}"; then
 			return
+		fi
+
+		if [[ "$triplet" == "x64-windows" ]]; then
+			report_qt_build_failure_logs "$triplet" || true
 		fi
 
 		if [[ "$triplet" == "x64-windows" && "$retried_qt_state" -eq 0 ]]; then
