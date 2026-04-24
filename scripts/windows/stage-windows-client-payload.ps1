@@ -21,6 +21,34 @@ function Resolve-ExistingPath {
 	return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Get-CMakeExecutable {
+	$command = Get-Command cmake.exe -ErrorAction SilentlyContinue
+	if (-not $command) {
+		$command = Get-Command cmake -ErrorAction SilentlyContinue
+	}
+
+	if ($command) {
+		return $command.Source
+	}
+
+	$candidates = New-Object System.Collections.Generic.List[string]
+	$candidates.Add((Join-Path ${env:ProgramFiles} "CMake\bin\cmake.exe"))
+
+	foreach ($vsMajorVersion in @("18", "17")) {
+		foreach ($edition in @("Enterprise", "Professional", "Community", "BuildTools")) {
+			$candidates.Add((Join-Path ${env:ProgramFiles} "Microsoft Visual Studio\$vsMajorVersion\$edition\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"))
+		}
+	}
+
+	foreach ($candidate in $candidates) {
+		if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+			return $candidate
+		}
+	}
+
+	throw "Unable to locate cmake.exe. Ensure CMake is installed or available on PATH before staging the Windows client payload."
+}
+
 function Copy-DirectoryContents {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -68,7 +96,10 @@ if (Test-Path -LiteralPath $stageRootPath) {
 
 New-Item -ItemType Directory -Force -Path $stageRootPath | Out-Null
 
-& cmake --install $buildRootPath --config $BuildType --prefix $stageRootPath
+$cmakeExecutable = Get-CMakeExecutable
+Write-Host "Using cmake from '$cmakeExecutable'."
+
+& $cmakeExecutable --install $buildRootPath --config $BuildType --prefix $stageRootPath
 if ($LASTEXITCODE -ne 0) {
 	throw "cmake --install failed while staging the Windows client payload."
 }

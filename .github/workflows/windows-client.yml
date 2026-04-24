@@ -147,17 +147,17 @@ jobs:
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
         run: |
-          $arguments = @(
-            '-BuildNumber', "${{ needs.fetch_build_number.outputs.build_number }}",
-            '-EnvironmentRelease', '2025-11',
-            '-EnvironmentCommit', '127cccc01d',
-            '-SharedWebEngine',
-            '-AdditionalCMakeOptions', @('-Dserver=OFF'),
-            '-EnablePackaging',
-            '-AllowPendingReboot'
-          )
+          $arguments = @{
+            BuildNumber = "${{ needs.fetch_build_number.outputs.build_number }}"
+            EnvironmentRelease = '2025-11'
+            EnvironmentCommit = '127cccc01d'
+            SharedWebEngine = $true
+            AdditionalCMakeOptions = @('-Dserver=OFF')
+            EnablePackaging = $true
+            AllowPendingReboot = $true
+          }
           if ('${{ steps.restore-shared-build-env-cache.outputs.cache-hit }}' -ne 'true') {
-            $arguments += '-InstallDependencies'
+            $arguments.InstallDependencies = $true
           }
           .\scripts\windows\build-local-windows-client.ps1 @arguments
 
