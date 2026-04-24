@@ -7,6 +7,8 @@ param(
 	[switch]$RequireClient,
 	[switch]$RequireServer,
 	[switch]$RequireScreenHelper,
+	[switch]$RequireClientInstaller,
+	[switch]$RequireServerInstaller,
 	[switch]$RequireSpeechCleanup
 )
 
@@ -158,6 +160,35 @@ function Get-ArtifactPaths {
 		ForEach-Object { $_.FullName }
 }
 
+function Assert-InstallerPattern {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$Label,
+
+		[Parameter(Mandatory = $true)]
+		[string]$Root,
+
+		[Parameter(Mandatory = $true)]
+		[string]$Pattern,
+
+		[Parameter(Mandatory = $true)]
+		[string]$Description
+	)
+
+	$matches = @(Get-ChildItem -Path $Root -Recurse -File -Filter $Pattern -ErrorAction SilentlyContinue |
+		Sort-Object -Property FullName)
+	if ($matches.Count -eq 0) {
+		throw "$Label is missing required Windows installer output: $Description ($Pattern)."
+	}
+
+	Write-Host "$Label installer output verified ($Description):"
+	foreach ($match in $matches) {
+		Write-Host "  $($match.FullName)"
+	}
+
+	return $matches.FullName
+}
+
 $buildRootPath = Resolve-ExistingPath -Path $BuildRoot
 $allArtifacts = New-Object System.Collections.Generic.List[string]
 $requiredBinaryNames = Get-RequiredBinaryNames
@@ -172,6 +203,24 @@ if ($RequireSpeechCleanup) {
 
 foreach ($artifactPath in Get-ArtifactPaths -Root $buildRootPath) {
 	$allArtifacts.Add($artifactPath)
+}
+
+if ($RequireClientInstaller) {
+	foreach ($artifactPath in Assert-InstallerPattern -Label "Build root '$buildRootPath'" -Root $buildRootPath -Pattern "*_client-*.exe" -Description "client installer bootstrapper") {
+		$allArtifacts.Add($artifactPath)
+	}
+	foreach ($artifactPath in Assert-InstallerPattern -Label "Build root '$buildRootPath'" -Root $buildRootPath -Pattern "*client*.msi" -Description "client installer MSI") {
+		$allArtifacts.Add($artifactPath)
+	}
+}
+
+if ($RequireServerInstaller) {
+	foreach ($artifactPath in Assert-InstallerPattern -Label "Build root '$buildRootPath'" -Root $buildRootPath -Pattern "*_server-*.exe" -Description "server installer bootstrapper") {
+		$allArtifacts.Add($artifactPath)
+	}
+	foreach ($artifactPath in Assert-InstallerPattern -Label "Build root '$buildRootPath'" -Root $buildRootPath -Pattern "*server*.msi" -Description "server installer MSI") {
+		$allArtifacts.Add($artifactPath)
+	}
 }
 
 if ($RequireStage) {

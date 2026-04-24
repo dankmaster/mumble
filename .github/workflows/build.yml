@@ -48,6 +48,8 @@ jobs:
                 arch: x86_64
                 build_client: ON
                 build_server: ON
+                enable_packaging: ON
+                enable_overlay_xcompile: ON
                 run_tests: OFF
                 extra_cmake_options: "-Dtests=OFF"
               - lane: linux-server
@@ -56,6 +58,8 @@ jobs:
                 arch: x86_64
                 build_client: OFF
                 build_server: ON
+                enable_packaging: OFF
+                enable_overlay_xcompile: OFF
                 run_tests: OFF
                 extra_cmake_options: "-Dtests=OFF"
             
@@ -80,6 +84,8 @@ jobs:
         set -euxo pipefail
         echo "MUMBLE_BUILD_CLIENT=${{ matrix.build_client }}" >> "$GITHUB_ENV"
         echo "MUMBLE_BUILD_SERVER=${{ matrix.build_server }}" >> "$GITHUB_ENV"
+        echo "MUMBLE_ENABLE_WINDOWS_PACKAGING=${{ matrix.enable_packaging }}" >> "$GITHUB_ENV"
+        echo "MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE=${{ matrix.enable_overlay_xcompile }}" >> "$GITHUB_ENV"
         if [[ -n "${{ matrix.extra_cmake_options }}" ]]; then
           echo "CMAKE_OPTIONS=${CMAKE_OPTIONS} ${{ matrix.extra_cmake_options }}" >> "$GITHUB_ENV"
         fi
@@ -224,6 +230,16 @@ jobs:
           -RequireSpeechCleanup `
           -ArtifactListPath .\build\windows-binary-artifacts.txt
 
+    - if: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
+      name: Validate Windows Installers
+      shell: powershell
+      run: |
+        .\scripts\windows\assert-windows-build-artifacts.ps1 `
+          -BuildRoot .\build `
+          -RequireClientInstaller `
+          -RequireServerInstaller `
+          -ArtifactListPath .\build\windows-installer-artifacts.txt
+
     - if: ${{ startsWith(matrix.os, 'ubuntu') && matrix.type == 'static' }}
       name: Validate Linux Server Binary Set
       shell: bash
@@ -245,14 +261,29 @@ jobs:
         name: 'Mumble-windows-client-server'
         compression-level: 9
         path: |
-          build/mumble
-          build/mumble-server
+          build/mumble.exe
+          build/mumble-server.exe
+          build/mumble-screen-helper.exe
+          build/mumble-g15-helper.exe
+          build/mumble_ol*.dll
+          build/mumble_ol_helper*.exe
           build/windows-binary-artifacts.txt
+          build/windows-installer-artifacts.txt
           build/windows-screen-share-capabilities.json
           build/windows-screen-share-helper.log
           build/windows-screen-share-self-test.json
+          build/speexdsp.dll
+          build/rnnoise.dll
+          build/deepfilter.dll
+          build/onnxruntime.dll
+          build/licenses/**
+          build/plugins/**
+          build/dtln/**
+          build/rnnoise/**
+          build/deepfilternet/**
           build/**/mumble*.msi
           build/**/mumble*.exe
+          build/**/mumble*.dll
 
     - if: ${{ github.event_name != 'pull_request' && startsWith(matrix.os, 'ubuntu') }}
       name: Publish Linux Server Artifacts
