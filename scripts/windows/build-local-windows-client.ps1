@@ -684,7 +684,9 @@ function Assert-RemoteEnvironmentArchiveAvailable {
 	}
 
 	$archiveUrl = "$EnvironmentSource/$EnvironmentVersion.7z"
-	if (Test-RemoteEnvironmentArchiveExists -ArchiveUrl $archiveUrl) {
+	$splitArchiveUrl = "$archiveUrl.001"
+	if ((Test-RemoteEnvironmentArchiveExists -ArchiveUrl $archiveUrl) -or
+		(Test-RemoteEnvironmentArchiveExists -ArchiveUrl $splitArchiveUrl)) {
 		return
 	}
 

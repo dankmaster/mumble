@@ -259,8 +259,10 @@ make_build_env_available() {
 
 		local env_archive="$MUMBLE_ENVIRONMENT_VERSION.$env_file_extension"
 		local env_archive_url="$MUMBLE_ENVIRONMENT_SOURCE/$env_archive"
+		local split_archive_first_part="$env_archive.001"
+		local split_archive_first_part_url="$env_archive_url.001"
 
-		if command -v curl > /dev/null 2>&1 && curl -I -f -L "$env_archive_url" > /dev/null 2>&1; then
+		if remote_file_exists "$env_archive_url"; then
 			download_file "$env_archive_url" "$env_archive"
 
 			echo "Extracting archive..."
@@ -269,6 +271,28 @@ make_build_env_available() {
 			fi
 
 			extract_with_progress "$env_archive" "$env_dir"
+		elif remote_file_exists "$split_archive_first_part_url"; then
+			local part_index=1
+			while true; do
+				local part_suffix
+				part_suffix="$( printf '.%03d' "$part_index" )"
+				local part_file="${env_archive}${part_suffix}"
+				local part_url="${env_archive_url}${part_suffix}"
+
+				if ! remote_file_exists "$part_url"; then
+					break
+				fi
+
+				download_file "$part_url" "$part_file"
+				part_index=$(( part_index + 1 ))
+			done
+
+			echo "Extracting split archive..."
+			if [[ ! -d "$env_dir" ]]; then
+				mkdir -p "$env_dir"
+			fi
+
+			extract_with_progress "$split_archive_first_part" "$env_dir"
 		elif [[ "${MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP:-}" = "ON" ]]; then
 			echo "Environment archive is missing; falling back to local bootstrap."
 			ensure_build_env_repo_checkout
@@ -489,7 +513,6 @@ repair_malformed_qt_package_state() {
 
 report_malformed_qt_package_state() {
 	local triplet="$1"
-	local found=1
 
 	for package_name in qtdeclarative qtwebchannel qtwebengine; do
 		if qt_source_dir_missing_cmakelists "$package_name" "$triplet"; then
@@ -511,16 +534,14 @@ report_malformed_qt_package_state() {
 			if [[ -n "$log_path" ]]; then
 				echo "Relevant log: $log_path" 1>&2
 			fi
-			found=0
 		fi
 	done
 
-	return "$found"
+	return 0
 }
 
 report_qt_build_failure_logs() {
 	local triplet="$1"
-	local found=1
 	local buildtrees_root="$( get_vcpkg_buildtrees_root "$triplet" )"
 
 	for package_name in qtdeclarative qtwebchannel qtwebengine; do
@@ -548,14 +569,13 @@ report_qt_build_failure_logs() {
 			continue
 		fi
 
-		found=0
 		echo "::group::Qt dependency failure excerpt: $package_name"
 		echo "Source log: $log_path"
 		grep -E '(^FAILED:|: error:| fatal error | error C[0-9]+:| fatal error C[0-9]+:|LINK : fatal error LNK[0-9]+:|cl : Command line warning D9025|ninja: build stopped:)' "$log_path" | tail -n 40 || tail -n 80 "$log_path"
 		echo "::endgroup::"
 	done
 
-	return "$found"
+	return 0
 }
 
 install_mumble_vcpkg_dependencies() {

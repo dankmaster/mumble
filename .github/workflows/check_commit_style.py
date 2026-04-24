@@ -17,6 +17,24 @@ def cmd(args):
         raise Exception('cmd(): {0} failed with status {1}: {2}'.format(args, p.returncode, stderr))
     return stdout.decode('utf-8')
 
+def get_base_ref(targetBranch):
+    try:
+        cmd(["git", "fetch", "--no-recurse-submodules", "origin", targetBranch])
+        print("Using base ref from origin/{}".format(targetBranch))
+        return "FETCH_HEAD", False
+    except Exception:
+        remoteName = "mumble-upstream"
+        remoteAdded = False
+
+        remoteNames = [x for x in cmd(["git", "remote"]).split("\n") if x]
+        if remoteName not in remoteNames:
+            cmd(["git", "remote", "add", remoteName, "https://github.com/mumble-voip/mumble.git"])
+            remoteAdded = True
+
+        cmd(["git", "fetch", "--no-recurse-submodules", remoteName, targetBranch])
+        print("Using base ref from {}/{}".format(remoteName, targetBranch))
+        return "FETCH_HEAD", remoteAdded
+
 
 def main():
     targetBranch = ""
@@ -27,16 +45,12 @@ def main():
 
     print("Checking commit styles - target branch: \"{}\"".format(targetBranch))
 
+    remoteAdded = False
     try:
-        # Set up remote 
-        remoteName = "mumble-upstream"
-        cmd(["git", "remote", "add", remoteName, "https://github.com/mumble-voip/mumble.git"])
-
-        # Fetch remote
-        cmd(["git", "fetch", "--no-recurse-submodules", remoteName])
+        baseRef, remoteAdded = get_base_ref(targetBranch)
 
         # get new commits
-        commitHashes = [x for x in cmd(["git", "rev-list", "{}/{}..HEAD".format(remoteName, targetBranch)]).split("\n") if x]
+        commitHashes = [x for x in cmd(["git", "rev-list", "{}..HEAD".format(baseRef)]).split("\n") if x]
         # Reverse the order of the commits so that oldest comes first
         commitHashes.reverse()
 
@@ -67,8 +81,8 @@ def main():
             sys.exit(1)
 
     finally:
-        # remove remote again
-        cmd(["git", "remote", "remove", remoteName])
+        if remoteAdded:
+            cmd(["git", "remote", "remove", "mumble-upstream"])
 
 if __name__ == "__main__":
     main()

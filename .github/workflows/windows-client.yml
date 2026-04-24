@@ -18,6 +18,7 @@ env:
   CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
   MUMBLE_ENABLE_WINDOWS_PACKAGING: ON
   MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE: ON
+  MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG: build-env-2025-11
 
 jobs:
   fetch_build_number:
@@ -55,7 +56,7 @@ jobs:
       - name: Pin shared environment and enable bootstrap fallback
         shell: bash
         run: |
-          echo "MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE=https://github.com/mumble-voip/vcpkg/releases/download/2025-11" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE=https://github.com/${{ github.repository }}/releases/download/${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG}" >> "$GITHUB_ENV"
           echo "MUMBLE_ENVIRONMENT_COMMIT_OVERRIDE=127cccc01d" >> "$GITHUB_ENV"
           echo "MUMBLE_ENVIRONMENT_DIR_OVERRIDE=$GITHUB_WORKSPACE/build_env/2025-11-127cccc01d-shared" >> "$GITHUB_ENV"
           echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
@@ -81,7 +82,8 @@ jobs:
         run: |
           set -euxo pipefail
           archive_url="${MUMBLE_ENVIRONMENT_SOURCE}/${MUMBLE_ENVIRONMENT_VERSION}.7z"
-          if ! curl -I -f -L "$archive_url" > /dev/null; then
+          split_archive_url="${archive_url}.001"
+          if ! curl -I -f -L "$archive_url" > /dev/null && ! curl -I -f -L "$split_archive_url" > /dev/null; then
             echo "::notice title=Missing shared build environment::The shared Windows vcpkg environment archive is not published: $archive_url"
             echo "::notice title=Shared bootstrap fallback::Falling back to local vcpkg bootstrap for the shared Windows environment."
           fi
