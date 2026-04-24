@@ -219,11 +219,22 @@ jobs:
         PY
 
     - if: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
+      name: Stage Windows Client Payload
+      shell: powershell
+      run: |
+        .\scripts\windows\stage-windows-client-payload.ps1 `
+          -BuildRoot .\build `
+          -BuildType $env:BUILD_TYPE `
+          -StageRoot .\build\windows-client-payload
+
+    - if: ${{ startsWith(matrix.os, 'windows') && matrix.type == 'static' }}
       name: Validate Windows Client/Server Binary Set
       shell: powershell
       run: |
         .\scripts\windows\assert-windows-build-artifacts.ps1 `
           -BuildRoot .\build `
+          -StageRoot .\build\windows-client-payload `
+          -RequireStage `
           -RequireClient `
           -RequireServer `
           -RequireScreenHelper `
@@ -261,29 +272,16 @@ jobs:
         name: 'Mumble-windows-client-server'
         compression-level: 9
         path: |
-          build/mumble.exe
-          build/mumble-server.exe
-          build/mumble-screen-helper.exe
-          build/mumble-g15-helper.exe
-          build/mumble_ol*.dll
-          build/mumble_ol_helper*.exe
+          build/windows-client-payload/**
           build/windows-binary-artifacts.txt
           build/windows-installer-artifacts.txt
           build/windows-screen-share-capabilities.json
           build/windows-screen-share-helper.log
           build/windows-screen-share-self-test.json
-          build/speexdsp.dll
-          build/rnnoise.dll
-          build/deepfilter.dll
-          build/onnxruntime.dll
-          build/licenses/**
-          build/plugins/**
-          build/dtln/**
-          build/rnnoise/**
-          build/deepfilternet/**
-          build/**/mumble*.msi
-          build/**/mumble*.exe
-          build/**/mumble*.dll
+          build/installer/client/*client*.msi
+          build/installer/server/*server*.msi
+          build/installer/client/*_client-*.exe
+          build/installer/server/*_server-*.exe
 
     - if: ${{ github.event_name != 'pull_request' && startsWith(matrix.os, 'ubuntu') }}
       name: Publish Linux Server Artifacts
