@@ -2,9 +2,11 @@ name: Windows Shared Client Installer
 
 on:
   push:
-    branches: '**'
+    branches:
+      - master
   pull_request:
-    branches: '**'
+    branches:
+      - master
   workflow_dispatch:
 
 concurrency:
@@ -62,6 +64,18 @@ jobs:
         run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2022" "shared" "x86_64" "${{ github.workspace }}"
         shell: bash
 
+      - id: restore-shared-build-env-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - id: restore-shared-onnxruntime-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/onnxruntime/win-x64-1.18.1
+          key: onnxruntime-${{ runner.os }}-x64-1.18.1
+
       - name: Verify shared environment archive or use local bootstrap fallback
         shell: bash
         run: |
@@ -88,14 +102,17 @@ jobs:
         shell: powershell
         run: |
           $version = "1.18.1"
+          $cacheRoot = Join-Path $env:GITHUB_WORKSPACE ".cache\onnxruntime\win-x64-$version"
           $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-win-x64-$version.zip"
-          $extractRoot = Join-Path $env:RUNNER_TEMP "onnxruntime"
-          $onnxRoot = Join-Path $extractRoot "onnxruntime-win-x64-$version"
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
-          if (Test-Path -LiteralPath $extractRoot) {
-            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          $onnxRoot = Join-Path $cacheRoot "onnxruntime-win-x64-$version"
+          if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
+            if (Test-Path -LiteralPath $cacheRoot) {
+              Remove-Item -LiteralPath $cacheRoot -Recurse -Force
+            }
+            New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+            Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+            Expand-Archive -LiteralPath $archive -DestinationPath $cacheRoot -Force
           }
-          Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
           if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
             throw "Expanded ONNX Runtime archive is missing its include directory"
           }
@@ -130,15 +147,19 @@ jobs:
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
         run: |
-          .\scripts\windows\build-local-windows-client.ps1 `
-            -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
-            -EnvironmentRelease "2025-11" `
-            -EnvironmentCommit "127cccc01d" `
-            -SharedWebEngine `
-            -InstallDependencies `
-            -AdditionalCMakeOptions @('-Dserver=OFF') `
-            -EnablePackaging `
-            -AllowPendingReboot
+          $arguments = @(
+            '-BuildNumber', "${{ needs.fetch_build_number.outputs.build_number }}",
+            '-EnvironmentRelease', '2025-11',
+            '-EnvironmentCommit', '127cccc01d',
+            '-SharedWebEngine',
+            '-AdditionalCMakeOptions', @('-Dserver=OFF'),
+            '-EnablePackaging',
+            '-AllowPendingReboot'
+          )
+          if ('${{ steps.restore-shared-build-env-cache.outputs.cache-hit }}' -ne 'true') {
+            $arguments += '-InstallDependencies'
+          }
+          .\scripts\windows\build-local-windows-client.ps1 @arguments
 
       - name: Validate shared Windows client binaries
         shell: powershell
@@ -179,3 +200,15 @@ jobs:
             build-shared-webengine/windows-client-artifacts.txt
             build-shared-webengine/**/mumble*.msi
             build-shared-webengine/**/mumble*.exe
+
+      - if: ${{ github.event_name != 'pull_request' && steps.restore-shared-build-env-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - if: ${{ github.event_name != 'pull_request' && steps.restore-shared-onnxruntime-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/onnxruntime/win-x64-1.18.1
+          key: onnxruntime-${{ runner.os }}-x64-1.18.1

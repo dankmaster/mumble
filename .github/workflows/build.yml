@@ -119,19 +119,29 @@ jobs:
         "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
         & "$env:USERPROFILE\.cargo\bin\cargo.exe" --version
 
+    - if: ${{ startsWith(matrix.os, 'windows') }}
+      id: restore-onnxruntime-cache
+      uses: actions/cache/restore@v5
+      with:
+          path: .cache/onnxruntime/win-x64-1.18.1
+          key: onnxruntime-${{ runner.os }}-x64-1.18.1
+
     - name: Download ONNX Runtime for DTLN
       if: ${{ startsWith(matrix.os, 'windows') }}
       shell: powershell
       run: |
         $version = "1.18.1"
+        $cacheRoot = Join-Path $env:GITHUB_WORKSPACE ".cache\onnxruntime\win-x64-$version"
         $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-win-x64-$version.zip"
-        $extractRoot = Join-Path $env:RUNNER_TEMP "onnxruntime"
-        $onnxRoot = Join-Path $extractRoot "onnxruntime-win-x64-$version"
-        Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
-        if (Test-Path -LiteralPath $extractRoot) {
-          Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        $onnxRoot = Join-Path $cacheRoot "onnxruntime-win-x64-$version"
+        if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
+          if (Test-Path -LiteralPath $cacheRoot) {
+            Remove-Item -LiteralPath $cacheRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $cacheRoot -Force
         }
-        Expand-Archive -LiteralPath $archive -DestinationPath $extractRoot -Force
         if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
           throw "Expanded ONNX Runtime archive is missing its include directory"
         }
@@ -306,3 +316,9 @@ jobs:
       with:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+    - if: ${{ startsWith(matrix.os, 'windows') && github.event_name != 'pull_request' && steps.restore-onnxruntime-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+          path: .cache/onnxruntime/win-x64-1.18.1
+          key: onnxruntime-${{ runner.os }}-x64-1.18.1
