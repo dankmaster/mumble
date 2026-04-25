@@ -15,6 +15,9 @@ env:
   CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
   FRIEND_RELEASE_TAG: friend-build
   FRIEND_RELEASE_TITLE: Mumble Friend Build
+  MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE: 2025-11
+  MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG: build-env-2025-11
+  MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT: 127cccc01d
   ONNXRUNTIME_VERSION: 1.18.1
   PROTECTED_BUILD_ENV_RELEASE_TAG: build-env-2025-11
 
@@ -22,7 +25,7 @@ jobs:
   build-and-publish-msi:
     name: build-and-publish-msi
     if: ${{ github.ref == 'refs/heads/master' }}
-    runs-on: windows-2025-vs2026
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v6
@@ -33,30 +36,34 @@ jobs:
         shell: bash
         run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
 
+      - name: Pin shared environment and enable bootstrap fallback
+        shell: bash
+        run: |
+          echo "MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE=https://github.com/${{ github.repository }}/releases/download/${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG}" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_COMMIT_OVERRIDE=${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT}" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_DIR_OVERRIDE=$GITHUB_WORKSPACE/build_env/${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE}-${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT}-shared" >> "$GITHUB_ENV"
+          echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
+
       - name: Set environment variables
         shell: bash
-        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "static" "x86_64" "${{ github.workspace }}"
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2022" "shared" "x86_64" "${{ github.workspace }}"
 
-      - name: Select friend MSI build components
+      - name: Verify shared environment archive or use local bootstrap fallback
         shell: bash
         run: |
           set -euxo pipefail
-          echo "MUMBLE_BUILD_CLIENT=ON" >> "$GITHUB_ENV"
-          echo "MUMBLE_BUILD_SERVER=OFF" >> "$GITHUB_ENV"
-          echo "MUMBLE_ENABLE_WINDOWS_PACKAGING=ON" >> "$GITHUB_ENV"
-          echo "MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE=ON" >> "$GITHUB_ENV"
+          archive_url="${MUMBLE_ENVIRONMENT_SOURCE}/${MUMBLE_ENVIRONMENT_VERSION}.7z"
+          split_archive_url="${archive_url}.001"
+          if ! curl -I -f -L "$archive_url" > /dev/null && ! curl -I -f -L "$split_archive_url" > /dev/null; then
+            echo "::notice title=Missing shared build environment::The shared Windows vcpkg environment archive is not published: $archive_url"
+            echo "::notice title=Shared bootstrap fallback::Falling back to local vcpkg bootstrap for the shared Windows environment."
+          fi
 
-      - id: restore-build-env-cache
+      - id: restore-shared-build-env-cache
         uses: actions/cache/restore@v5
         with:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
-
-      - uses: ./.github/actions/install-dependencies
-        with:
-          type: static
-          os: windows-2025-vs2026
-          arch: x86_64
 
       - id: setup-windows-optional-runtimes
         uses: ./.github/actions/setup-windows-optional-runtimes
@@ -65,36 +72,78 @@ jobs:
           install-rust: 'true'
           install-ffmpeg: 'false'
 
+      - name: Install Windows installer tooling
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Join-Path $env:RUNNER_TEMP "WixSharp.7z"
+          $installRoot = "C:\WixSharp"
+          Invoke-WebRequest `
+            -Uri "https://github.com/oleg-shilo/wixsharp/releases/download/v1.19.0.0/WixSharp.1.19.0.0.7z" `
+            -OutFile $archive
+          if (Test-Path -LiteralPath $installRoot) {
+            Remove-Item -LiteralPath $installRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+          tar -xf $archive -C $installRoot
+
+          $wixBin = Join-Path $installRoot "Wix_bin\bin"
+          if (-not (Test-Path -LiteralPath (Join-Path $installRoot "cscs.exe"))) {
+            throw "WixSharp cscs.exe was not extracted under '$installRoot'."
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $wixBin "candle.exe")) -or `
+              -not (Test-Path -LiteralPath (Join-Path $wixBin "light.exe"))) {
+            throw "WiX candle.exe/light.exe were not extracted under '$wixBin'."
+          }
+
+          $installRoot >> $env:GITHUB_PATH
+          $wixBin >> $env:GITHUB_PATH
+          "WIXSHARP_WIXDIR=$wixBin" >> $env:GITHUB_ENV
+
       - name: Build Windows client MSI
-        shell: bash
-        run: ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
-        env:
-          MUMBLE_BUILD_NUMBER: 0
+        shell: powershell
+        run: |
+          $arguments = @{
+            BuildNumber = "0"
+            EnvironmentRelease = "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE }}"
+            EnvironmentCommit = "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT }}"
+            SharedWebEngine = $true
+            AdditionalCMakeOptions = @('-Dserver=OFF')
+            EnablePackaging = $true
+            UseBundledCli11 = $true
+            AllowPendingReboot = $true
+          }
+          if ('${{ steps.restore-shared-build-env-cache.outputs.cache-hit }}' -ne 'true') {
+            $arguments.InstallDependencies = $true
+          }
+          .\scripts\windows\build-local-windows-client.ps1 @arguments
 
       - name: Validate friend MSI artifacts
         shell: powershell
         run: |
           .\scripts\windows\assert-windows-build-artifacts.ps1 `
-            -BuildRoot .\build `
+            -BuildRoot .\build-shared-webengine `
+            -StageRoot .\build-shared-webengine\shared-webengine-stage `
+            -RequireStage `
             -RequireClient `
             -RequireScreenHelper `
             -RequireSpeechCleanup `
             -RequireClientInstaller `
-            -ArtifactListPath .\build\friend-msi-artifacts.txt
+            -ArtifactListPath .\build-shared-webengine\friend-msi-artifacts.txt
 
       - name: Prepare release assets
         id: prepare-assets
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $releaseDir = Join-Path $PWD "build\friend-release"
+          $releaseDir = Join-Path $PWD "build-shared-webengine\friend-release"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-          $clientMsi = Get-ChildItem -Path ".\build\installer\client" -Recurse -File -Filter "*client*.msi" |
+          $clientMsi = Get-ChildItem -Path ".\build-shared-webengine" -Recurse -File -Filter "*client*.msi" |
             Sort-Object -Property LastWriteTimeUtc -Descending |
             Select-Object -First 1
           if (-not $clientMsi) {
-            throw "Unable to locate a client MSI under build\installer\client."
+            throw "Unable to locate a shared client MSI under build-shared-webengine."
           }
 
           $assetPath = Join-Path $releaseDir "Mumble-Friend-Build.msi"
@@ -109,7 +158,7 @@ jobs:
           Set-Content -LiteralPath $notesPath -Value @"
           # Mumble Friend Build
 
-          This is the latest unsigned MSI build for trusted friend testing.
+          This is the latest unsigned shared/WebEngine MSI build for trusted friend testing.
 
           - Commit: ${{ github.sha }}
           - Branch/ref: ${{ github.ref_name }}
@@ -174,12 +223,12 @@ jobs:
           name: Mumble-friend-msi
           compression-level: 0
           path: |
-            build/friend-release/Mumble-Friend-Build.msi
-            build/friend-release/Mumble-Friend-Build.msi.sha256
-            build/friend-release/release-notes.md
-            build/friend-msi-artifacts.txt
+            build-shared-webengine/friend-release/Mumble-Friend-Build.msi
+            build-shared-webengine/friend-release/Mumble-Friend-Build.msi.sha256
+            build-shared-webengine/friend-release/release-notes.md
+            build-shared-webengine/friend-msi-artifacts.txt
 
-      - if: ${{ steps.restore-build-env-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ steps.restore-shared-build-env-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v5
         with:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
