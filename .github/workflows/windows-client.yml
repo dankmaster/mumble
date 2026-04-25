@@ -149,12 +149,17 @@ jobs:
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
         run: |
+          $additionalCMakeOptions = @('-Dserver=OFF')
+          if ('${{ github.event_name }}' -eq 'pull_request') {
+            $additionalCMakeOptions += '-Dlto=OFF'
+          }
+
           $arguments = @{
             BuildNumber = "${{ needs.fetch_build_number.outputs.build_number }}"
             EnvironmentRelease = '2025-11'
             EnvironmentCommit = '127cccc01d'
             SharedWebEngine = $true
-            AdditionalCMakeOptions = @('-Dserver=OFF')
+            AdditionalCMakeOptions = $additionalCMakeOptions
             EnablePackaging = $true
             UseBundledCli11 = $true
             AllowPendingReboot = $true
