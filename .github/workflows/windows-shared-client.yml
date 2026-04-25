@@ -9,6 +9,9 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,10 +21,14 @@ env:
   CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
   MUMBLE_ENABLE_WINDOWS_PACKAGING: ON
   MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE: ON
+  MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE: 2025-11
   MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG: build-env-2025-11
+  MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT: 127cccc01d
+  ONNXRUNTIME_VERSION: 1.18.1
 
 jobs:
   fetch_build_number:
+    name: fetch-build-number
     runs-on: ubuntu-latest
     outputs:
       build_number: ${{ steps.fetch.outputs.build_number }}
@@ -57,8 +64,8 @@ jobs:
         shell: bash
         run: |
           echo "MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE=https://github.com/${{ github.repository }}/releases/download/${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG}" >> "$GITHUB_ENV"
-          echo "MUMBLE_ENVIRONMENT_COMMIT_OVERRIDE=127cccc01d" >> "$GITHUB_ENV"
-          echo "MUMBLE_ENVIRONMENT_DIR_OVERRIDE=$GITHUB_WORKSPACE/build_env/2025-11-127cccc01d-shared" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_COMMIT_OVERRIDE=${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT}" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENVIRONMENT_DIR_OVERRIDE=$GITHUB_WORKSPACE/build_env/${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE}-${MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT}-shared" >> "$GITHUB_ENV"
           echo "MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP=ON" >> "$GITHUB_ENV"
 
       - name: Set environment variables
@@ -71,12 +78,6 @@ jobs:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
 
-      - id: restore-shared-onnxruntime-cache
-        uses: actions/cache/restore@v5
-        with:
-          path: .cache/onnxruntime/win-x64-1.18.1
-          key: onnxruntime-${{ runner.os }}-x64-1.18.1
-
       - name: Verify shared environment archive or use local bootstrap fallback
         shell: bash
         run: |
@@ -88,63 +89,12 @@ jobs:
             echo "::notice title=Shared bootstrap fallback::Falling back to local vcpkg bootstrap for the shared Windows environment."
           fi
 
-      - name: Install Rust toolchain for DeepFilterNet
-        shell: powershell
-        run: |
-          $rustupInit = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
-          Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustupInit
-          & $rustupInit -y --profile minimal --default-toolchain stable
-          if ($LASTEXITCODE -ne 0) {
-            throw "rustup-init failed"
-          }
-          "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & "$env:USERPROFILE\.cargo\bin\cargo.exe" --version
-
-      - name: Download ONNX Runtime for DTLN
-        shell: powershell
-        run: |
-          $version = "1.18.1"
-          $cacheRoot = Join-Path $env:GITHUB_WORKSPACE ".cache\onnxruntime\win-x64-$version"
-          $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-win-x64-$version.zip"
-          $onnxRoot = Join-Path $cacheRoot "onnxruntime-win-x64-$version"
-          if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
-            if (Test-Path -LiteralPath $cacheRoot) {
-              Remove-Item -LiteralPath $cacheRoot -Recurse -Force
-            }
-            New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
-            Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-win-x64-$version.zip" -OutFile $archive
-            Expand-Archive -LiteralPath $archive -DestinationPath $cacheRoot -Force
-          }
-          if (-not (Test-Path -LiteralPath (Join-Path $onnxRoot "include"))) {
-            throw "Expanded ONNX Runtime archive is missing its include directory"
-          }
-          "ONNXRUNTIME_ROOT=$onnxRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install ffmpeg for helper runtime probe
-        shell: powershell
-        run: |
-          choco install ffmpeg -y
-
-          $ffmpeg = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
-          if (-not $ffmpeg) {
-            $ffmpeg = Get-ChildItem -Path "C:\ProgramData\chocolatey" -Recurse -File -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue |
-              Sort-Object -Property FullName |
-              Select-Object -First 1
-          }
-          if (-not $ffmpeg) {
-            throw "Unable to locate ffmpeg.exe after Chocolatey installation."
-          }
-
-          $ffmpegPath = if ($ffmpeg -is [System.Management.Automation.CommandInfo]) { $ffmpeg.Source } else { $ffmpeg.FullName }
-          $ffmpegBin = Split-Path -Parent $ffmpegPath
-          $ffplayPath = Join-Path $ffmpegBin "ffplay.exe"
-          if (-not (Test-Path -LiteralPath $ffplayPath)) {
-            throw "Unable to locate ffplay.exe next to '$ffmpegPath'."
-          }
-
-          "MUMBLE_SCREENSHARE_FFMPEG_PATH=$ffmpegPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "MUMBLE_SCREENSHARE_FFPLAY_PATH=$ffplayPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $ffmpegBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - id: setup-windows-optional-runtimes
+        uses: ./.github/actions/setup-windows-optional-runtimes
+        with:
+          onnxruntime-version: ${{ env.ONNXRUNTIME_VERSION }}
+          install-rust: 'true'
+          install-ffmpeg: ${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
@@ -157,8 +107,8 @@ jobs:
 
           $arguments = @{
             BuildNumber = "${{ needs.fetch_build_number.outputs.build_number }}"
-            EnvironmentRelease = '2025-11'
-            EnvironmentCommit = '127cccc01d'
+            EnvironmentRelease = "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE }}"
+            EnvironmentCommit = "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT }}"
             SharedWebEngine = $true
             AdditionalCMakeOptions = $additionalCMakeOptions
             EnablePackaging = $true
@@ -184,13 +134,14 @@ jobs:
             -ArtifactListPath .\build-shared-webengine\windows-binary-artifacts.txt
 
       - name: Verify shared helper runtime
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        timeout-minutes: 5
         shell: powershell
         run: |
           .\scripts\windows\build-local-windows-client.ps1 `
             -BuildNumber "${{ needs.fetch_build_number.outputs.build_number }}" `
-            -EnvironmentRelease "2025-11" `
-            -EnvironmentCommit "127cccc01d" `
+            -EnvironmentRelease "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE }}" `
+            -EnvironmentCommit "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT }}" `
             -SharedWebEngine `
             -SkipConfigure `
             -SkipBuild `
@@ -218,8 +169,8 @@ jobs:
           path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
           key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
 
-      - if: ${{ github.event_name != 'pull_request' && steps.restore-shared-onnxruntime-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ github.event_name != 'pull_request' && steps.setup-windows-optional-runtimes.outputs.onnxruntime-cache-hit != 'true' }}
         uses: actions/cache/save@v5
         with:
-          path: .cache/onnxruntime/win-x64-1.18.1
-          key: onnxruntime-${{ runner.os }}-x64-1.18.1
+          path: .cache/onnxruntime/win-x64-${{ env.ONNXRUNTIME_VERSION }}
+          key: onnxruntime-${{ runner.os }}-x64-${{ env.ONNXRUNTIME_VERSION }}

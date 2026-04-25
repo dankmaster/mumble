@@ -8,21 +8,21 @@
 #include "mumble/PersistentChatRender.h"
 
 namespace {
-	MumbleProto::ChatMessage makeMessage(unsigned int messageID, quint64 createdAt, unsigned int actorSession,
-										 int actorUserID, const QString &actorName, MumbleProto::ChatScope scope,
-										 unsigned int scopeID) {
-		MumbleProto::ChatMessage message;
-		message.set_message_id(messageID);
-		message.set_thread_id(messageID);
-		message.set_created_at(createdAt);
-		message.set_actor(actorSession);
-		message.set_actor_user_id(actorUserID);
-		message.set_actor_name(actorName.toUtf8().constData());
-		message.set_scope(scope);
-		message.set_scope_id(scopeID);
-		message.set_body_text("hello");
-		return message;
-	}
+MumbleProto::ChatMessage makeMessage(unsigned int messageID, quint64 createdAt, unsigned int actorSession,
+									 int actorUserID, const QString &actorName, MumbleProto::ChatScope scope,
+									 unsigned int scopeID) {
+	MumbleProto::ChatMessage message;
+	message.set_message_id(messageID);
+	message.set_thread_id(messageID);
+	message.set_created_at(createdAt);
+	message.set_actor(actorSession);
+	message.set_actor_user_id(actorUserID);
+	message.set_actor_name(actorName.toUtf8().constData());
+	message.set_scope(scope);
+	message.set_scope_id(scopeID);
+	message.set_body_text("hello");
+	return message;
+}
 } // namespace
 
 class TestPersistentChatRender : public QObject {

@@ -1,0 +1,77 @@
+name: Release Publishing
+
+on:
+  release:
+    types: [ released ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The release tag to publish'
+        required: true
+      is_latest:
+        description: 'Whether this is the latest release'
+        required: true
+        type: boolean
+        default: true
+      dispatch_docker:
+        description: 'Dispatch the release to the Docker repository'
+        required: true
+        type: boolean
+        default: true
+      publish_winget:
+        description: 'Publish client and server installers to WinGet'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-docker:
+    name: dispatch-docker
+    if: ${{ github.event_name == 'release' || inputs.dispatch_docker }}
+    runs-on: ubuntu-latest
+    environment: release-publishing
+    steps:
+      - name: Dispatch release to mumble-docker repo
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.DOCKER_REPO_ACCESS_TOKEN }}
+          repository: mumble-voip/mumble-docker
+          event-type: new_release
+          client-payload: |-
+            {
+              "tag": "${{ github.event.release.tag_name || inputs.tag }}",
+              "is_latest": "${{ github.event.release.isLatest || inputs.is_latest }}"
+            }
+
+  publish-winget-client:
+    name: publish-winget-client
+    if: ${{ github.event_name == 'release' || inputs.publish_winget }}
+    runs-on: windows-latest
+    environment: release-publishing
+    steps:
+      - name: Publish Mumble client
+        # Pinned from vedantmgoyal9/winget-releaser@main.
+        uses: vedantmgoyal9/winget-releaser@7bd472be23763def6e16bd06cc8b1cdfab0e2fd5
+        with:
+          release-tag: ${{ github.event.release.tag_name || inputs.tag }}
+          identifier: Mumble.Mumble.Client
+          installers-regex: mumble_client.*\.exe$
+          token: ${{ secrets.WINGET_TOKEN }}
+
+  publish-winget-server:
+    name: publish-winget-server
+    if: ${{ github.event_name == 'release' || inputs.publish_winget }}
+    runs-on: windows-latest
+    environment: release-publishing
+    steps:
+      - name: Publish Mumble server
+        # Pinned from vedantmgoyal9/winget-releaser@main.
+        uses: vedantmgoyal9/winget-releaser@7bd472be23763def6e16bd06cc8b1cdfab0e2fd5
+        with:
+          release-tag: ${{ github.event.release.tag_name || inputs.tag }}
+          identifier: Mumble.Mumble.Server
+          installers-regex: mumble_server.*\.exe$
+          token: ${{ secrets.WINGET_TOKEN }}

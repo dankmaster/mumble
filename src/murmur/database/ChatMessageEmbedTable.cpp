@@ -41,7 +41,8 @@ namespace server {
 		constexpr unsigned int ChatMessageEmbedTable::INTRODUCED_IN_SCHEMA_VERSION;
 
 		ChatMessageEmbedTable::ChatMessageEmbedTable(soci::session &sql, ::mdb::Backend backend,
-													 const ChatMessageTable &messageTable, const ChatAssetTable &assetTable)
+													 const ChatMessageTable &messageTable,
+													 const ChatAssetTable &assetTable)
 			: ::mdb::Table(sql, backend, NAME) {
 			::mdb::Column serverCol(column::server_id, ::mdb::DataType(::mdb::DataType::Integer));
 			serverCol.addConstraint(::mdb::Constraint(::mdb::Constraint::NotNull));
@@ -54,7 +55,6 @@ namespace server {
 			::mdb::Column titleCol(column::title, ::mdb::DataType(::mdb::DataType::VarChar, 512));
 			titleCol.setDefaultValue("''");
 			::mdb::Column descCol(column::description, ::mdb::DataType(::mdb::DataType::Text));
-			descCol.setDefaultValue("''");
 			::mdb::Column siteCol(column::site_name, ::mdb::DataType(::mdb::DataType::VarChar, 255));
 			siteCol.setDefaultValue("''");
 			::mdb::Column previewCol(column::preview_asset_id, ::mdb::DataType(::mdb::DataType::Integer));
@@ -92,7 +92,7 @@ namespace server {
 		}
 
 		void ChatMessageEmbedTable::setEmbeds(unsigned int serverID, unsigned int messageID,
-											 const std::vector< DBChatMessageEmbed > &embeds) {
+											  const std::vector< DBChatMessageEmbed > &embeds) {
 			try {
 				::mdb::TransactionHolder transaction = ensureTransaction();
 				clearEmbeds(serverID, messageID);
@@ -104,19 +104,20 @@ namespace server {
 						previewInd     = soci::i_ok;
 					}
 					const unsigned int statusValue = static_cast< unsigned int >(embed.status);
-					const std::size_t fetchedAt = toEpochSeconds(embed.fetchedAt);
-					const std::size_t expiresAt = toEpochSeconds(embed.expiresAt);
+					const std::size_t fetchedAt    = toEpochSeconds(embed.fetchedAt);
+					const std::size_t expiresAt    = toEpochSeconds(embed.expiresAt);
 					m_sql << "INSERT INTO \"" << NAME << "\" (\"" << column::server_id << "\", \"" << column::message_id
-						  << "\", \"" << column::url_hash << "\", \"" << column::canonical_url << "\", \"" << column::title
-						  << "\", \"" << column::description << "\", \"" << column::site_name << "\", \""
-						  << column::preview_asset_id << "\", \"" << column::status << "\", \"" << column::fetched_at
-						  << "\", \"" << column::expires_at << "\", \"" << column::error_code
-						  << "\") VALUES (:serverID, :messageID, :urlHash, :canonicalUrl, :title, :description, :siteName, "
+						  << "\", \"" << column::url_hash << "\", \"" << column::canonical_url << "\", \""
+						  << column::title << "\", \"" << column::description << "\", \"" << column::site_name
+						  << "\", \"" << column::preview_asset_id << "\", \"" << column::status << "\", \""
+						  << column::fetched_at << "\", \"" << column::expires_at << "\", \"" << column::error_code
+						  << "\") VALUES (:serverID, :messageID, :urlHash, :canonicalUrl, :title, :description, "
+							 ":siteName, "
 							 ":previewAssetID, :status, :fetchedAt, :expiresAt, :errorCode)",
-						soci::use(serverID), soci::use(messageID), soci::use(embed.urlHash), soci::use(embed.canonicalUrl),
-						soci::use(embed.title), soci::use(embed.description), soci::use(embed.siteName),
-						soci::use(previewAssetID, previewInd), soci::use(statusValue), soci::use(fetchedAt),
-						soci::use(expiresAt), soci::use(embed.errorCode);
+						soci::use(serverID), soci::use(messageID), soci::use(embed.urlHash),
+						soci::use(embed.canonicalUrl), soci::use(embed.title), soci::use(embed.description),
+						soci::use(embed.siteName), soci::use(previewAssetID, previewInd), soci::use(statusValue),
+						soci::use(fetchedAt), soci::use(expiresAt), soci::use(embed.errorCode);
 				}
 				transaction.commit();
 			} catch (const soci::soci_error &) {
@@ -126,20 +127,21 @@ namespace server {
 			}
 		}
 
-		std::vector< DBChatMessageEmbed > ChatMessageEmbedTable::getEmbeds(unsigned int serverID, unsigned int messageID) {
+		std::vector< DBChatMessageEmbed > ChatMessageEmbedTable::getEmbeds(unsigned int serverID,
+																		   unsigned int messageID) {
 			try {
 				std::vector< DBChatMessageEmbed > embeds;
 				soci::row row;
 				::mdb::TransactionHolder transaction = ensureTransaction();
-				soci::statement stmt = (m_sql.prepare
-										  << "SELECT \"" << column::url_hash << "\", \"" << column::canonical_url << "\", \""
-										  << column::title << "\", \"" << column::description << "\", \"" << column::site_name
-										  << "\", \"" << column::preview_asset_id << "\", \"" << column::status << "\", \""
-										  << column::fetched_at << "\", \"" << column::expires_at << "\", \""
-										  << column::error_code << "\" FROM \"" << NAME << "\" WHERE \""
-										  << column::server_id << "\" = :serverID AND \"" << column::message_id
-										  << "\" = :messageID ORDER BY \"" << column::url_hash << "\" ASC",
-									  soci::use(serverID), soci::use(messageID), soci::into(row));
+				soci::statement stmt =
+					(m_sql.prepare << "SELECT \"" << column::url_hash << "\", \"" << column::canonical_url << "\", \""
+								   << column::title << "\", \"" << column::description << "\", \"" << column::site_name
+								   << "\", \"" << column::preview_asset_id << "\", \"" << column::status << "\", \""
+								   << column::fetched_at << "\", \"" << column::expires_at << "\", \""
+								   << column::error_code << "\" FROM \"" << NAME << "\" WHERE \"" << column::server_id
+								   << "\" = :serverID AND \"" << column::message_id << "\" = :messageID ORDER BY \""
+								   << column::url_hash << "\" ASC",
+					 soci::use(serverID), soci::use(messageID), soci::into(row));
 
 				stmt.execute(false);
 				while (stmt.fetch()) {
@@ -152,9 +154,11 @@ namespace server {
 					if (row.get_indicator(5) == soci::i_ok) {
 						embed.previewAssetID = static_cast< unsigned int >(row.get< int >(5));
 					}
-					embed.status    = static_cast< ChatEmbedStatus >(row.get< int >(6));
-					embed.fetchedAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(7)));
-					embed.expiresAt = std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(8)));
+					embed.status = static_cast< ChatEmbedStatus >(row.get< int >(6));
+					embed.fetchedAt =
+						std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(7)));
+					embed.expiresAt =
+						std::chrono::system_clock::time_point(std::chrono::seconds(row.get< long long >(8)));
 					embed.errorCode = row.get< std::string >(9);
 					embeds.push_back(std::move(embed));
 				}
@@ -169,20 +173,19 @@ namespace server {
 		}
 
 		std::vector< unsigned int > ChatMessageEmbedTable::getThreadIDsForPreviewAsset(unsigned int serverID,
-																						   unsigned int assetID) {
+																					   unsigned int assetID) {
 			try {
 				std::vector< unsigned int > threadIDs;
 				soci::row row;
 				::mdb::TransactionHolder transaction = ensureTransaction();
 				soci::statement stmt =
-					(m_sql.prepare
-						 << "SELECT DISTINCT cm.\"" << ChatMessageTable::column::thread_id << "\" FROM \"" << NAME
-						 << "\" cme JOIN \"" << ChatMessageTable::NAME << "\" cm ON cm.\""
-						 << ChatMessageTable::column::server_id << "\" = cme.\"" << column::server_id << "\" AND cm.\""
-						 << ChatMessageTable::column::message_id << "\" = cme.\"" << column::message_id << "\" WHERE cme.\""
-						 << column::server_id << "\" = :serverID AND cme.\"" << column::preview_asset_id
-						 << "\" = :assetID",
-						soci::use(serverID), soci::use(assetID), soci::into(row));
+					(m_sql.prepare << "SELECT DISTINCT cm.\"" << ChatMessageTable::column::thread_id << "\" FROM \""
+								   << NAME << "\" cme JOIN \"" << ChatMessageTable::NAME << "\" cm ON cm.\""
+								   << ChatMessageTable::column::server_id << "\" = cme.\"" << column::server_id
+								   << "\" AND cm.\"" << ChatMessageTable::column::message_id << "\" = cme.\""
+								   << column::message_id << "\" WHERE cme.\"" << column::server_id
+								   << "\" = :serverID AND cme.\"" << column::preview_asset_id << "\" = :assetID",
+					 soci::use(serverID), soci::use(assetID), soci::into(row));
 
 				stmt.execute(false);
 				while (stmt.fetch()) {

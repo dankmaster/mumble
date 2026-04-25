@@ -10,6 +10,12 @@ add_executable(TestPersistentChatRender
 
 set_target_properties(TestPersistentChatRender PROPERTIES AUTOMOC ON)
 
-target_link_libraries(TestPersistentChatRender PRIVATE shared Qt6::Test)
+find_pkg(Qt6 COMPONENTS Gui REQUIRED)
+
+target_link_libraries(TestPersistentChatRender PRIVATE shared Qt6::Test Qt6::Gui)
+target_compile_options(
+	TestPersistentChatRender
+	PRIVATE "$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wno-sign-conversion>"
+)
 
 add_test(NAME TestPersistentChatRender COMMAND $<TARGET_FILE:TestPersistentChatRender>)

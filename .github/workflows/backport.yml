@@ -4,10 +4,16 @@ on:
   pull_request_target:
     types: ["labeled", "closed"]
 
+permissions:
+  contents: read
+
 jobs:
   label_checker:
     name: Check labels
     runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      pull-requests: read
     outputs:
       state: ${{ steps.check.outputs.label_check }}
     steps:
@@ -28,6 +34,9 @@ jobs:
     name: Backport PR
     if: github.event.pull_request.merged == true && needs.label_checker.outputs.state == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Backport Action
         uses: sorenlouv/backport-github-action@v9.5.1
@@ -38,7 +47,7 @@ jobs:
       - name: Info log
         if: ${{ success() }}
         run: cat ~/.backport/backport.info.log
-        
+
       - name: Debug log
         if: ${{ failure() }}
-        run: cat ~/.backport/backport.debug.log        
+        run: cat ~/.backport/backport.debug.log

@@ -1,42 +1,56 @@
 # Windows Client Builds
 
-This fork already inherits Mumble's full cross-platform CI in
-[build.yml](../.github/workflows/build.yml). That workflow runs on push and pull
-request and includes a Windows build.
+This fork uses two GitHub workflow paths for Windows client coverage:
 
-For faster client artifacts on demand, this fork also has a dedicated manual
-workflow:
+- Workflow: `CI`
+- File: [ci.yml](../.github/workflows/ci.yml)
+- Trigger: push, pull request, and manual dispatch
+- Static Windows runner: `windows-2025-vs2026`
+- Purpose: required PR/build validation for the static Windows client/server lane
 
-- Workflow: `Windows Client`
-- File: [windows-client.yml](../.github/workflows/windows-client.yml)
-- Trigger: `workflow_dispatch`
-- Runner: `windows-2025-vs2026`
-- Output: unsigned Windows client artifacts (`mumble*.msi`, `mumble*.exe`)
+The heavier shared/WebEngine client lane is kept separate:
+
+- Workflow: `Windows Shared Client Installer`
+- File: [windows-shared-client.yml](../.github/workflows/windows-shared-client.yml)
+- Trigger: push to `master`, pull request to `master`, and manual dispatch
+- Shared Windows runner: `windows-2022`
+- Output: unsigned shared/WebEngine client payload and installer artifacts
 
 ## Recommended use
 
-- Use `Build` when you want the full upstream-style matrix.
-- Use `Windows Client` when you only want a downloadable Windows client artifact
-  for the current branch.
+- Use `CI` for the normal pull-request gate and static Windows artifact validation.
+- Use `Windows Shared Client Installer` when you need the shared/WebEngine payload
+  under `build-shared-webengine\shared-webengine-stage` or downloadable Windows
+  shared client artifacts.
 
-## How to run it
+## How to run the shared client workflow
 
 1. Push your branch to GitHub.
 2. Open `Actions` in the fork.
-3. Select `Windows Client`.
+3. Select `Windows Shared Client Installer`.
 4. Click `Run workflow` on the branch you want to build.
 5. Download the uploaded artifact from the completed run.
 
 ## Notes
 
-- This workflow uses `${{ github.run_number }}` as the local build number.
-- Windows packaging now uses a separate compatibility version lane for the
-  installer: by default `major.minor.0.build`. That keeps official Mumble
-  installers newer on the upgrade graph so users can switch back by running the
-  stock installer, while fork installers can still replace an existing Mumble
-  install in place.
-- It does not sign the installer.
-- It disables tests to keep the manual client build faster.
+- `CI` keeps Windows tests disabled and validates the Windows build through
+  binary, installer, payload, and screen-share helper artifact checks.
+- `CI` keeps the static Linux server artifact lane separate from a shared Linux
+  server-focused `ctest` lane, so pull requests have one practical test gate
+  without making the Windows lane slower.
+- The shared/WebEngine workflow skips installer generation on pull requests, but
+  still stages and validates the shared payload.
+- The shared/WebEngine workflow verifies the screen-share helper runtime only
+  for manual dispatch runs; normal PR helper runtime coverage lives in `CI`.
+- The shared/WebEngine workflow pins the reusable environment to release
+  `2025-11`, commit `127cccc01d`, and ONNX Runtime `1.18.1`.
+- The shared/WebEngine workflow looks for `mumble_env.x64-windows.<commit>.7z`
+  or split `mumble_env.x64-windows.<commit>.7z.001/.002/...` assets under this
+  repo's `build-env-<release>` GitHub release tag before falling back to a slow
+  local Qt/vcpkg bootstrap path.
+- Expect the first shared/WebEngine dependency bootstrap to be heavy. The full
+  Windows vcpkg environment is typically tens of GB on disk and Qt WebEngine can
+  take a long time on a fresh machine.
 
 ## Local Windows build
 
@@ -78,10 +92,10 @@ Notes for local use:
 - Install Git for Windows. The script prefers Git Bash and auto-detects Visual
   Studio's bundled `cmake` and `ninja`, so they do not need to be added to
   `PATH` manually.
-- The local build script now auto-detects `ONNXRUNTIME_ROOT` from the newest
+- The local build script auto-detects `ONNXRUNTIME_ROOT` from the newest
   `.tmp\onnxruntime-win-x64-*` directory when present, which enables the DTLN
   backend in local Windows client builds without extra manual flags.
-- If Rust was installed with `rustup`, the script also prepends
+- If Rust was installed with `rustup`, the script prepends
   `%USERPROFILE%\.cargo\bin` to `PATH` so DeepFilterNet can build its runtime
   DLL from the vendored `libDF` C API. Without `cargo` or a packaged
   `deepfilter.dll`, DeepFilterNet is left disabled while the rest of the client
@@ -94,24 +108,16 @@ Notes for local use:
   WiX available.
 - Override the compatibility version only if you explicitly need a different
   upgrade relationship: `-DMUMBLE_WINDOWS_INSTALLER_VERSION=<version>`.
-- The script mirrors the `Windows Client` workflow's configure/build path.
-- The `Windows Client` workflow now bootstraps the pinned ONNX Runtime archive
-  for DTLN and installs Rust so the DeepFilterNet runtime DLL can be built on
-  the Windows runner as part of the client artifact build.
-- It builds unsigned Windows client artifacts. Pass `-EnablePackaging` only if
-  you explicitly need the MSI installer output.
+- The script mirrors the shared workflow's configure/build path when
+  `-SharedWebEngine` is used.
+- The shared workflow bootstraps the pinned ONNX Runtime archive for DTLN and
+  installs Rust so the DeepFilterNet runtime DLL can be built on the Windows
+  runner as part of the client artifact build.
 - `-AllowPendingReboot` is an opt-in escape hatch for local use: it downgrades
   hard pending-reboot blockers to warnings for that run instead of aborting.
 - It skips local MySQL setup because that workflow has tests disabled.
-- Artifacts are written into the repo's `build\` directory.
-- The shared/WebEngine workflow now looks for
-  `mumble_env.x64-windows.<commit>.7z` or split
-  `mumble_env.x64-windows.<commit>.7z.001/.002/...` assets under this repo's
-  `build-env-<release>` GitHub release tag before it falls back to the slow
-  local Qt/vcpkg bootstrap path.
-- Expect that first shared/WebEngine dependency bootstrap to be heavy. The full
-  Windows vcpkg environment is typically tens of GB on disk and Qt WebEngine
-  builds can take a long time on a fresh machine.
+- Static lane artifacts are written into `build\`; shared/WebEngine artifacts
+  are written into `build-shared-webengine\`.
 
 ## Publishing a reusable Windows build environment
 

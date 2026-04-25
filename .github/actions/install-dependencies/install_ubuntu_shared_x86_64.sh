@@ -15,6 +15,7 @@ sudo apt -y install \
 	ninja-build \
 	pkg-config \
 	qt6-base-dev \
+	qt6-qpa-plugins \
 	qt6-tools-dev \
 	libboost-dev \
 	libssl-dev \
