@@ -149,8 +149,9 @@ jobs:
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
         run: |
+          $isPullRequest = '${{ github.event_name }}' -eq 'pull_request'
           $additionalCMakeOptions = @('-Dserver=OFF')
-          if ('${{ github.event_name }}' -eq 'pull_request') {
+          if ($isPullRequest) {
             $additionalCMakeOptions += '-Dlto=OFF'
           }
 
@@ -162,6 +163,7 @@ jobs:
             AdditionalCMakeOptions = $additionalCMakeOptions
             EnablePackaging = $true
             UseBundledCli11 = $true
+            SkipSharedInstaller = $isPullRequest
             AllowPendingReboot = $true
           }
           if ('${{ steps.restore-shared-build-env-cache.outputs.cache-hit }}' -ne 'true') {

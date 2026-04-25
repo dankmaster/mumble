@@ -11,6 +11,7 @@ param(
 	[switch]$InstallDependencies,
 	[switch]$InstallFfmpeg,
 	[switch]$EnablePackaging,
+	[switch]$SkipSharedInstaller,
 	[switch]$SharedWebEngine,
 	[switch]$VerifyHelperRuntime,
 	[switch]$SkipConfigure,
@@ -317,14 +318,15 @@ function Invoke-SharedWindowsPackaging {
 		[string]$BuildRoot,
 
 		[Parameter(Mandatory = $true)]
-		[string]$BuildType
+		[string]$BuildType,
+
+		[switch]$SkipInstaller
 	)
 
 	$stageRoot = Join-Path $BuildRoot "shared-webengine-stage"
 	$installerWorkDir = Join-Path $BuildRoot "installer\client"
 	$cachePath = Join-Path $BuildRoot "CMakeCache.txt"
 	$windeployqt = Get-WindeployQtExecutable -Root $env:MUMBLE_ENVIRONMENT_DIR
-	$cscs = Get-WixSharpExecutable
 	$qtToolsBin = Split-Path -Parent $windeployqt
 	$environmentBin = Join-Path $env:MUMBLE_ENVIRONMENT_DIR "installed\$env:MUMBLE_VCPKG_TRIPLET\bin"
 
@@ -388,6 +390,11 @@ function Invoke-SharedWindowsPackaging {
 	Copy-SharedEnvironmentRuntime -StageRoot $stageRoot -EnvironmentRoot $env:MUMBLE_ENVIRONMENT_DIR -Triplet $env:MUMBLE_VCPKG_TRIPLET
 	Write-SharedQtConf -StageRoot $stageRoot
 	Assert-SharedWebEngineDeployment -StageRoot $stageRoot
+
+	if ($SkipInstaller) {
+		Write-Host "Skipping shared WebEngine installer generation. The staged payload at '$stageRoot' is ready for validation."
+		return
+	}
 
 	$vcRedistVersion = Get-CMakeCacheValue -CachePath $cachePath -Name "VC_REDIST_VERSION"
 	if ([string]::IsNullOrWhiteSpace($vcRedistVersion)) {
@@ -466,6 +473,7 @@ function Invoke-SharedWindowsPackaging {
 	New-Item -ItemType Directory -Force -Path $installerWorkDir | Out-Null
 	Copy-Item -LiteralPath (Join-Path $RepoRoot "installer\MumbleInstall.cs") -Destination $installerWorkDir -Force
 	Copy-Item -LiteralPath (Join-Path $RepoRoot "installer\ClientInstaller.cs") -Destination $installerWorkDir -Force
+	$cscs = Get-WixSharpExecutable
 
 	Get-ChildItem -LiteralPath $installerWorkDir -File -ErrorAction SilentlyContinue |
 		Where-Object { $_.Name -like "*.msi" -or $_.Name -like "*_client-*.exe" } |
@@ -1146,7 +1154,8 @@ try {
 	Remove-Item Env:MUMBLE_CI_PHASE -ErrorAction SilentlyContinue
 
 	if ($SharedWebEngine -and $EnablePackaging) {
-		Invoke-SharedWindowsPackaging -RepoRoot $repoRoot -BuildRoot $buildRoot -BuildType $BuildType
+		Invoke-SharedWindowsPackaging -RepoRoot $repoRoot -BuildRoot $buildRoot -BuildType $BuildType `
+			-SkipInstaller:$SkipSharedInstaller
 	}
 
 	if ($VerifyHelperRuntime) {
