@@ -181,13 +181,19 @@ extract_with_progress() {
 	rm -rf "$tmp_dir"
 	mkdir "$tmp_dir"
 
-	if [[ "$fromFile" = *.7z || "$fromFile"  = *.zip ]]; then
+	if [[ "$fromFile" = *.7z || "$fromFile" = *.7z.[0-9][0-9][0-9] || "$fromFile" = *.zip ]]; then
 		if command -v 7z > /dev/null 2>&1; then
 			extract_cmd=( 7z x "$fromFile" -o"$tmp_dir" )
 
 			summary="$( 7z l "$fromFile" | tail -n 1 )"
 			fromSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 4 )"
 			toSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 3 )"
+			if ! [[ "$fromSize" =~ ^[0-9]+$ ]]; then
+				fromSize="$( stat -c '%s' "$fromFile" 2> /dev/null || echo 0 )"
+			fi
+			if ! [[ "$toSize" =~ ^[0-9]+$ ]]; then
+				toSize="$fromSize"
+			fi
 		elif command -v tar > /dev/null 2>&1; then
 			extract_cmd=( "$tar_exe" -xf "$fromFile" --directory "$tmp_dir" )
 
