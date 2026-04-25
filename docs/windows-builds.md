@@ -40,8 +40,8 @@ The heavier shared/WebEngine client lane is kept separate:
   without making the Windows lane slower.
 - The shared/WebEngine workflow skips installer generation on pull requests, but
   still stages and validates the shared payload.
-- The shared/WebEngine workflow verifies the screen-share helper runtime on
-  non-PR runs.
+- The shared/WebEngine workflow verifies the screen-share helper runtime only
+  for manual dispatch runs; normal PR helper runtime coverage lives in `CI`.
 - The shared/WebEngine workflow pins the reusable environment to release
   `2025-11`, commit `127cccc01d`, and ONNX Runtime `1.18.1`.
 - The shared/WebEngine workflow looks for `mumble_env.x64-windows.<commit>.7z`

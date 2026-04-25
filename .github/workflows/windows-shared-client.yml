@@ -94,7 +94,7 @@ jobs:
         with:
           onnxruntime-version: ${{ env.ONNXRUNTIME_VERSION }}
           install-rust: 'true'
-          install-ffmpeg: ${{ github.event_name != 'pull_request' }}
+          install-ffmpeg: ${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
@@ -134,7 +134,8 @@ jobs:
             -ArtifactListPath .\build-shared-webengine\windows-binary-artifacts.txt
 
       - name: Verify shared helper runtime
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        timeout-minutes: 5
         shell: powershell
         run: |
           .\scripts\windows\build-local-windows-client.ps1 `

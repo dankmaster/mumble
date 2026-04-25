@@ -148,6 +148,61 @@ function Copy-FileIfExists {
 	Copy-Item -LiteralPath $Source -Destination $Destination -Force
 }
 
+function Invoke-ProcessWithTimeout {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$FilePath,
+
+		[Parameter(Mandatory = $true)]
+		[string[]]$Arguments,
+
+		[Parameter(Mandatory = $true)]
+		[string]$Description,
+
+		[int]$TimeoutSeconds = 180
+	)
+
+	$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+	$startInfo.FileName = $FilePath
+	$startInfo.UseShellExecute = $false
+	$startInfo.RedirectStandardOutput = $true
+	$startInfo.RedirectStandardError = $true
+	$startInfo.CreateNoWindow = $true
+
+	$escapedArguments = foreach ($argument in $Arguments) {
+		if ($argument -notmatch '[\s"]') {
+			$argument
+		} else {
+			$escapedArgument = $argument -replace '(\\*)"', '$1$1\"'
+			$escapedArgument = $escapedArgument -replace '(\\+)$', '$1$1'
+			'"' + $escapedArgument + '"'
+		}
+	}
+	$startInfo.Arguments = $escapedArguments -join ' '
+
+	$process = [System.Diagnostics.Process]::new()
+	$process.StartInfo = $startInfo
+
+	Write-Host "$Description timeout: $TimeoutSeconds seconds"
+	[void]$process.Start()
+	$stdoutTask = $process.StandardOutput.ReadToEndAsync()
+	$stderrTask = $process.StandardError.ReadToEndAsync()
+
+	if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+		& taskkill.exe /PID $process.Id /T /F *> $null
+		throw "$Description timed out after $TimeoutSeconds seconds."
+	}
+
+	$stdout = $stdoutTask.GetAwaiter().GetResult()
+	$stderr = $stderrTask.GetAwaiter().GetResult()
+
+	return [PSCustomObject]@{
+		ExitCode = $process.ExitCode
+		StdOut   = $stdout
+		StdErr   = $stderr
+	}
+}
+
 function Copy-SharedEnvironmentRuntime {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -1193,10 +1248,17 @@ try {
 		$selfTestPath = Join-Path $buildRoot "windows-screen-share-self-test.json"
 		$artifactListPath = Join-Path $buildRoot "windows-client-artifacts.txt"
 
-		$capabilitiesJson = & $helper.FullName --diagnostics-log-file $logPath --print-capabilities-json
-		if ($LASTEXITCODE -ne 0) {
-			throw "Helper capability probe failed."
+		$capabilityProbe = Invoke-ProcessWithTimeout -FilePath $helper.FullName `
+			-Arguments @("--diagnostics-log-file", $logPath, "--print-capabilities-json") `
+			-Description "Helper capability probe" `
+			-TimeoutSeconds 180
+		if (-not [string]::IsNullOrWhiteSpace($capabilityProbe.StdErr)) {
+			Write-Host $capabilityProbe.StdErr.TrimEnd()
 		}
+		if ($capabilityProbe.ExitCode -ne 0) {
+			throw "Helper capability probe failed with exit code $($capabilityProbe.ExitCode)."
+		}
+		$capabilitiesJson = $capabilityProbe.StdOut
 		Set-Content -LiteralPath $capabilitiesPath -Value $capabilitiesJson -NoNewline
 
 		$capabilitiesEnvelope = Get-Content -LiteralPath $capabilitiesPath -Raw | ConvertFrom-Json
@@ -1227,10 +1289,17 @@ try {
 			throw "Helper runtime probe found no usable H.264 encoder."
 		}
 
-		$selfTestJson = & $helper.FullName --diagnostics-log-file $logPath --self-test
-		if ($LASTEXITCODE -ne 0) {
-			throw "Helper self-test failed."
+		$selfTestProbe = Invoke-ProcessWithTimeout -FilePath $helper.FullName `
+			-Arguments @("--diagnostics-log-file", $logPath, "--self-test") `
+			-Description "Helper self-test" `
+			-TimeoutSeconds 180
+		if (-not [string]::IsNullOrWhiteSpace($selfTestProbe.StdErr)) {
+			Write-Host $selfTestProbe.StdErr.TrimEnd()
 		}
+		if ($selfTestProbe.ExitCode -ne 0) {
+			throw "Helper self-test failed with exit code $($selfTestProbe.ExitCode)."
+		}
+		$selfTestJson = $selfTestProbe.StdOut
 		Set-Content -LiteralPath $selfTestPath -Value $selfTestJson -NoNewline
 
 		$selfTestEnvelope = Get-Content -LiteralPath $selfTestPath -Raw | ConvertFrom-Json
