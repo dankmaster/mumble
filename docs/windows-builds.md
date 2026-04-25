@@ -16,12 +16,24 @@ The heavier shared/WebEngine client lane is kept separate:
 - Shared Windows runner: `windows-2022`
 - Output: unsigned shared/WebEngine client payload and installer artifacts
 
+There is also a small human-facing installer workflow for trusted testers:
+
+- Workflow: `Friend MSI Release`
+- File: [friend-build.yml](../.github/workflows/friend-build.yml)
+- Trigger: manual dispatch from `master`
+- Static Windows runner: `windows-2025-vs2026`
+- Output: the latest unsigned client MSI attached to the stable
+  `friend-build` GitHub Release
+
 ## Recommended use
 
 - Use `CI` for the normal pull-request gate and static Windows artifact validation.
 - Use `Windows Shared Client Installer` when you need the shared/WebEngine payload
   under `build-shared-webengine\shared-webengine-stage` or downloadable Windows
   shared client artifacts.
+- Use `Friend MSI Release` only when you want a simple download link for
+  friends or trusted testers. It publishes the MSI to a normal GitHub Release
+  instead of a short-lived Actions artifact.
 
 ## How to run the shared client workflow
 
@@ -30,6 +42,24 @@ The heavier shared/WebEngine client lane is kept separate:
 3. Select `Windows Shared Client Installer`.
 4. Click `Run workflow` on the branch you want to build.
 5. Download the uploaded artifact from the completed run.
+
+## How to publish a friend MSI
+
+1. Merge the intended code to `master`.
+2. Open `Actions` in the fork.
+3. Select `Friend MSI Release`.
+4. Click `Run workflow` on `master`.
+5. Send friends the stable release page:
+   `https://github.com/dankmaster/mumble/releases/tag/friend-build`.
+
+The workflow deletes older `friend-build` / `friend-build-*` releases and tags,
+then recreates the stable `friend-build` tag and release from the current
+`master` commit. It explicitly preserves `build-env-*` releases, including the
+important `build-env-2025-11` release used by the shared Windows build
+environment.
+
+The `Release Publishing` workflow ignores `friend-build*` and `build-env-*`
+tags so this friend MSI does not dispatch Docker publishing or WinGet updates.
 
 ## Notes
 
@@ -51,6 +81,9 @@ The heavier shared/WebEngine client lane is kept separate:
 - Expect the first shared/WebEngine dependency bootstrap to be heavy. The full
   Windows vcpkg environment is typically tens of GB on disk and Qt WebEngine can
   take a long time on a fresh machine.
+- Friend MSI releases are unsigned convenience builds for trusted testers.
+  Windows SmartScreen can warn on these installers until a real signing flow is
+  added.
 
 ## Local Windows build
 
