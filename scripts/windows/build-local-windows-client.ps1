@@ -1053,7 +1053,9 @@ try {
 			Join-Path $repoRoot "build_env\$EnvironmentRelease-$EnvironmentCommit-static"
 		}
 
-		$env:MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE = "https://github.com/mumble-voip/vcpkg/releases/download/$EnvironmentRelease"
+		if ([string]::IsNullOrWhiteSpace($env:MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE)) {
+			$env:MUMBLE_ENVIRONMENT_SOURCE_OVERRIDE = "https://github.com/mumble-voip/vcpkg/releases/download/$EnvironmentRelease"
+		}
 		$env:MUMBLE_ENVIRONMENT_COMMIT_OVERRIDE = $EnvironmentCommit
 		$customEnvironmentDir = $preferredEnvironmentDir
 		if ((-not $SharedWebEngine) -and (-not $InstallDependencies) `
