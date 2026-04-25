@@ -1,4 +1,4 @@
-name: Friend MSI Release
+name: mumble-forked MSI Release
 
 on:
   workflow_dispatch:
@@ -13,8 +13,8 @@ concurrency:
 env:
   BUILD_TYPE: Release
   CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
-  FRIEND_RELEASE_TAG: friend-build
-  FRIEND_RELEASE_TITLE: Mumble Friend Build
+  MUMBLE_FORKED_RELEASE_TAG: mumble-forked
+  MUMBLE_FORKED_RELEASE_TITLE: mumble-forked
   MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE: 2025-11
   MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE_TAG: build-env-2025-11
   MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT: 127cccc01d
@@ -179,7 +179,7 @@ jobs:
           }
           .\scripts\windows\build-local-windows-client.ps1 @arguments
 
-      - name: Validate friend MSI artifacts
+      - name: Validate mumble-forked MSI artifacts
         shell: powershell
         run: |
           .\scripts\windows\assert-windows-build-artifacts.ps1 `
@@ -190,14 +190,14 @@ jobs:
             -RequireScreenHelper `
             -RequireSpeechCleanup `
             -RequireClientInstaller `
-            -ArtifactListPath .\build-shared-webengine\friend-msi-artifacts.txt
+            -ArtifactListPath .\build-shared-webengine\mumble-forked-artifacts.txt
 
       - name: Prepare release assets
         id: prepare-assets
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $releaseDir = Join-Path $PWD "build-shared-webengine\friend-release"
+          $releaseDir = Join-Path $PWD "build-shared-webengine\mumble-forked-release"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
           $clientMsi = Get-ChildItem -Path ".\build-shared-webengine" -Recurse -File -Filter "*client*.msi" |
@@ -207,23 +207,24 @@ jobs:
             throw "Unable to locate a shared client MSI under build-shared-webengine."
           }
 
-          $assetPath = Join-Path $releaseDir "Mumble-Friend-Build.msi"
+          $assetName = "mumble-forked.msi"
+          $assetPath = Join-Path $releaseDir $assetName
           Copy-Item -LiteralPath $clientMsi.FullName -Destination $assetPath -Force
 
           $hash = Get-FileHash -LiteralPath $assetPath -Algorithm SHA256
           $hashPath = "$assetPath.sha256"
-          Set-Content -LiteralPath $hashPath -Value "$($hash.Hash)  Mumble-Friend-Build.msi"
+          Set-Content -LiteralPath $hashPath -Value "$($hash.Hash)  $assetName"
 
           $notesPath = Join-Path $releaseDir "release-notes.md"
           $shortSha = "${{ github.sha }}".Substring(0, 12)
           Set-Content -LiteralPath $notesPath -Value @"
-          # Mumble Friend Build
+          # mumble-forked
 
-          This is the latest unsigned shared/WebEngine MSI build for trusted friend testing.
+          This is the latest unsigned shared/WebEngine MSI build for this fork.
 
           - Commit: ${{ github.sha }}
           - Branch/ref: ${{ github.ref_name }}
-          - Installer: Mumble-Friend-Build.msi
+          - Installer: $assetName
           - SHA256: $($hash.Hash)
 
           Windows may show a SmartScreen warning because this is not an official signed public release.
@@ -234,20 +235,20 @@ jobs:
           "notes_path=$notesPath" >> $env:GITHUB_OUTPUT
           "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
 
-      - name: Replace friend build release
+      - name: Replace mumble-forked release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
 
-          $tag = $env:FRIEND_RELEASE_TAG
+          $tag = $env:MUMBLE_FORKED_RELEASE_TAG
           $protectedTag = $env:PROTECTED_BUILD_ENV_RELEASE_TAG
           if ([string]::IsNullOrWhiteSpace($tag)) {
-            throw "FRIEND_RELEASE_TAG is empty."
+            throw "MUMBLE_FORKED_RELEASE_TAG is empty."
           }
           if ($tag -eq $protectedTag -or $tag -like "build-env-*") {
-            throw "Refusing to publish a friend build over protected build environment tag '$protectedTag'."
+            throw "Refusing to publish mumble-forked over protected build environment tag '$protectedTag'."
           }
 
           $releaseRows = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
@@ -258,7 +259,7 @@ jobs:
               continue
             }
             if ($releaseTag -eq $tag -or $releaseTag -like "$tag-*") {
-              Write-Host "Deleting previous friend build release '$releaseTag'."
+              Write-Host "Deleting previous mumble-forked release '$releaseTag'."
               gh release delete $releaseTag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
             }
           }
@@ -275,19 +276,19 @@ jobs:
             "${{ steps.prepare-assets.outputs.hash_path }}" `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title $env:FRIEND_RELEASE_TITLE `
+            --title $env:MUMBLE_FORKED_RELEASE_TITLE `
             --notes-file "${{ steps.prepare-assets.outputs.notes_path }}"
 
-      - name: Publish friend MSI workflow artifact
+      - name: Publish mumble-forked MSI workflow artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Mumble-friend-msi
+          name: mumble-forked-msi
           compression-level: 0
           path: |
-            build-shared-webengine/friend-release/Mumble-Friend-Build.msi
-            build-shared-webengine/friend-release/Mumble-Friend-Build.msi.sha256
-            build-shared-webengine/friend-release/release-notes.md
-            build-shared-webengine/friend-msi-artifacts.txt
+            build-shared-webengine/mumble-forked-release/mumble-forked.msi
+            build-shared-webengine/mumble-forked-release/mumble-forked.msi.sha256
+            build-shared-webengine/mumble-forked-release/release-notes.md
+            build-shared-webengine/mumble-forked-artifacts.txt
 
       - if: ${{ steps.restore-shared-build-env-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v5
