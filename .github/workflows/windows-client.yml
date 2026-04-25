@@ -156,6 +156,7 @@ jobs:
             SharedWebEngine = $true
             AdditionalCMakeOptions = @('-Dserver=OFF')
             EnablePackaging = $true
+            UseBundledCli11 = $true
             AllowPendingReboot = $true
           }
           if ('${{ steps.restore-shared-build-env-cache.outputs.cache-hit }}' -ne 'true') {

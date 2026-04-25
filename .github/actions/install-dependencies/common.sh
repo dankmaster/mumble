@@ -694,11 +694,25 @@ configure_database_tables() {
 				sql_statements+="CREATE USER 'mumble_test-user'@'localhost' IDENTIFIED BY 'MumbleTestPassword';"
 				sql_statements+="GRANT ALL PRIVILEGES ON \`mumble_test-db\`.* TO 'mumble_test-user'@'localhost';"
 
-				if $sudo_cmd mysql --user=root -e "SELECT 1" 2> /dev/null; then
-					# Passwordless
-					mysql_cmd=( $sudo_cmd mysql --user=root )
-				else
-					mysql_cmd=( $sudo_cmd mysql --user=root --password="root" )
+				local mysql_cmd=()
+				for _ in {1..30}; do
+					if $sudo_cmd mysql --user=root -e "SELECT 1" > /dev/null 2>&1; then
+						# Passwordless
+						mysql_cmd=( $sudo_cmd mysql --user=root )
+						break
+					fi
+
+					if $sudo_cmd mysql --user=root --password="root" -e "SELECT 1" > /dev/null 2>&1; then
+						mysql_cmd=( $sudo_cmd mysql --user=root --password="root" )
+						break
+					fi
+
+					sleep 2
+				done
+
+				if [[ "${#mysql_cmd[@]}" -eq 0 ]]; then
+					echo "Unable to connect to local MySQL as root after waiting for startup." 1>&2
+					exit 1
 				fi
 
 				echo "$sql_statements" | "${mysql_cmd[@]}"
