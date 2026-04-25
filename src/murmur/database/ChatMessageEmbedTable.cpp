@@ -54,7 +54,6 @@ namespace server {
 			::mdb::Column titleCol(column::title, ::mdb::DataType(::mdb::DataType::VarChar, 512));
 			titleCol.setDefaultValue("''");
 			::mdb::Column descCol(column::description, ::mdb::DataType(::mdb::DataType::Text));
-			descCol.setDefaultValue("''");
 			::mdb::Column siteCol(column::site_name, ::mdb::DataType(::mdb::DataType::VarChar, 255));
 			siteCol.setDefaultValue("''");
 			::mdb::Column previewCol(column::preview_asset_id, ::mdb::DataType(::mdb::DataType::Integer));
