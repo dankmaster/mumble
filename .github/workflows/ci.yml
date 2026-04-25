@@ -1,0 +1,403 @@
+name: CI
+
+on:
+  push:
+    branches: '**'
+  pull_request:
+    branches: '**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  CMAKE_OPTIONS: -Dtests=ON -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
+  ONNXRUNTIME_VERSION: 1.18.1
+
+jobs:
+  pr-hygiene:
+    name: pr-hygiene
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Python
+        run: sudo apt install python3
+        shell: bash
+
+      - uses: actions/checkout@v6
+        with:
+          # Assume that there are not >200 new commits that need checking.
+          fetch-depth: 200
+          # Don't create a merge commit.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Initialize submodules with retry
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
+
+      - name: Check commit style
+        run: $GITHUB_WORKSPACE/.github/workflows/check_commit_style.py ${{ github.base_ref }}
+        shell: bash
+
+      - name: Check line endings
+        # Pinned from erclu/check-crlf@master.
+        uses: erclu/check-crlf@c77fda0a97ea8944aba5f72796b9e937e7d1611c
+        with:
+          exclude: '3rdparty/'
+
+      - uses: ./.github/actions/install-dependencies
+        with:
+          type: shared
+          os: ubuntu-latest
+          arch: x86_64
+
+      - name: Generate compile-command DB
+        run: mkdir build; cd build; cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..; cd ..; ln -s build/compile_commands.json .
+        shell: bash
+
+      - name: Find changed source files
+        id: changed-format-files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags --depth=200 origin "${{ github.base_ref }}"
+          mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMRT FETCH_HEAD...HEAD)
+          source_files=()
+
+          for file in "${changed_files[@]}"; do
+            case "$file" in
+              3rdparty/*|build/*|*.proto)
+                continue
+                ;;
+              *.c|*.C|*.cc|*.cpp|*.cxx|*.c++|*.h|*.H|*.hh|*.hpp|*.hxx|*.h++|*.ino|*.pde|*.cu)
+                source_files+=( "$file" )
+                ;;
+            esac
+          done
+
+          if [[ "${#source_files[@]}" -eq 0 ]]; then
+            echo "No changed C/C++/CUDA files need clang-format checks."
+            echo "has_source_changes=false" >> "$GITHUB_OUTPUT"
+            echo "include_regex=^$" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf 'Changed source file: %s\n' "${source_files[@]}"
+          include_regex="$( python3 - "${source_files[@]}" <<'PY'
+          import re
+          import sys
+
+          print(r"^\./(" + "|".join(re.escape(path) for path in sys.argv[1:]) + r")$")
+          PY
+          )"
+
+          echo "has_source_changes=true" >> "$GITHUB_OUTPUT"
+          echo "include_regex=$include_regex" >> "$GITHUB_OUTPUT"
+
+      - name: Check code formatting
+        if: steps.changed-format-files.outputs.has_source_changes == 'true'
+        uses: jidicula/clang-format-action@v4.16.0
+        with:
+          clang-format-version: '10'
+          check-path: '.'
+          exclude-regex: '(\.git/.*|3rdparty/.*|build/.*|.*proto$)'
+          include-regex: ${{ steps.changed-format-files.outputs.include_regex }}
+
+  fetch_build_number:
+    name: fetch-build-number
+    runs-on: ubuntu-latest
+    outputs:
+      build_number: ${{ steps.fetch.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - id: fetch
+        shell: bash
+        run: |
+          build_version="$("${{ github.workspace }}/scripts/mumble-version.py")"
+          build_number="$("${{ github.workspace }}/scripts/mumble-build-number.py" \
+            --commit "${{ github.sha }}" --version "${build_version}" \
+            --password "${{ secrets.BUILD_NUMBER_TOKEN }}" --default 0)"
+          echo "Build Number: ${build_version}.${build_number}"
+          echo "build_number=${build_number}" >> "$GITHUB_OUTPUT"
+
+  windows-client-server:
+    name: windows-client-server
+    needs: [ fetch_build_number ]
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Initialize submodules with retry
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
+
+      - name: Set environment variables
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "static" "x86_64" "${{ github.workspace }}"
+        shell: bash
+
+      - name: Select Windows CI build components
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "MUMBLE_BUILD_CLIENT=ON" >> "$GITHUB_ENV"
+          echo "MUMBLE_BUILD_SERVER=ON" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENABLE_WINDOWS_PACKAGING=ON" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE=ON" >> "$GITHUB_ENV"
+          echo "CMAKE_OPTIONS=${CMAKE_OPTIONS} -Dtests=OFF" >> "$GITHUB_ENV"
+
+      - id: restore-build-env-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - uses: ./.github/actions/install-dependencies
+        with:
+          type: static
+          os: windows-2025-vs2026
+          arch: x86_64
+
+      - id: setup-windows-optional-runtimes
+        uses: ./.github/actions/setup-windows-optional-runtimes
+        with:
+          onnxruntime-version: ${{ env.ONNXRUNTIME_VERSION }}
+          install-rust: 'true'
+          install-ffmpeg: 'true'
+
+      - name: Build
+        run: ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
+        shell: bash
+        env:
+          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
+
+      - name: Verify Windows Screen-Share Helper Runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export MUMBLE_SCREENSHARE_TEST_PATTERN=1
+          export MUMBLE_SCREENSHARE_CAPTURE_SOURCE=test-pattern
+          export MUMBLE_SCREENSHARE_HEADLESS_VIEW=1
+          ffmpeg -version
+          helper_path="$(find build -iname 'mumble-screen-helper.exe' | head -n1)"
+          test -n "$helper_path"
+          "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --print-capabilities-json > build/windows-screen-share-capabilities.json
+          test -s build/windows-screen-share-capabilities.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          capabilities_envelope = json.loads(Path("build/windows-screen-share-capabilities.json").read_text(encoding="utf-8"))
+          capabilities = capabilities_envelope.get("payload", capabilities_envelope)
+          runtime_support = capabilities.get("runtime_support", capabilities)
+
+          if not runtime_support.get("ffmpeg_available"):
+              raise SystemExit("Helper runtime probe reports ffmpeg_available=false.")
+          if not capabilities.get("capture_supported"):
+              raise SystemExit("Helper runtime probe reports capture_supported=false.")
+          if not runtime_support.get("browser_webrtc_available"):
+              raise SystemExit("Helper runtime probe reports browser_webrtc_available=false.")
+          if not any(runtime_support.get(key) for key in ("edge_available", "chrome_available", "firefox_available")):
+              raise SystemExit("Helper runtime probe found no supported browser on this machine.")
+          if not any(runtime_support.get(key) for key in ("h264_mf_available", "h264_qsv_available", "libx264_available")):
+              raise SystemExit("Helper runtime probe found no usable H.264 encoder.")
+          PY
+          "$helper_path" --diagnostics-log-file build/windows-screen-share-helper.log --self-test > build/windows-screen-share-self-test.json
+          test -s build/windows-screen-share-self-test.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          self_test_envelope = json.loads(Path("build/windows-screen-share-self-test.json").read_text(encoding="utf-8"))
+          self_test = self_test_envelope.get("payload", self_test_envelope)
+          self_test_succeeded = bool(
+              self_test_envelope.get(
+                  "ok",
+                  self_test_envelope.get("success", self_test.get("success", False)),
+              )
+          )
+
+          if not self_test_succeeded:
+              raise SystemExit("Helper self-test reported success=false.")
+          if not self_test.get("output_file"):
+              raise SystemExit("Helper self-test did not report an output_file.")
+          PY
+
+      - name: Stage Windows Client Payload
+        shell: powershell
+        run: |
+          .\scripts\windows\stage-windows-client-payload.ps1 `
+            -BuildRoot .\build `
+            -BuildType $env:BUILD_TYPE `
+            -StageRoot .\build\windows-client-payload
+
+      - name: Validate Windows Client/Server Binary Set
+        shell: powershell
+        run: |
+          .\scripts\windows\assert-windows-build-artifacts.ps1 `
+            -BuildRoot .\build `
+            -StageRoot .\build\windows-client-payload `
+            -RequireStage `
+            -RequireClient `
+            -RequireServer `
+            -RequireScreenHelper `
+            -RequireSpeechCleanup `
+            -ArtifactListPath .\build\windows-binary-artifacts.txt
+
+      - name: Validate Windows Installers
+        shell: powershell
+        run: |
+          .\scripts\windows\assert-windows-build-artifacts.ps1 `
+            -BuildRoot .\build `
+            -RequireClientInstaller `
+            -RequireServerInstaller `
+            -ArtifactListPath .\build\windows-installer-artifacts.txt
+
+      - name: Publish Windows Client/Server Artifacts
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: 'Mumble-windows-client-server'
+          compression-level: 0
+          path: |
+            build/windows-client-payload/**
+            build/windows-binary-artifacts.txt
+            build/windows-installer-artifacts.txt
+            build/windows-screen-share-capabilities.json
+            build/windows-screen-share-helper.log
+            build/windows-screen-share-self-test.json
+            build/installer/client/*client*.msi
+            build/installer/server/*server*.msi
+            build/installer/client/*_client-*.exe
+            build/installer/server/*_server-*.exe
+
+      - if: ${{ github.event_name != 'pull_request' && steps.restore-build-env-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - if: ${{ github.event_name != 'pull_request' && steps.setup-windows-optional-runtimes.outputs.onnxruntime-cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/onnxruntime/win-x64-${{ env.ONNXRUNTIME_VERSION }}
+          key: onnxruntime-${{ runner.os }}-x64-${{ env.ONNXRUNTIME_VERSION }}
+
+  linux-server:
+    name: linux-server
+    needs: [ fetch_build_number ]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Initialize submodules with retry
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
+
+      - name: Set environment variables
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "ubuntu-24.04" "static" "x86_64" "${{ github.workspace }}"
+        shell: bash
+
+      - name: Select Linux CI build components
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "MUMBLE_BUILD_CLIENT=OFF" >> "$GITHUB_ENV"
+          echo "MUMBLE_BUILD_SERVER=ON" >> "$GITHUB_ENV"
+          echo "CMAKE_OPTIONS=${CMAKE_OPTIONS} -Dtests=OFF" >> "$GITHUB_ENV"
+
+      - id: restore-build-env-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - uses: ./.github/actions/install-dependencies
+        with:
+          type: static
+          os: ubuntu-24.04
+          arch: x86_64
+
+      - name: Build
+        run: ./.github/workflows/build.sh "ubuntu-24.04" "static" "x86_64"
+        shell: bash
+        env:
+          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
+
+      - name: Validate Linux Server Binary Set
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -x build/mumble-server
+          test ! -e build/mumble
+
+      - name: Publish Linux Server Artifacts
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: 'Mumble-linux-server'
+          compression-level: 0
+          path: |
+            build/mumble-server
+
+      - if: ${{ github.event_name != 'pull_request' && steps.restore-build-env-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+  linux-tests:
+    name: linux-tests
+    needs: [ fetch_build_number ]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Initialize submodules with retry
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
+
+      - name: Set environment variables
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "ubuntu-24.04" "shared" "x86_64" "${{ github.workspace }}"
+        shell: bash
+
+      - name: Select Linux test components
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "MUMBLE_BUILD_CLIENT=OFF" >> "$GITHUB_ENV"
+          echo "MUMBLE_BUILD_SERVER=ON" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/install-dependencies
+        with:
+          type: shared
+          os: ubuntu-24.04
+          arch: x86_64
+
+      - name: Build
+        run: ./.github/workflows/build.sh "ubuntu-24.04" "shared" "x86_64"
+        shell: bash
+        env:
+          MUMBLE_BUILD_NUMBER: ${{ needs.fetch_build_number.outputs.build_number }}
+
+      - name: Test
+        working-directory: ${{ github.workspace }}/build
+        shell: bash
+        run: ctest --output-on-failure -C $BUILD_TYPE

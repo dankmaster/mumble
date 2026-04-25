@@ -1,9 +1,13 @@
-name: Find and close stale issues
+name: Issue Maintenance
+
 on:
   schedule:
     - cron: "45 2 * * *"
     - cron: "45 3 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   no-response:

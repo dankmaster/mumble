@@ -12,8 +12,8 @@
   <a href="https://www.mumble.info"><img alt="Mumble website" src="https://img.shields.io/badge/Mumble-website-2f80ed?style=for-the-badge"></a>
   <a href="https://github.com/mumble-voip/mumble"><img alt="Upstream project" src="https://img.shields.io/badge/upstream-mumble--voip%2Fmumble-555?style=for-the-badge"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-BSD--3--Clause-green?style=for-the-badge"></a>
-  <a href="https://github.com/dankmaster/mumble/actions/workflows/build.yml"><img alt="Build workflow" src="https://img.shields.io/github/actions/workflow/status/dankmaster/mumble/build.yml?branch=master&label=build&style=for-the-badge"></a>
-  <a href="https://github.com/dankmaster/mumble/actions/workflows/windows-client.yml"><img alt="Windows client workflow" src="https://img.shields.io/github/actions/workflow/status/dankmaster/mumble/windows-client.yml?branch=master&label=windows&style=for-the-badge"></a>
+  <a href="https://github.com/dankmaster/mumble/actions/workflows/ci.yml"><img alt="CI workflow" src="https://img.shields.io/github/actions/workflow/status/dankmaster/mumble/ci.yml?branch=master&label=ci&style=for-the-badge"></a>
+  <a href="https://github.com/dankmaster/mumble/actions/workflows/windows-shared-client.yml"><img alt="Windows shared client workflow" src="https://img.shields.io/github/actions/workflow/status/dankmaster/mumble/windows-shared-client.yml?branch=master&label=windows&style=for-the-badge"></a>
 </p>
 
 <p align="center">

@@ -20,6 +20,7 @@ sudo apt -y install \
 	libzeroc-ice-dev \
 	protobuf-compiler \
 	qt6-base-dev \
+	qt6-qpa-plugins \
 	`# Still required for qtbase vcpkg package` \
 	'^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libegl1-mesa-dev \
 	`# TODO: can we get rid of these by replacing with vcpkg packages?` \

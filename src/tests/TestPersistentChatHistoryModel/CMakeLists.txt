@@ -10,6 +10,9 @@ add_executable(TestPersistentChatHistoryModel
 
 set_target_properties(TestPersistentChatHistoryModel PROPERTIES AUTOMOC ON)
 
-target_link_libraries(TestPersistentChatHistoryModel PRIVATE shared Qt6::Test)
+find_pkg(Qt6 COMPONENTS Widgets REQUIRED)
+
+target_include_directories(TestPersistentChatHistoryModel PRIVATE "${CMAKE_SOURCE_DIR}/src/mumble")
+target_link_libraries(TestPersistentChatHistoryModel PRIVATE shared Qt6::Test Qt6::Widgets)
 
 add_test(NAME TestPersistentChatHistoryModel COMMAND $<TARGET_FILE:TestPersistentChatHistoryModel>)

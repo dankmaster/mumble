@@ -1,6 +1,9 @@
-name: "Code Scanning - Action"
+name: CodeQL
 
 on: [push, pull_request]
+
+permissions:
+  contents: read
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
@@ -11,6 +14,9 @@ env:
 jobs:
   pre_run:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       should_skip: ${{ steps.skip_check.outputs.should_skip }}
     steps:

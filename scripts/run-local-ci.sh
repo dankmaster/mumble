@@ -30,7 +30,7 @@ Environment overrides:
   JOBS                 Parallelism for cmake --build. Default: nproc or 4
 
 Notes:
-  - This script mirrors the Linux/macOS configure/build/test flow from .github/workflows/build.yml.
+  - This script mirrors the Linux/macOS configure/build/test flow from .github/workflows/ci.yml.
   - On Linux it will automatically use vendored local deps under .local-deps/ when present.
 EOF
 }
