@@ -1,5 +1,5 @@
 name: 'Setup Windows Optional Runtimes'
-description: 'Restore and install optional Windows runtime dependencies used by CI builds.'
+description: 'Restore and install optional Windows runtime and toolchain dependencies used by CI builds.'
 author: 'Mumble Developers'
 
 inputs:
@@ -23,6 +23,81 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Install vcvars-bash for MSVC setup
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ ! -f "C:/vcvars-bash/vcvarsall.sh" ]]; then
+          rm -rf "C:/vcvars-bash"
+          git -c protocol.version=2 -c http.version=HTTP/1.1 clone --depth 1 \
+            https://github.com/nathan818fr/vcvars-bash.git "C:/vcvars-bash"
+        fi
+
+    - name: Install Windows optional SDKs
+      shell: powershell
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        function Copy-DirectoryContents {
+          param(
+            [Parameter(Mandatory = $true)]
+            [string]$Source,
+
+            [Parameter(Mandatory = $true)]
+            [string]$Destination
+          )
+
+          if (Test-Path -LiteralPath $Destination) {
+            Remove-Item -LiteralPath $Destination -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+          Get-ChildItem -LiteralPath $Source -Force |
+            Copy-Item -Destination $Destination -Recurse -Force
+        }
+
+        $thirdPartyRoot = Join-Path $env:GITHUB_WORKSPACE "3rdparty"
+        New-Item -ItemType Directory -Force -Path $thirdPartyRoot | Out-Null
+
+        $asioRoot = Join-Path $thirdPartyRoot "asio"
+        $asioHeader = Join-Path $asioRoot "common\asio.h"
+        if (-not (Test-Path -LiteralPath $asioHeader)) {
+          $asioArchive = Join-Path $env:RUNNER_TEMP "asio_sdk.zip"
+          $asioExtractRoot = Join-Path $env:RUNNER_TEMP "asio_sdk"
+          Remove-Item -LiteralPath $asioExtractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $asioExtractRoot | Out-Null
+          Invoke-WebRequest -Uri "https://dl.mumble.info/build/extra/asio_sdk.zip" -OutFile $asioArchive
+          Expand-Archive -LiteralPath $asioArchive -DestinationPath $asioExtractRoot -Force
+
+          $asioHeaderSource = Get-ChildItem -LiteralPath $asioExtractRoot -Recurse -File -Filter "asio.h" |
+            Where-Object { $_.FullName -match "\\common\\asio\.h$" } |
+            Select-Object -First 1
+          if (-not $asioHeaderSource) {
+            throw "Downloaded ASIO SDK did not contain common\asio.h."
+          }
+
+          $asioSourceRoot = Split-Path -Parent $asioHeaderSource.Directory.FullName
+          Copy-DirectoryContents -Source $asioSourceRoot -Destination $asioRoot
+        }
+
+        $g15Root = Join-Path $thirdPartyRoot "g15"
+        $g15Lib = Join-Path $g15Root "Lib\x64\lglcd.lib"
+        if (-not (Test-Path -LiteralPath $g15Lib)) {
+          $g15Archive = Join-Path $env:RUNNER_TEMP "g15_sdk.zip"
+          $g15ExtractRoot = Join-Path $env:RUNNER_TEMP "g15_sdk"
+          Remove-Item -LiteralPath $g15ExtractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $g15ExtractRoot | Out-Null
+          Invoke-WebRequest -Uri "https://dl.mumble.info/build/extra/g15_sdk.zip" -OutFile $g15Archive
+          Expand-Archive -LiteralPath $g15Archive -DestinationPath $g15ExtractRoot -Force
+
+          $g15SourceRoot = Get-ChildItem -LiteralPath $g15ExtractRoot -Recurse -Directory -Filter "LCDSDK" |
+            Select-Object -First 1
+          if (-not $g15SourceRoot) {
+            throw "Downloaded G15 SDK did not contain LCDSDK."
+          }
+
+          Copy-DirectoryContents -Source $g15SourceRoot.FullName -Destination $g15Root
+        }
+
     - id: restore-onnxruntime-cache
       uses: actions/cache/restore@v5
       with:

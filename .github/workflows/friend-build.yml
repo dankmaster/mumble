@@ -85,7 +85,24 @@ jobs:
             Remove-Item -LiteralPath $installRoot -Recurse -Force
           }
           New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
-          tar -xf $archive -C $installRoot
+          $extractRoot = Join-Path $env:RUNNER_TEMP "WixSharpExtract"
+          if (Test-Path -LiteralPath $extractRoot) {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+          tar -xf $archive -C $extractRoot
+
+          $cscs = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "cscs.exe" |
+            Where-Object { $_.FullName -notmatch "\\Samples\\" } |
+            Select-Object -First 1
+          if (-not $cscs) {
+            throw "WixSharp cscs.exe was not found after extracting '$archive'."
+          }
+
+          $sourceRoot = $cscs.Directory.FullName
+          Write-Host "Using WixSharp files from '$sourceRoot'."
+          Get-ChildItem -LiteralPath $sourceRoot -Force |
+            Copy-Item -Destination $installRoot -Recurse -Force
 
           $wixBin = Join-Path $installRoot "Wix_bin\bin"
           if (-not (Test-Path -LiteralPath (Join-Path $installRoot "cscs.exe"))) {
