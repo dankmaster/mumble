@@ -21,8 +21,8 @@ There is also a small human-facing installer workflow for trusted testers:
 - Workflow: `Friend MSI Release`
 - File: [friend-build.yml](../.github/workflows/friend-build.yml)
 - Trigger: manual dispatch from `master`
-- Static Windows runner: `windows-2025-vs2026`
-- Output: the latest unsigned client MSI attached to the stable
+- Shared Windows runner: `windows-2022`
+- Output: the latest unsigned shared/WebEngine client MSI attached to the stable
   `friend-build` GitHub Release
 
 ## Recommended use
@@ -32,8 +32,9 @@ There is also a small human-facing installer workflow for trusted testers:
   under `build-shared-webengine\shared-webengine-stage` or downloadable Windows
   shared client artifacts.
 - Use `Friend MSI Release` only when you want a simple download link for
-  friends or trusted testers. It publishes the MSI to a normal GitHub Release
-  instead of a short-lived Actions artifact.
+  friends or trusted testers. It uses the shared/WebEngine lane so the installer
+  includes the current Modern/WebEngine functionality, then publishes the MSI to
+  a normal GitHub Release instead of a short-lived Actions artifact.
 
 ## How to run the shared client workflow
 
@@ -52,11 +53,11 @@ There is also a small human-facing installer workflow for trusted testers:
 5. Send friends the stable release page:
    `https://github.com/dankmaster/mumble/releases/tag/friend-build`.
 
-The workflow deletes older `friend-build` / `friend-build-*` releases and tags,
-then recreates the stable `friend-build` tag and release from the current
-`master` commit. It explicitly preserves `build-env-*` releases, including the
-important `build-env-2025-11` release used by the shared Windows build
-environment.
+The workflow builds the shared/WebEngine Windows client with packaging enabled,
+deletes older `friend-build` / `friend-build-*` releases and tags, then
+recreates the stable `friend-build` tag and release from the current `master`
+commit. It explicitly preserves `build-env-*` releases, including the important
+`build-env-2025-11` release used by the shared Windows build environment.
 
 The `Release Publishing` workflow ignores `friend-build*` and `build-env-*`
 tags so this friend MSI does not dispatch Docker publishing or WinGet updates.
