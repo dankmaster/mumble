@@ -90,7 +90,51 @@ jobs:
             Remove-Item -LiteralPath $extractRoot -Recurse -Force
           }
           New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
-          tar -xf $archive -C $extractRoot
+
+          function Resolve-SevenZipPath {
+            $command = Get-Command 7z.exe -ErrorAction SilentlyContinue
+            if ($command) {
+              return $command.Source
+            }
+
+            foreach ($candidate in @(
+              "C:\Program Files\7-Zip\7z.exe",
+              "C:\Program Files (x86)\7-Zip\7z.exe",
+              "C:\ProgramData\chocolatey\bin\7z.exe"
+            )) {
+              if (Test-Path -LiteralPath $candidate) {
+                return $candidate
+              }
+            }
+
+            $chocolateyLib = "C:\ProgramData\chocolatey\lib"
+            if (Test-Path -LiteralPath $chocolateyLib) {
+              $portable = Get-ChildItem -LiteralPath $chocolateyLib -Recurse -File -Filter "7z.exe" -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if ($portable) {
+                return $portable.FullName
+              }
+            }
+
+            return $null
+          }
+
+          $sevenZip = Resolve-SevenZipPath
+          if (-not $sevenZip) {
+            choco install 7zip.portable -y --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              throw "Chocolatey failed to install 7zip.portable."
+            }
+            $sevenZip = Resolve-SevenZipPath
+          }
+          if (-not $sevenZip) {
+            throw "Unable to locate 7z.exe for extracting WixSharp."
+          }
+
+          & $sevenZip x -y "-o$extractRoot" $archive
+          if ($LASTEXITCODE -ne 0) {
+            throw "7z.exe failed to extract '$archive'."
+          }
 
           $cscs = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "cscs.exe" |
             Where-Object { $_.FullName -notmatch "\\Samples\\" } |
