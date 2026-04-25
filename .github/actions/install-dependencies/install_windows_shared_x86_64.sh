@@ -50,7 +50,8 @@ shared_environment_has_webengine_runtime() {
 
 if have_archive_extractor; then
 	archive_url="$MUMBLE_ENVIRONMENT_SOURCE/$MUMBLE_ENVIRONMENT_VERSION.7z"
-	if remote_file_exists "$archive_url"; then
+	split_archive_url="$archive_url.001"
+	if remote_file_exists "$archive_url" || remote_file_exists "$split_archive_url"; then
 		make_build_env_available "7z"
 	fi
 fi

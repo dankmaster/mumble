@@ -104,10 +104,42 @@ Notes for local use:
   hard pending-reboot blockers to warnings for that run instead of aborting.
 - It skips local MySQL setup because that workflow has tests disabled.
 - Artifacts are written into the repo's `build\` directory.
-- Shared/WebEngine builds no longer require a published
-  `mumble_env.x64-windows.*.7z` release asset. If that archive is missing, the
-  dependency installer now clones the pinned `mumble-voip/vcpkg` repo, bootstraps
-  `vcpkg.exe`, and installs the `x64-windows` dependency set locally.
+- The shared/WebEngine workflow now looks for
+  `mumble_env.x64-windows.<commit>.7z` or split
+  `mumble_env.x64-windows.<commit>.7z.001/.002/...` assets under this repo's
+  `build-env-<release>` GitHub release tag before it falls back to the slow
+  local Qt/vcpkg bootstrap path.
 - Expect that first shared/WebEngine dependency bootstrap to be heavy. The full
   Windows vcpkg environment is typically tens of GB on disk and Qt WebEngine
   builds can take a long time on a fresh machine.
+
+## Publishing a reusable Windows build environment
+
+If you already have a populated local Windows build environment under
+`build_env\`, you can package and publish the exact `.7z` archive that the
+shared Windows CI lane expects:
+
+```powershell
+.\scripts\windows\publish-windows-build-environment.ps1 `
+  -EnvironmentRelease 2025-11 `
+  -EnvironmentCommit 127cccc01d `
+  -BuildType shared `
+  -Upload `
+  -CreateRelease
+```
+
+Notes:
+
+- By default the script creates split `mumble_env.x64-windows.<commit>.7z.001`
+  style volumes under `.tmp\build-env-archives\` using a `1900m` size cap, so
+  the assets fit under GitHub's per-release-asset upload limit.
+- By default it publishes to the GitHub repo from your `origin` remote and
+  uses the release tag `build-env-<release>`.
+- Pass `-Repository <owner>/<repo>` and optionally `-ReleaseTag <tag>` if you
+  want to publish to a sister repo instead of this one.
+- It uploads only when `-Upload` is passed. Without that flag it just creates
+  the local archive so you can inspect it first.
+- If the release already exists and you want to replace the asset, rerun with
+  `-Clobber`.
+- The script requires a 7-Zip-compatible CLI (`7z.exe` or `7za.exe`) and
+  `gh.exe` for uploads.

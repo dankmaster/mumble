@@ -46,9 +46,51 @@ jobs:
       run: mkdir build; cd build; cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..; cd ..; ln -s build/compile_commands.json .
       shell: bash
 
+    - name: Find changed source files
+      id: changed-format-files
+      shell: bash
+      run: |
+          set -euo pipefail
+
+          git fetch --no-tags --depth=200 origin "${{ github.base_ref }}"
+          mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMRT FETCH_HEAD...HEAD)
+          source_files=()
+
+          for file in "${changed_files[@]}"; do
+              case "$file" in
+                  3rdparty/*|build/*|*.proto)
+                      continue
+                      ;;
+                  *.c|*.C|*.cc|*.cpp|*.cxx|*.c++|*.h|*.H|*.hh|*.hpp|*.hxx|*.h++|*.ino|*.pde|*.cu)
+                      source_files+=( "$file" )
+                      ;;
+              esac
+          done
+
+          if [[ "${#source_files[@]}" -eq 0 ]]; then
+              echo "No changed C/C++/CUDA files need clang-format checks."
+              echo "has_source_changes=false" >> "$GITHUB_OUTPUT"
+              echo "include_regex=^$" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+
+          printf 'Changed source file: %s\n' "${source_files[@]}"
+          include_regex="$( python3 - "${source_files[@]}" <<'PY'
+          import re
+          import sys
+
+          print(r"^\./(" + "|".join(re.escape(path) for path in sys.argv[1:]) + r")$")
+          PY
+          )"
+
+          echo "has_source_changes=true" >> "$GITHUB_OUTPUT"
+          echo "include_regex=$include_regex" >> "$GITHUB_OUTPUT"
+
     - name: Check code formatting
+      if: steps.changed-format-files.outputs.has_source_changes == 'true'
       uses: jidicula/clang-format-action@v4.16.0
       with:
           clang-format-version: '10'
           check-path: '.'
           exclude-regex: '(\\.git/.*|3rdparty/.*|build/.*|.*proto$)'
+          include-regex: ${{ steps.changed-format-files.outputs.include_regex }}

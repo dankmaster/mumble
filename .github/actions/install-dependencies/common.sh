@@ -181,13 +181,19 @@ extract_with_progress() {
 	rm -rf "$tmp_dir"
 	mkdir "$tmp_dir"
 
-	if [[ "$fromFile" = *.7z || "$fromFile"  = *.zip ]]; then
+	if [[ "$fromFile" = *.7z || "$fromFile" = *.7z.[0-9][0-9][0-9] || "$fromFile" = *.zip ]]; then
 		if command -v 7z > /dev/null 2>&1; then
 			extract_cmd=( 7z x "$fromFile" -o"$tmp_dir" )
 
 			summary="$( 7z l "$fromFile" | tail -n 1 )"
 			fromSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 4 )"
 			toSize="$( echo "$summary" | tr -s ' ' | cut -d ' ' -f 3 )"
+			if ! [[ "$fromSize" =~ ^[0-9]+$ ]]; then
+				fromSize="$( stat -c '%s' "$fromFile" 2> /dev/null || echo 0 )"
+			fi
+			if ! [[ "$toSize" =~ ^[0-9]+$ ]]; then
+				toSize="$fromSize"
+			fi
 		elif command -v tar > /dev/null 2>&1; then
 			extract_cmd=( "$tar_exe" -xf "$fromFile" --directory "$tmp_dir" )
 
@@ -259,8 +265,10 @@ make_build_env_available() {
 
 		local env_archive="$MUMBLE_ENVIRONMENT_VERSION.$env_file_extension"
 		local env_archive_url="$MUMBLE_ENVIRONMENT_SOURCE/$env_archive"
+		local split_archive_first_part="$env_archive.001"
+		local split_archive_first_part_url="$env_archive_url.001"
 
-		if command -v curl > /dev/null 2>&1 && curl -I -f -L "$env_archive_url" > /dev/null 2>&1; then
+		if remote_file_exists "$env_archive_url"; then
 			download_file "$env_archive_url" "$env_archive"
 
 			echo "Extracting archive..."
@@ -269,6 +277,28 @@ make_build_env_available() {
 			fi
 
 			extract_with_progress "$env_archive" "$env_dir"
+		elif remote_file_exists "$split_archive_first_part_url"; then
+			local part_index=1
+			while true; do
+				local part_suffix
+				part_suffix="$( printf '.%03d' "$part_index" )"
+				local part_file="${env_archive}${part_suffix}"
+				local part_url="${env_archive_url}${part_suffix}"
+
+				if ! remote_file_exists "$part_url"; then
+					break
+				fi
+
+				download_file "$part_url" "$part_file"
+				part_index=$(( part_index + 1 ))
+			done
+
+			echo "Extracting split archive..."
+			if [[ ! -d "$env_dir" ]]; then
+				mkdir -p "$env_dir"
+			fi
+
+			extract_with_progress "$split_archive_first_part" "$env_dir"
 		elif [[ "${MUMBLE_ALLOW_ENVIRONMENT_BOOTSTRAP:-}" = "ON" ]]; then
 			echo "Environment archive is missing; falling back to local bootstrap."
 			ensure_build_env_repo_checkout
@@ -489,7 +519,6 @@ repair_malformed_qt_package_state() {
 
 report_malformed_qt_package_state() {
 	local triplet="$1"
-	local found=1
 
 	for package_name in qtdeclarative qtwebchannel qtwebengine; do
 		if qt_source_dir_missing_cmakelists "$package_name" "$triplet"; then
@@ -511,16 +540,14 @@ report_malformed_qt_package_state() {
 			if [[ -n "$log_path" ]]; then
 				echo "Relevant log: $log_path" 1>&2
 			fi
-			found=0
 		fi
 	done
 
-	return "$found"
+	return 0
 }
 
 report_qt_build_failure_logs() {
 	local triplet="$1"
-	local found=1
 	local buildtrees_root="$( get_vcpkg_buildtrees_root "$triplet" )"
 
 	for package_name in qtdeclarative qtwebchannel qtwebengine; do
@@ -548,14 +575,13 @@ report_qt_build_failure_logs() {
 			continue
 		fi
 
-		found=0
 		echo "::group::Qt dependency failure excerpt: $package_name"
 		echo "Source log: $log_path"
 		grep -E '(^FAILED:|: error:| fatal error | error C[0-9]+:| fatal error C[0-9]+:|LINK : fatal error LNK[0-9]+:|cl : Command line warning D9025|ninja: build stopped:)' "$log_path" | tail -n 40 || tail -n 80 "$log_path"
 		echo "::endgroup::"
 	done
 
-	return "$found"
+	return 0
 }
 
 install_mumble_vcpkg_dependencies() {
@@ -668,11 +694,25 @@ configure_database_tables() {
 				sql_statements+="CREATE USER 'mumble_test-user'@'localhost' IDENTIFIED BY 'MumbleTestPassword';"
 				sql_statements+="GRANT ALL PRIVILEGES ON \`mumble_test-db\`.* TO 'mumble_test-user'@'localhost';"
 
-				if $sudo_cmd mysql --user=root -e "SELECT 1" 2> /dev/null; then
-					# Passwordless
-					mysql_cmd=( $sudo_cmd mysql --user=root )
-				else
-					mysql_cmd=( $sudo_cmd mysql --user=root --password="root" )
+				local mysql_cmd=()
+				for _ in {1..30}; do
+					if $sudo_cmd mysql --user=root -e "SELECT 1" > /dev/null 2>&1; then
+						# Passwordless
+						mysql_cmd=( $sudo_cmd mysql --user=root )
+						break
+					fi
+
+					if $sudo_cmd mysql --user=root --password="root" -e "SELECT 1" > /dev/null 2>&1; then
+						mysql_cmd=( $sudo_cmd mysql --user=root --password="root" )
+						break
+					fi
+
+					sleep 2
+				done
+
+				if [[ "${#mysql_cmd[@]}" -eq 0 ]]; then
+					echo "Unable to connect to local MySQL as root after waiting for startup." 1>&2
+					exit 1
 				fi
 
 				echo "$sql_statements" | "${mysql_cmd[@]}"
