@@ -1,0 +1,192 @@
+name: Friend MSI Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  BUILD_TYPE: Release
+  CMAKE_OPTIONS: -Dtests=OFF -Dsymbols=ON -Ddisplay-install-paths=ON -Dtest-lto=OFF
+  FRIEND_RELEASE_TAG: friend-build
+  FRIEND_RELEASE_TITLE: Mumble Friend Build
+  ONNXRUNTIME_VERSION: 1.18.1
+  PROTECTED_BUILD_ENV_RELEASE_TAG: build-env-2025-11
+
+jobs:
+  build-and-publish-msi:
+    name: build-and-publish-msi
+    if: ${{ github.ref == 'refs/heads/master' }}
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Initialize submodules with retry
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/workflows/update_submodules_with_retry.sh"
+
+      - name: Set environment variables
+        shell: bash
+        run: $GITHUB_WORKSPACE/.github/workflows/set_environment_variables.sh "windows-2025-vs2026" "static" "x86_64" "${{ github.workspace }}"
+
+      - name: Select friend MSI build components
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo "MUMBLE_BUILD_CLIENT=ON" >> "$GITHUB_ENV"
+          echo "MUMBLE_BUILD_SERVER=OFF" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENABLE_WINDOWS_PACKAGING=ON" >> "$GITHUB_ENV"
+          echo "MUMBLE_ENABLE_WINDOWS_OVERLAY_XCOMPILE=ON" >> "$GITHUB_ENV"
+
+      - id: restore-build-env-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - uses: ./.github/actions/install-dependencies
+        with:
+          type: static
+          os: windows-2025-vs2026
+          arch: x86_64
+
+      - id: setup-windows-optional-runtimes
+        uses: ./.github/actions/setup-windows-optional-runtimes
+        with:
+          onnxruntime-version: ${{ env.ONNXRUNTIME_VERSION }}
+          install-rust: 'true'
+          install-ffmpeg: 'false'
+
+      - name: Build Windows client MSI
+        shell: bash
+        run: ./.github/workflows/build.sh "windows-2025-vs2026" "static" "x86_64"
+        env:
+          MUMBLE_BUILD_NUMBER: 0
+
+      - name: Validate friend MSI artifacts
+        shell: powershell
+        run: |
+          .\scripts\windows\assert-windows-build-artifacts.ps1 `
+            -BuildRoot .\build `
+            -RequireClient `
+            -RequireScreenHelper `
+            -RequireSpeechCleanup `
+            -RequireClientInstaller `
+            -ArtifactListPath .\build\friend-msi-artifacts.txt
+
+      - name: Prepare release assets
+        id: prepare-assets
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseDir = Join-Path $PWD "build\friend-release"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+          $clientMsi = Get-ChildItem -Path ".\build\installer\client" -Recurse -File -Filter "*client*.msi" |
+            Sort-Object -Property LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+          if (-not $clientMsi) {
+            throw "Unable to locate a client MSI under build\installer\client."
+          }
+
+          $assetPath = Join-Path $releaseDir "Mumble-Friend-Build.msi"
+          Copy-Item -LiteralPath $clientMsi.FullName -Destination $assetPath -Force
+
+          $hash = Get-FileHash -LiteralPath $assetPath -Algorithm SHA256
+          $hashPath = "$assetPath.sha256"
+          Set-Content -LiteralPath $hashPath -Value "$($hash.Hash)  Mumble-Friend-Build.msi"
+
+          $notesPath = Join-Path $releaseDir "release-notes.md"
+          $shortSha = "${{ github.sha }}".Substring(0, 12)
+          Set-Content -LiteralPath $notesPath -Value @"
+          # Mumble Friend Build
+
+          This is the latest unsigned MSI build for trusted friend testing.
+
+          - Commit: ${{ github.sha }}
+          - Branch/ref: ${{ github.ref_name }}
+          - Installer: Mumble-Friend-Build.msi
+          - SHA256: $($hash.Hash)
+
+          Windows may show a SmartScreen warning because this is not an official signed public release.
+          "@
+
+          "asset_path=$assetPath" >> $env:GITHUB_OUTPUT
+          "hash_path=$hashPath" >> $env:GITHUB_OUTPUT
+          "notes_path=$notesPath" >> $env:GITHUB_OUTPUT
+          "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
+
+      - name: Replace friend build release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $tag = $env:FRIEND_RELEASE_TAG
+          $protectedTag = $env:PROTECTED_BUILD_ENV_RELEASE_TAG
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "FRIEND_RELEASE_TAG is empty."
+          }
+          if ($tag -eq $protectedTag -or $tag -like "build-env-*") {
+            throw "Refusing to publish a friend build over protected build environment tag '$protectedTag'."
+          }
+
+          $releaseRows = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
+          foreach ($releaseRow in $releaseRows) {
+            $releaseTag = [string]$releaseRow.tagName
+            if ($releaseTag -eq $protectedTag -or $releaseTag -like "build-env-*") {
+              Write-Host "Preserving protected release '$releaseTag'."
+              continue
+            }
+            if ($releaseTag -eq $tag -or $releaseTag -like "$tag-*") {
+              Write-Host "Deleting previous friend build release '$releaseTag'."
+              gh release delete $releaseTag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+            }
+          }
+
+          git fetch --tags --force origin
+          $remoteTag = git ls-remote --tags origin "refs/tags/$tag"
+          if ($remoteTag) {
+            Write-Host "Deleting stale remote tag '$tag'."
+            git push origin ":refs/tags/$tag"
+          }
+
+          gh release create $tag `
+            "${{ steps.prepare-assets.outputs.asset_path }}" `
+            "${{ steps.prepare-assets.outputs.hash_path }}" `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title $env:FRIEND_RELEASE_TITLE `
+            --notes-file "${{ steps.prepare-assets.outputs.notes_path }}"
+
+      - name: Publish friend MSI workflow artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: Mumble-friend-msi
+          compression-level: 0
+          path: |
+            build/friend-release/Mumble-Friend-Build.msi
+            build/friend-release/Mumble-Friend-Build.msi.sha256
+            build/friend-release/release-notes.md
+            build/friend-msi-artifacts.txt
+
+      - if: ${{ steps.restore-build-env-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: '${{ env.MUMBLE_ENVIRONMENT_DIR }}'
+          key: ${{ env.MUMBLE_ENVIRONMENT_VERSION }}
+
+      - if: ${{ steps.setup-windows-optional-runtimes.outputs.onnxruntime-cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/onnxruntime/win-x64-${{ env.ONNXRUNTIME_VERSION }}
+          key: onnxruntime-${{ runner.os }}-x64-${{ env.ONNXRUNTIME_VERSION }}
