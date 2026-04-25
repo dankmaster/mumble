@@ -30,7 +30,7 @@ permissions:
 jobs:
   dispatch-docker:
     name: dispatch-docker
-    if: ${{ (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'friend-build') && !startsWith(github.event.release.tag_name, 'build-env-')) || (github.event_name == 'workflow_dispatch' && inputs.dispatch_docker) }}
+    if: ${{ (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'mumble-forked') && !startsWith(github.event.release.tag_name, 'build-env-')) || (github.event_name == 'workflow_dispatch' && inputs.dispatch_docker) }}
     runs-on: ubuntu-latest
     environment: release-publishing
     steps:
@@ -48,7 +48,7 @@ jobs:
 
   publish-winget-client:
     name: publish-winget-client
-    if: ${{ (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'friend-build') && !startsWith(github.event.release.tag_name, 'build-env-')) || (github.event_name == 'workflow_dispatch' && inputs.publish_winget) }}
+    if: ${{ (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'mumble-forked') && !startsWith(github.event.release.tag_name, 'build-env-')) || (github.event_name == 'workflow_dispatch' && inputs.publish_winget) }}
     runs-on: windows-latest
     environment: release-publishing
     steps:
@@ -63,7 +63,7 @@ jobs:
 
   publish-winget-server:
     name: publish-winget-server
-    if: ${{ (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'friend-build') && !startsWith(github.event.release.tag_name, 'build-env-')) || (github.event_name == 'workflow_dispatch' && inputs.publish_winget) }}
+    if: ${{ (github.event_name == 'release' && !startsWith(github.event.release.tag_name, 'mumble-forked') && !startsWith(github.event.release.tag_name, 'build-env-')) || (github.event_name == 'workflow_dispatch' && inputs.publish_winget) }}
     runs-on: windows-latest
     environment: release-publishing
     steps:
