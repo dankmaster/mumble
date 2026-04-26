@@ -24,10 +24,20 @@ project(mumble
 	LANGUAGES "C" "CXX"
 )
 
+set(MUMBLE_WINDOWS_INSTALLER_COMPATIBILITY_VERSION_DEFAULT "1.0.${BUILD_NUMBER}")
+set(MUMBLE_WINDOWS_INSTALLER_LEGACY_VERSION_DEFAULT "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0.${BUILD_NUMBER}")
+if("${MUMBLE_WINDOWS_INSTALLER_VERSION}" STREQUAL "${MUMBLE_WINDOWS_INSTALLER_LEGACY_VERSION_DEFAULT}")
+	set(MUMBLE_WINDOWS_INSTALLER_VERSION
+		"${MUMBLE_WINDOWS_INSTALLER_COMPATIBILITY_VERSION_DEFAULT}"
+		CACHE STRING
+		"Windows installer compatibility version used by the MSI/bundle upgrade path."
+		FORCE
+	)
+endif()
 set(MUMBLE_WINDOWS_INSTALLER_VERSION
-	"${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0.${BUILD_NUMBER}"
+	"${MUMBLE_WINDOWS_INSTALLER_COMPATIBILITY_VERSION_DEFAULT}"
 	CACHE STRING
-	"Windows installer compatibility version used by the MSI/bundle upgrade path. Defaults to major.minor.0.build so official Mumble installers stay newer and can replace the fork while fork installers can still replace existing installs."
+	"Windows installer compatibility version used by the MSI/bundle upgrade path. Defaults to 1.0.build so official Mumble installers stay newer and can replace the fork while fork installers can still replace existing installs."
 )
 
 set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty")

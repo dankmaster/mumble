@@ -141,6 +141,9 @@ Notes for local use:
 - The local build script skips MSI packaging by default for a faster local test
   loop. Pass `-EnablePackaging` only if you need installers and already have
   WiX available.
+- Windows installers use a deliberately low compatibility version by default
+  (`1.0.<build number>`) so stock Mumble installers can replace fork installs
+  in place.
 - Override the compatibility version only if you explicitly need a different
   upgrade relationship: `-DMUMBLE_WINDOWS_INSTALLER_VERSION=<version>`.
 - The script mirrors the shared workflow's configure/build path when
