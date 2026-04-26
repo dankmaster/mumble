@@ -96,6 +96,11 @@ jobs:
           install-rust: 'true'
           install-ffmpeg: ${{ github.event_name == 'workflow_dispatch' }}
 
+      - name: Install Windows installer tooling
+        uses: ./.github/actions/setup-windows-installer-tooling
+        with:
+          wixsharp-version: '1.19.0.0'
+
       - name: Build, package, and stage shared WebEngine client
         shell: powershell
         run: |
