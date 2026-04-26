@@ -43,12 +43,12 @@
 #	include <QtWebEngineWidgets/QWebEngineView>
 #endif
 #include "MenuLabel.h"
+#include "PTTButtonWidget.h"
 #include "PersistentChatController.h"
 #include "PersistentChatGateway.h"
 #include "PersistentChatHistoryDelegate.h"
 #include "PersistentChatHistoryModel.h"
 #include "PersistentChatRender.h"
-#include "PTTButtonWidget.h"
 #include "PluginManager.h"
 #include "PositionalAudioViewer.h"
 #include "QtWidgetUtils.h"
@@ -63,8 +63,8 @@
 #include "TalkingUI.h"
 #include "TextMessage.h"
 #include "Themes.h"
-#include "UiTheme.h"
 #include "Tokens.h"
+#include "UiTheme.h"
 #include "User.h"
 #include "UserEdit.h"
 #include "UserInformation.h"
@@ -91,53 +91,53 @@
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QDateTime>
 #include <QtCore/QFileInfo>
-#include <QtCore/QMimeData>
-#include <QtCore/QPointer>
-#include <QtCore/QSet>
-#include <QtCore/QTimer>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QLocale>
+#include <QtCore/QMimeData>
+#include <QtCore/QPointer>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QSet>
 #include <QtCore/QSignalBlocker>
 #include <QtCore/QStandardPaths>
+#include <QtCore/QTimer>
 #include <QtCore/QUrlQuery>
-#include <QtGui/QMouseEvent>
 #include <QtGui/QClipboard>
 #include <QtGui/QDesktopServices>
 #include <QtGui/QImageReader>
+#include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
 #include <QtGui/QPainterPath>
 #include <QtGui/QPixmap>
 #include <QtGui/QScreen>
+#include <QtGui/QTextCursor>
 #include <QtGui/QTextDocument>
 #include <QtGui/QTextDocumentFragment>
 #include <QtGui/QTextFrame>
 #include <QtGui/QWheelEvent>
 #include <QtGui/QWindow>
-#include <QtGui/QTextCursor>
-#include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QHostAddress>
+#include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QComboBox>
+#include <QtWidgets/QDialog>
+#include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QFileDialog>
-#include <QtWidgets/QFrame>
 #include <QtWidgets/QFormLayout>
+#include <QtWidgets/QFrame>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QLabel>
+#include <QtWidgets/QLineEdit>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QMessageBox>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QLineEdit>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QScrollBar>
-#include <QtWidgets/QSplitter>
-#include <QtWidgets/QSpinBox>
 #include <QtWidgets/QSizePolicy>
+#include <QtWidgets/QSpinBox>
+#include <QtWidgets/QSplitter>
 #include <QtWidgets/QStyle>
 #include <QtWidgets/QStyledItemDelegate>
 #include <QtWidgets/QToolButton>
@@ -163,1422 +163,1279 @@
 
 #include "widgets/EventFilters.h"
 namespace {
-	constexpr int PersistentChatScopeRole   = Qt::UserRole;
-	constexpr int PersistentChatScopeIDRole = Qt::UserRole + 1;
-	constexpr int PersistentChatThreadRole  = Qt::UserRole + 2;
-	constexpr int PersistentChatMessageIDRole = Qt::UserRole + 3;
-	constexpr int PersistentChatLabelRole   = Qt::UserRole + 4;
-	constexpr int PersistentChatUnreadRole  = Qt::UserRole + 5;
-	constexpr int LocalServerLogScope       = -1;
-	constexpr int LocalDirectMessageScope   = -2;
-	constexpr int PersistentChatBottomInsetHeight = 18;
-	constexpr int ModernShellSnapshotCoalesceMs = 16;
+constexpr int PersistentChatScopeRole         = Qt::UserRole;
+constexpr int PersistentChatScopeIDRole       = Qt::UserRole + 1;
+constexpr int PersistentChatThreadRole        = Qt::UserRole + 2;
+constexpr int PersistentChatMessageIDRole     = Qt::UserRole + 3;
+constexpr int PersistentChatLabelRole         = Qt::UserRole + 4;
+constexpr int PersistentChatUnreadRole        = Qt::UserRole + 5;
+constexpr int LocalServerLogScope             = -1;
+constexpr int LocalDirectMessageScope         = -2;
+constexpr int PersistentChatBottomInsetHeight = 18;
+constexpr int ModernShellSnapshotCoalesceMs   = 16;
 
-	bool modernShellMinimalSnapshotEnabled() {
-		static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0;
-		return enabled;
+bool modernShellMinimalSnapshotEnabled() {
+	static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0;
+	return enabled;
+}
+
+bool modernShellStaticModeEnabled() {
+	static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_STATIC_MODE") != 0;
+	return enabled;
+}
+
+void appendModernShellConnectTrace(const QString &message) {
+	if (qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") == 0) {
+		return;
 	}
 
-	bool modernShellStaticModeEnabled() {
-		static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_STATIC_MODE") != 0;
-		return enabled;
+	QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
+	if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
+		return;
 	}
 
-	void appendModernShellConnectTrace(const QString &message) {
-		if (qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") == 0) {
-			return;
-		}
+	const QByteArray line =
+		QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8() + " UI " + message.toUtf8() + '\n';
+	traceFile.write(line);
+	traceFile.flush();
+}
 
-		QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
-		if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
-			return;
-		}
-
-		const QByteArray line = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8()
-								+ " UI " + message.toUtf8() + '\n';
-		traceFile.write(line);
-		traceFile.flush();
+void removeChannelSubtreeWithoutModel(Channel *channel) {
+	if (!channel) {
+		return;
 	}
 
-	void removeChannelSubtreeWithoutModel(Channel *channel) {
-		if (!channel) {
-			return;
-		}
-
-		while (!channel->qlUsers.isEmpty()) {
-			User *baseUser = channel->qlUsers.constFirst();
-			ClientUser *user = baseUser ? ClientUser::get(baseUser->uiSession) : nullptr;
-			if (!user) {
-				break;
-			}
-			ClientUser::remove(user);
-			delete user;
-		}
-
-		while (!channel->qlChannels.isEmpty()) {
-			Channel *child = channel->qlChannels.constFirst();
-			removeChannelSubtreeWithoutModel(child);
-		}
-
-		Channel::remove(channel);
-		delete channel;
-	}
-
-	void clearConnectedStateWithoutUserModel() {
-		Channel *root = Channel::get(Mumble::ROOT_CHANNEL_ID);
-		if (!root) {
-			return;
-		}
-
-		while (!root->qlUsers.isEmpty()) {
-			User *baseUser = root->qlUsers.constFirst();
-			ClientUser *user = baseUser ? ClientUser::get(baseUser->uiSession) : nullptr;
-			if (!user) {
-				break;
-			}
-			ClientUser::remove(user);
-			delete user;
-		}
-
-		while (!root->qlChannels.isEmpty()) {
-			Channel *child = root->qlChannels.constFirst();
-			removeChannelSubtreeWithoutModel(child);
-		}
-	}
-
-	QString modernShellScopeToken(const int scopeValue, const unsigned int scopeID) {
-		return QStringLiteral("%1:%2").arg(scopeValue).arg(scopeID);
-	}
-
-	QList< unsigned int > sortedDirectMessageSessions() {
-		struct DirectMessageCandidate {
-			unsigned int session = 0;
-			QString sortKey;
-		};
-
-		QList< DirectMessageCandidate > candidates;
-		{
-			QReadLocker locker(&ClientUser::c_qrwlUsers);
-			for (auto it = ClientUser::c_qmUsers.cbegin(); it != ClientUser::c_qmUsers.cend(); ++it) {
-				const ClientUser *user = it.value();
-				if (!user || user->uiSession == Global::get().uiSession) {
-					continue;
-				}
-
-				candidates.push_back({ user->uiSession, user->qsName.toCaseFolded() });
-			}
-		}
-
-		std::sort(candidates.begin(), candidates.end(), [](const DirectMessageCandidate &lhs, const DirectMessageCandidate &rhs) {
-			if (lhs.sortKey != rhs.sortKey) {
-				return lhs.sortKey < rhs.sortKey;
-			}
-
-			return lhs.session < rhs.session;
-		});
-
-		QList< unsigned int > sessions;
-		sessions.reserve(candidates.size());
-		for (const DirectMessageCandidate &candidate : candidates) {
-			sessions.push_back(candidate.session);
-		}
-
-		return sessions;
-	}
-
-	QString modernShellParticipantSubtitle(const ClientUser *user, const Channel *contextChannel, const ClientUser *self,
-										   const ClientUser *directMessageUser) {
+	while (!channel->qlUsers.isEmpty()) {
+		User *baseUser   = channel->qlUsers.constFirst();
+		ClientUser *user = baseUser ? ClientUser::get(baseUser->uiSession) : nullptr;
 		if (!user) {
-			return QObject::tr("Unavailable");
+			break;
 		}
-		if (user == self) {
-			return QObject::tr("You");
-		}
-		if (directMessageUser && user == directMessageUser) {
-			return QObject::tr("Direct conversation");
-		}
-		if (!user->cChannel) {
-			return QObject::tr("No active channel");
-		}
-		if (contextChannel && user->cChannel == contextChannel) {
-			return QObject::tr("In this room");
-		}
-
-		return QObject::tr("In %1").arg(user->cChannel->qsName);
+		ClientUser::remove(user);
+		delete user;
 	}
 
-	QVariantList modernShellParticipantBadges(const ClientUser *user, const ClientUser *self) {
-		QVariantList badges;
+	while (!channel->qlChannels.isEmpty()) {
+		Channel *child = channel->qlChannels.constFirst();
+		removeChannelSubtreeWithoutModel(child);
+	}
+
+	Channel::remove(channel);
+	delete channel;
+}
+
+void clearConnectedStateWithoutUserModel() {
+	Channel *root = Channel::get(Mumble::ROOT_CHANNEL_ID);
+	if (!root) {
+		return;
+	}
+
+	while (!root->qlUsers.isEmpty()) {
+		User *baseUser   = root->qlUsers.constFirst();
+		ClientUser *user = baseUser ? ClientUser::get(baseUser->uiSession) : nullptr;
 		if (!user) {
-			return badges;
+			break;
 		}
+		ClientUser::remove(user);
+		delete user;
+	}
 
-		if (user == self) {
-			badges.push_back(QObject::tr("You"));
-		}
+	while (!root->qlChannels.isEmpty()) {
+		Channel *child = root->qlChannels.constFirst();
+		removeChannelSubtreeWithoutModel(child);
+	}
+}
 
-		switch (user->tsState) {
-			case Settings::Talking:
-				badges.push_back(QObject::tr("Talking"));
-				break;
-			case Settings::Whispering:
-				badges.push_back(QObject::tr("Whispering"));
-				break;
-			case Settings::Shouting:
-				badges.push_back(QObject::tr("Shouting"));
-				break;
-			case Settings::MutedTalking:
-				badges.push_back(QObject::tr("Muted mic"));
-				break;
-			case Settings::Passive:
-			default:
-				break;
-		}
+QString modernShellScopeToken(const int scopeValue, const unsigned int scopeID) {
+	return QStringLiteral("%1:%2").arg(scopeValue).arg(scopeID);
+}
 
-		if (user->bPrioritySpeaker) {
-			badges.push_back(QObject::tr("Priority"));
-		}
-		if (user->bRecording) {
-			badges.push_back(QObject::tr("Recording"));
-		}
-		if (user->bSuppress) {
-			badges.push_back(QObject::tr("Suppressed"));
-		}
-		if (user->bDeaf || user->bSelfDeaf) {
-			badges.push_back(QObject::tr("Deafened"));
-		} else if (user->bMute || user->bSelfMute) {
-			badges.push_back(QObject::tr("Muted"));
-		}
+QList< unsigned int > sortedDirectMessageSessions() {
+	struct DirectMessageCandidate {
+		unsigned int session = 0;
+		QString sortKey;
+	};
 
+	QList< DirectMessageCandidate > candidates;
+	{
+		QReadLocker locker(&ClientUser::c_qrwlUsers);
+		for (auto it = ClientUser::c_qmUsers.cbegin(); it != ClientUser::c_qmUsers.cend(); ++it) {
+			const ClientUser *user = it.value();
+			if (!user || user->uiSession == Global::get().uiSession) {
+				continue;
+			}
+
+			candidates.push_back({ user->uiSession, user->qsName.toCaseFolded() });
+		}
+	}
+
+	std::sort(candidates.begin(), candidates.end(),
+			  [](const DirectMessageCandidate &lhs, const DirectMessageCandidate &rhs) {
+				  if (lhs.sortKey != rhs.sortKey) {
+					  return lhs.sortKey < rhs.sortKey;
+				  }
+
+				  return lhs.session < rhs.session;
+			  });
+
+	QList< unsigned int > sessions;
+	sessions.reserve(candidates.size());
+	for (const DirectMessageCandidate &candidate : candidates) {
+		sessions.push_back(candidate.session);
+	}
+
+	return sessions;
+}
+
+QString modernShellParticipantSubtitle(const ClientUser *user, const Channel *contextChannel, const ClientUser *self,
+									   const ClientUser *directMessageUser) {
+	if (!user) {
+		return QObject::tr("Unavailable");
+	}
+	if (user == self) {
+		return QObject::tr("You");
+	}
+	if (directMessageUser && user == directMessageUser) {
+		return QObject::tr("Direct conversation");
+	}
+	if (!user->cChannel) {
+		return QObject::tr("No active channel");
+	}
+	if (contextChannel && user->cChannel == contextChannel) {
+		return QObject::tr("In this room");
+	}
+
+	return QObject::tr("In %1").arg(user->cChannel->qsName);
+}
+
+QVariantList modernShellParticipantBadges(const ClientUser *user, const ClientUser *self) {
+	QVariantList badges;
+	if (!user) {
 		return badges;
 	}
 
-	QVariantMap modernShellParticipantStatus(const QString &kind, const QString &label, const QString &tone) {
-		QVariantMap status;
-		status.insert(QStringLiteral("kind"), kind);
-		status.insert(QStringLiteral("label"), label);
-		if (!tone.isEmpty()) {
-			status.insert(QStringLiteral("tone"), tone);
-		}
-		return status;
+	if (user == self) {
+		badges.push_back(QObject::tr("You"));
 	}
 
-	QVariantList modernShellParticipantStatuses(const ClientUser *user) {
-		QVariantList statuses;
-		if (!user) {
-			return statuses;
-		}
+	switch (user->tsState) {
+		case Settings::Talking:
+			badges.push_back(QObject::tr("Talking"));
+			break;
+		case Settings::Whispering:
+			badges.push_back(QObject::tr("Whispering"));
+			break;
+		case Settings::Shouting:
+			badges.push_back(QObject::tr("Shouting"));
+			break;
+		case Settings::MutedTalking:
+			badges.push_back(QObject::tr("Muted mic"));
+			break;
+		case Settings::Passive:
+		default:
+			break;
+	}
 
-		if (!user->qsFriendName.isEmpty()) {
-			const bool customFriendLabel =
-				user->qsFriendName.compare(user->qsName, Qt::CaseInsensitive) != 0;
-			statuses.push_back(modernShellParticipantStatus(
-				QStringLiteral("friend"),
-				customFriendLabel ? QObject::tr("Friend: %1").arg(user->qsFriendName) : QObject::tr("Friend"),
-				QStringLiteral("favorite")));
-		}
+	if (user->bPrioritySpeaker) {
+		badges.push_back(QObject::tr("Priority"));
+	}
+	if (user->bRecording) {
+		badges.push_back(QObject::tr("Recording"));
+	}
+	if (user->bSuppress) {
+		badges.push_back(QObject::tr("Suppressed"));
+	}
+	if (user->bDeaf || user->bSelfDeaf) {
+		badges.push_back(QObject::tr("Deafened"));
+	} else if (user->bMute || user->bSelfMute) {
+		badges.push_back(QObject::tr("Muted"));
+	}
 
-		if (user->iId >= 0) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("authenticated"),
-														   QObject::tr("Authenticated user"),
-														   QStringLiteral("success")));
-		}
+	return badges;
+}
 
-		if (user->bDeaf) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("serverDeafened"),
-														   QObject::tr("Server deafened"),
-														   QStringLiteral("danger")));
-		} else if (user->bSelfDeaf) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("selfDeafened"), QObject::tr("Deafened"),
-														   QStringLiteral("danger")));
-		} else if (user->bMute) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("serverMuted"),
-														   QObject::tr("Server muted"),
-														   QStringLiteral("warning")));
-		} else if (user->bSelfMute) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("selfMuted"), QObject::tr("Muted"),
-														   QStringLiteral("warning")));
-		}
+QVariantMap modernShellParticipantStatus(const QString &kind, const QString &label, const QString &tone) {
+	QVariantMap status;
+	status.insert(QStringLiteral("kind"), kind);
+	status.insert(QStringLiteral("label"), label);
+	if (!tone.isEmpty()) {
+		status.insert(QStringLiteral("tone"), tone);
+	}
+	return status;
+}
 
-		if (user->bLocalMute) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("localMuted"),
-														   QObject::tr("Locally muted"),
-														   QStringLiteral("muted")));
-		}
-
-		if (user->bSuppress) {
-			statuses.push_back(modernShellParticipantStatus(QStringLiteral("suppressed"), QObject::tr("Suppressed"),
-														   QStringLiteral("warning")));
-		}
-
+QVariantList modernShellParticipantStatuses(const ClientUser *user) {
+	QVariantList statuses;
+	if (!user) {
 		return statuses;
 	}
 
-	bool parseModernShellScopeToken(const QString &token, int &scopeValue, unsigned int &scopeID) {
-		const QStringList parts = token.trimmed().split(QLatin1Char(':'));
-		if (parts.size() != 2) {
-			return false;
-		}
-
-		bool scopeOk = false;
-		bool idOk    = false;
-		scopeValue   = parts.at(0).toInt(&scopeOk);
-		scopeID      = parts.at(1).toUInt(&idOk);
-		return scopeOk && idOk;
+	if (!user->qsFriendName.isEmpty()) {
+		const bool customFriendLabel = user->qsFriendName.compare(user->qsName, Qt::CaseInsensitive) != 0;
+		statuses.push_back(modernShellParticipantStatus(
+			QStringLiteral("friend"),
+			customFriendLabel ? QObject::tr("Friend: %1").arg(user->qsFriendName) : QObject::tr("Friend"),
+			QStringLiteral("favorite")));
 	}
 
-	enum class PersistentChatComposerGlyph {
-		Attach,
-		Send
-	};
-
-	QColor alphaColor(const QColor &color, qreal alpha) {
-		QColor adjusted = color;
-		adjusted.setAlphaF(qBound< qreal >(0.0, alpha, 1.0));
-		return adjusted;
+	if (user->iId >= 0) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("authenticated"),
+														QObject::tr("Authenticated user"), QStringLiteral("success")));
 	}
 
-	QPixmap tintedIconPixmap(const QIcon &icon, const QSize &size, const QColor &color) {
-		const QSize effectiveSize = size.isValid() ? size : QSize(16, 16);
-		QPixmap pixmap            = icon.pixmap(effectiveSize);
-		if (pixmap.isNull()) {
-			return pixmap;
-		}
+	if (user->bDeaf) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("serverDeafened"),
+														QObject::tr("Server deafened"), QStringLiteral("danger")));
+	} else if (user->bSelfDeaf) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("selfDeafened"), QObject::tr("Deafened"),
+														QStringLiteral("danger")));
+	} else if (user->bMute) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("serverMuted"), QObject::tr("Server muted"),
+														QStringLiteral("warning")));
+	} else if (user->bSelfMute) {
+		statuses.push_back(
+			modernShellParticipantStatus(QStringLiteral("selfMuted"), QObject::tr("Muted"), QStringLiteral("warning")));
+	}
 
-		QPainter painter(&pixmap);
-		painter.setRenderHint(QPainter::Antialiasing, true);
-		painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-		painter.fillRect(pixmap.rect(), color);
+	if (user->bLocalMute) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("localMuted"), QObject::tr("Locally muted"),
+														QStringLiteral("muted")));
+	}
+
+	if (user->bSuppress) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("suppressed"), QObject::tr("Suppressed"),
+														QStringLiteral("warning")));
+	}
+
+	return statuses;
+}
+
+bool parseModernShellScopeToken(const QString &token, int &scopeValue, unsigned int &scopeID) {
+	const QStringList parts = token.trimmed().split(QLatin1Char(':'));
+	if (parts.size() != 2) {
+		return false;
+	}
+
+	bool scopeOk = false;
+	bool idOk    = false;
+	scopeValue   = parts.at(0).toInt(&scopeOk);
+	scopeID      = parts.at(1).toUInt(&idOk);
+	return scopeOk && idOk;
+}
+
+enum class PersistentChatComposerGlyph { Attach, Send };
+
+QColor alphaColor(const QColor &color, qreal alpha) {
+	QColor adjusted = color;
+	adjusted.setAlphaF(qBound< qreal >(0.0, alpha, 1.0));
+	return adjusted;
+}
+
+QPixmap tintedIconPixmap(const QIcon &icon, const QSize &size, const QColor &color) {
+	const QSize effectiveSize = size.isValid() ? size : QSize(16, 16);
+	QPixmap pixmap            = icon.pixmap(effectiveSize);
+	if (pixmap.isNull()) {
 		return pixmap;
 	}
 
-	QPointF composerGlyphPoint(const QRectF &rect, qreal x, qreal y) {
-		return QPointF(rect.left() + (rect.width() * x / 18.0), rect.top() + (rect.height() * y / 18.0));
+	QPainter painter(&pixmap);
+	painter.setRenderHint(QPainter::Antialiasing, true);
+	painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+	painter.fillRect(pixmap.rect(), color);
+	return pixmap;
+}
+
+QPointF composerGlyphPoint(const QRectF &rect, qreal x, qreal y) {
+	return QPointF(rect.left() + (rect.width() * x / 18.0), rect.top() + (rect.height() * y / 18.0));
+}
+
+QPainterPath persistentChatComposerGlyphPath(PersistentChatComposerGlyph glyph, const QRectF &rect) {
+	QPainterPath path;
+	switch (glyph) {
+		case PersistentChatComposerGlyph::Attach:
+			path.moveTo(composerGlyphPoint(rect, 11.9, 4.2));
+			path.cubicTo(composerGlyphPoint(rect, 11.1, 3.6), composerGlyphPoint(rect, 10.2, 3.3),
+						 composerGlyphPoint(rect, 9.2, 3.3));
+			path.cubicTo(composerGlyphPoint(rect, 7.2, 3.3), composerGlyphPoint(rect, 5.6, 4.9),
+						 composerGlyphPoint(rect, 5.6, 6.9));
+			path.lineTo(composerGlyphPoint(rect, 5.6, 11.8));
+			path.cubicTo(composerGlyphPoint(rect, 5.6, 14.1), composerGlyphPoint(rect, 7.5, 16.0),
+						 composerGlyphPoint(rect, 9.8, 16.0));
+			path.cubicTo(composerGlyphPoint(rect, 12.1, 16.0), composerGlyphPoint(rect, 14.0, 14.1),
+						 composerGlyphPoint(rect, 14.0, 11.8));
+			path.lineTo(composerGlyphPoint(rect, 14.0, 7.3));
+			path.cubicTo(composerGlyphPoint(rect, 14.0, 5.7), composerGlyphPoint(rect, 12.7, 4.5),
+						 composerGlyphPoint(rect, 11.1, 4.5));
+			path.cubicTo(composerGlyphPoint(rect, 9.6, 4.5), composerGlyphPoint(rect, 8.3, 5.7),
+						 composerGlyphPoint(rect, 8.3, 7.3));
+			path.lineTo(composerGlyphPoint(rect, 8.3, 11.3));
+			path.cubicTo(composerGlyphPoint(rect, 8.3, 12.2), composerGlyphPoint(rect, 9.0, 12.9),
+						 composerGlyphPoint(rect, 9.9, 12.9));
+			path.cubicTo(composerGlyphPoint(rect, 10.8, 12.9), composerGlyphPoint(rect, 11.5, 12.2),
+						 composerGlyphPoint(rect, 11.5, 11.3));
+			break;
+		case PersistentChatComposerGlyph::Send:
+			path.moveTo(composerGlyphPoint(rect, 2.4, 8.9));
+			path.lineTo(composerGlyphPoint(rect, 15.5, 2.4));
+			path.lineTo(composerGlyphPoint(rect, 11.0, 15.6));
+			path.lineTo(composerGlyphPoint(rect, 8.6, 10.3));
+			path.lineTo(composerGlyphPoint(rect, 2.4, 8.9));
+			break;
 	}
 
-	QPainterPath persistentChatComposerGlyphPath(PersistentChatComposerGlyph glyph, const QRectF &rect) {
-		QPainterPath path;
-		switch (glyph) {
-			case PersistentChatComposerGlyph::Attach:
-				path.moveTo(composerGlyphPoint(rect, 11.9, 4.2));
-				path.cubicTo(composerGlyphPoint(rect, 11.1, 3.6), composerGlyphPoint(rect, 10.2, 3.3),
-							 composerGlyphPoint(rect, 9.2, 3.3));
-				path.cubicTo(composerGlyphPoint(rect, 7.2, 3.3), composerGlyphPoint(rect, 5.6, 4.9),
-							 composerGlyphPoint(rect, 5.6, 6.9));
-				path.lineTo(composerGlyphPoint(rect, 5.6, 11.8));
-				path.cubicTo(composerGlyphPoint(rect, 5.6, 14.1), composerGlyphPoint(rect, 7.5, 16.0),
-							 composerGlyphPoint(rect, 9.8, 16.0));
-				path.cubicTo(composerGlyphPoint(rect, 12.1, 16.0), composerGlyphPoint(rect, 14.0, 14.1),
-							 composerGlyphPoint(rect, 14.0, 11.8));
-				path.lineTo(composerGlyphPoint(rect, 14.0, 7.3));
-				path.cubicTo(composerGlyphPoint(rect, 14.0, 5.7), composerGlyphPoint(rect, 12.7, 4.5),
-							 composerGlyphPoint(rect, 11.1, 4.5));
-				path.cubicTo(composerGlyphPoint(rect, 9.6, 4.5), composerGlyphPoint(rect, 8.3, 5.7),
-							 composerGlyphPoint(rect, 8.3, 7.3));
-				path.lineTo(composerGlyphPoint(rect, 8.3, 11.3));
-				path.cubicTo(composerGlyphPoint(rect, 8.3, 12.2), composerGlyphPoint(rect, 9.0, 12.9),
-							 composerGlyphPoint(rect, 9.9, 12.9));
-				path.cubicTo(composerGlyphPoint(rect, 10.8, 12.9), composerGlyphPoint(rect, 11.5, 12.2),
-							 composerGlyphPoint(rect, 11.5, 11.3));
-				break;
-			case PersistentChatComposerGlyph::Send:
-				path.moveTo(composerGlyphPoint(rect, 2.4, 8.9));
-				path.lineTo(composerGlyphPoint(rect, 15.5, 2.4));
-				path.lineTo(composerGlyphPoint(rect, 11.0, 15.6));
-				path.lineTo(composerGlyphPoint(rect, 8.6, 10.3));
-				path.lineTo(composerGlyphPoint(rect, 2.4, 8.9));
-				break;
-		}
+	return path;
+}
 
-		return path;
+QPixmap persistentChatComposerGlyphPixmap(PersistentChatComposerGlyph glyph, const QSize &size, const QColor &color) {
+	const QSize effectiveSize = size.isValid() ? size : QSize(18, 18);
+	QPixmap pixmap(effectiveSize);
+	pixmap.fill(Qt::transparent);
+
+	QPainter painter(&pixmap);
+	painter.setRenderHint(QPainter::Antialiasing, true);
+	QPen pen(color, glyph == PersistentChatComposerGlyph::Attach ? 1.55 : 1.45, Qt::SolidLine, Qt::RoundCap,
+			 Qt::RoundJoin);
+	painter.setPen(pen);
+	painter.setBrush(Qt::NoBrush);
+
+	const QRectF glyphRect(1.0, 1.0, effectiveSize.width() - 2.0, effectiveSize.height() - 2.0);
+	painter.drawPath(persistentChatComposerGlyphPath(glyph, glyphRect));
+	if (glyph == PersistentChatComposerGlyph::Send) {
+		painter.drawLine(composerGlyphPoint(glyphRect, 2.4, 8.9), composerGlyphPoint(glyphRect, 8.6, 10.3));
 	}
 
-	QPixmap persistentChatComposerGlyphPixmap(PersistentChatComposerGlyph glyph, const QSize &size, const QColor &color) {
-		const QSize effectiveSize = size.isValid() ? size : QSize(18, 18);
-		QPixmap pixmap(effectiveSize);
-		pixmap.fill(Qt::transparent);
+	return pixmap;
+}
 
-		QPainter painter(&pixmap);
-		painter.setRenderHint(QPainter::Antialiasing, true);
-		QPen pen(color, glyph == PersistentChatComposerGlyph::Attach ? 1.55 : 1.45, Qt::SolidLine, Qt::RoundCap,
-				 Qt::RoundJoin);
-		painter.setPen(pen);
-		painter.setBrush(Qt::NoBrush);
+QIcon persistentChatComposerGlyphIcon(PersistentChatComposerGlyph glyph, const QSize &size, const QColor &normalColor,
+									  const QColor &activeColor, const QColor &disabledColor) {
+	QIcon icon;
+	icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, normalColor), QIcon::Normal);
+	icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, activeColor), QIcon::Active);
+	icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, activeColor), QIcon::Selected);
+	icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, disabledColor), QIcon::Disabled);
+	return icon;
+}
 
-		const QRectF glyphRect(1.0, 1.0, effectiveSize.width() - 2.0, effectiveSize.height() - 2.0);
-		painter.drawPath(persistentChatComposerGlyphPath(glyph, glyphRect));
-		if (glyph == PersistentChatComposerGlyph::Send) {
-			painter.drawLine(composerGlyphPoint(glyphRect, 2.4, 8.9), composerGlyphPoint(glyphRect, 8.6, 10.3));
-		}
+QPixmap serverNavigatorSelfAvatarPixmap(const QString &initial, const QSize &size, const QColor &backgroundColor,
+										const QColor &textColor, const QColor &presenceColor,
+										const QColor &presenceRingColor) {
+	const QSize effectiveSize = size.isValid() ? size : QSize(24, 24);
+	QPixmap pixmap(effectiveSize);
+	pixmap.fill(Qt::transparent);
 
-		return pixmap;
+	QPainter painter(&pixmap);
+	painter.setRenderHint(QPainter::Antialiasing, true);
+	const QRectF avatarRect(0.5, 0.5, effectiveSize.width() - 1.0, effectiveSize.height() - 1.0);
+	painter.setPen(Qt::NoPen);
+	painter.setBrush(backgroundColor);
+	painter.drawEllipse(avatarRect);
+
+	QFont avatarFont;
+	avatarFont.setBold(true);
+	avatarFont.setPixelSize(std::max(11, effectiveSize.height() / 2));
+	painter.setFont(avatarFont);
+	painter.setPen(textColor);
+	painter.drawText(avatarRect.adjusted(0.0, -0.5, 0.0, 0.0), Qt::AlignCenter, initial.left(1).toUpper());
+
+	const qreal ringDiameter = std::max< qreal >(9.0, effectiveSize.width() * 0.42);
+	const qreal dotDiameter  = ringDiameter - 3.0;
+	const QRectF ringRect(avatarRect.right() - ringDiameter + 0.5, avatarRect.bottom() - ringDiameter + 0.5,
+						  ringDiameter, ringDiameter);
+	const QRectF dotRect(ringRect.center().x() - dotDiameter / 2.0, ringRect.center().y() - dotDiameter / 2.0,
+						 dotDiameter, dotDiameter);
+	painter.setBrush(presenceRingColor);
+	painter.drawEllipse(ringRect);
+	painter.setBrush(presenceColor);
+	painter.drawEllipse(dotRect);
+
+	return pixmap;
+}
+
+enum class ServerNavigatorPresenceState { Online, Away, Muted, Deafened };
+
+QString serverNavigatorPresenceStateLabel(ServerNavigatorPresenceState state) {
+	switch (state) {
+		case ServerNavigatorPresenceState::Away:
+			return QObject::tr("Away");
+		case ServerNavigatorPresenceState::Muted:
+			return QObject::tr("Muted");
+		case ServerNavigatorPresenceState::Deafened:
+			return QObject::tr("Deafened");
+		case ServerNavigatorPresenceState::Online:
+		default:
+			return QObject::tr("Online");
 	}
+}
 
-	QIcon persistentChatComposerGlyphIcon(PersistentChatComposerGlyph glyph, const QSize &size, const QColor &normalColor,
-										  const QColor &activeColor, const QColor &disabledColor) {
-		QIcon icon;
-		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, normalColor), QIcon::Normal);
-		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, activeColor), QIcon::Active);
-		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, activeColor), QIcon::Selected);
-		icon.addPixmap(persistentChatComposerGlyphPixmap(glyph, size, disabledColor), QIcon::Disabled);
-		return icon;
+struct ServerNavigatorPresenceDisplay {
+	QString name;
+	QString label;
+	ServerNavigatorPresenceState currentState = ServerNavigatorPresenceState::Online;
+	QColor presenceColor;
+	QColor onlineColor;
+	QColor awayColor;
+	QColor mutedStateColor;
+	QColor deafenedColor;
+	QColor mutedTextColor;
+	QColor textColor;
+	QColor avatarBackgroundColor;
+	QColor avatarTextColor;
+	QColor presenceRingColor;
+	QColor panelColor;
+	QColor borderColor;
+	QColor hoverColor;
+	QColor selectedColor;
+	QColor dividerColor;
+	QColor dangerColor;
+};
+
+QColor serverNavigatorPresenceStateColor(const ServerNavigatorPresenceDisplay &display,
+										 ServerNavigatorPresenceState state) {
+	switch (state) {
+		case ServerNavigatorPresenceState::Away:
+			return display.awayColor;
+		case ServerNavigatorPresenceState::Muted:
+			return display.mutedStateColor;
+		case ServerNavigatorPresenceState::Deafened:
+			return display.deafenedColor;
+		case ServerNavigatorPresenceState::Online:
+		default:
+			return display.onlineColor;
 	}
+}
 
-	QPixmap serverNavigatorSelfAvatarPixmap(const QString &initial, const QSize &size, const QColor &backgroundColor,
-											const QColor &textColor, const QColor &presenceColor,
-											const QColor &presenceRingColor) {
-		const QSize effectiveSize = size.isValid() ? size : QSize(24, 24);
-		QPixmap pixmap(effectiveSize);
-		pixmap.fill(Qt::transparent);
+QPixmap serverNavigatorStatusDotPixmap(const QSize &size, const QColor &fillColor, const QColor &ringColor = QColor()) {
+	const QSize effectiveSize = size.isValid() ? size : QSize(10, 10);
+	QPixmap pixmap(effectiveSize);
+	pixmap.fill(Qt::transparent);
 
-		QPainter painter(&pixmap);
-		painter.setRenderHint(QPainter::Antialiasing, true);
-		const QRectF avatarRect(0.5, 0.5, effectiveSize.width() - 1.0, effectiveSize.height() - 1.0);
+	QPainter painter(&pixmap);
+	painter.setRenderHint(QPainter::Antialiasing, true);
+	const QRectF dotRect(1.0, 1.0, effectiveSize.width() - 2.0, effectiveSize.height() - 2.0);
+	if (ringColor.isValid() && ringColor.alpha() > 0) {
 		painter.setPen(Qt::NoPen);
-		painter.setBrush(backgroundColor);
-		painter.drawEllipse(avatarRect);
-
-		QFont avatarFont;
-		avatarFont.setBold(true);
-		avatarFont.setPixelSize(std::max(11, effectiveSize.height() / 2));
-		painter.setFont(avatarFont);
-		painter.setPen(textColor);
-		painter.drawText(avatarRect.adjusted(0.0, -0.5, 0.0, 0.0), Qt::AlignCenter, initial.left(1).toUpper());
-
-		const qreal ringDiameter = std::max< qreal >(9.0, effectiveSize.width() * 0.42);
-		const qreal dotDiameter  = ringDiameter - 3.0;
-		const QRectF ringRect(avatarRect.right() - ringDiameter + 0.5, avatarRect.bottom() - ringDiameter + 0.5,
-							  ringDiameter, ringDiameter);
-		const QRectF dotRect(ringRect.center().x() - dotDiameter / 2.0, ringRect.center().y() - dotDiameter / 2.0,
-							 dotDiameter, dotDiameter);
-		painter.setBrush(presenceRingColor);
-		painter.drawEllipse(ringRect);
-		painter.setBrush(presenceColor);
+		painter.setBrush(ringColor);
 		painter.drawEllipse(dotRect);
-
-		return pixmap;
+		painter.setBrush(fillColor);
+		painter.drawEllipse(dotRect.adjusted(1.5, 1.5, -1.5, -1.5));
+	} else {
+		painter.setPen(Qt::NoPen);
+		painter.setBrush(fillColor);
+		painter.drawEllipse(dotRect);
 	}
 
-	enum class ServerNavigatorPresenceState {
-		Online,
-		Away,
-		Muted,
-		Deafened
-	};
+	return pixmap;
+}
 
-	QString serverNavigatorPresenceStateLabel(ServerNavigatorPresenceState state) {
-		switch (state) {
-			case ServerNavigatorPresenceState::Away:
-				return QObject::tr("Away");
-			case ServerNavigatorPresenceState::Muted:
-				return QObject::tr("Muted");
-			case ServerNavigatorPresenceState::Deafened:
-				return QObject::tr("Deafened");
-			case ServerNavigatorPresenceState::Online:
-			default:
-				return QObject::tr("Online");
-		}
+QIcon serverNavigatorSkinIcon(const QString &skinPath) {
+	QIcon icon;
+	SvgIcon::addSvgPixmapsToIcon(icon, skinPath);
+	return icon;
+}
+
+class ServerNavigatorUserMenuPopup : public QFrame {
+public:
+	explicit ServerNavigatorUserMenuPopup(QWidget *parent = nullptr) : QFrame(parent) {
+		setObjectName(QLatin1String("qwServerNavigatorUserMenuPopup"));
+		setAttribute(Qt::WA_StyledBackground, false);
+		setAttribute(Qt::WA_TranslucentBackground, true);
+		setFocusPolicy(Qt::StrongFocus);
+		setFixedWidth(214);
+
+		QVBoxLayout *layout = new QVBoxLayout(this);
+		layout->setContentsMargins(8, 8, 8, 18);
+		layout->setSpacing(0);
+
+		QFrame *headerFrame = new QFrame(this);
+		headerFrame->setObjectName(QLatin1String("qfServerNavigatorUserMenuHeader"));
+		headerFrame->setAttribute(Qt::WA_StyledBackground, true);
+		QHBoxLayout *headerLayout = new QHBoxLayout(headerFrame);
+		headerLayout->setContentsMargins(14, 10, 14, 12);
+		headerLayout->setSpacing(10);
+
+		m_avatarLabel = new QLabel(headerFrame);
+		m_avatarLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuAvatar"));
+		m_avatarLabel->setAlignment(Qt::AlignCenter);
+		m_avatarLabel->setFixedSize(38, 38);
+
+		QWidget *headerTextWidget     = new QWidget(headerFrame);
+		QVBoxLayout *headerTextLayout = new QVBoxLayout(headerTextWidget);
+		headerTextLayout->setContentsMargins(0, 0, 0, 0);
+		headerTextLayout->setSpacing(1);
+
+		m_nameLabel = new QLabel(QObject::tr("You"), headerTextWidget);
+		m_nameLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuName"));
+		m_nameLabel->setTextFormat(Qt::PlainText);
+		QFont nameFont = m_nameLabel->font();
+		nameFont.setBold(true);
+		nameFont.setPointSizeF(std::max(nameFont.pointSizeF() - 0.4, 10.2));
+		m_nameLabel->setFont(nameFont);
+
+		m_statusLabel = new QLabel(QObject::tr("Online"), headerTextWidget);
+		m_statusLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuStatus"));
+		m_statusLabel->setTextFormat(Qt::PlainText);
+		QFont statusFont = m_statusLabel->font();
+		statusFont.setPointSizeF(std::max(statusFont.pointSizeF() - 1.0, 8.8));
+		m_statusLabel->setFont(statusFont);
+
+		headerTextLayout->addWidget(m_nameLabel);
+		headerTextLayout->addWidget(m_statusLabel);
+		headerLayout->addWidget(m_avatarLabel, 0, Qt::AlignTop);
+		headerLayout->addWidget(headerTextWidget, 1, Qt::AlignVCenter);
+
+		m_stateList                  = new QWidget(this);
+		QVBoxLayout *stateListLayout = new QVBoxLayout(m_stateList);
+		stateListLayout->setContentsMargins(0, 0, 0, 0);
+		stateListLayout->setSpacing(1);
+
+		addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Online);
+		addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Away);
+		addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Muted);
+		addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Deafened);
+
+		m_muteButton       = createActionButton(QObject::tr("Self mute"), true, QLatin1String("neutral"));
+		m_deafButton       = createActionButton(QObject::tr("Self deafen"), true, QLatin1String("neutral"));
+		m_settingsButton   = createActionButton(QObject::tr("Settings"), false, QLatin1String("neutral"));
+		m_disconnectButton = createActionButton(QObject::tr("Disconnect"), false, QLatin1String("danger"));
+
+		layout->addWidget(headerFrame);
+		layout->addSpacing(4);
+		layout->addWidget(m_stateList);
+		layout->addSpacing(5);
+		layout->addWidget(createSeparator());
+		layout->addSpacing(5);
+		layout->addWidget(m_muteButton);
+		layout->addWidget(m_deafButton);
+		layout->addSpacing(5);
+		layout->addWidget(createSeparator());
+		layout->addSpacing(5);
+		layout->addWidget(m_settingsButton);
+		layout->addSpacing(5);
+		layout->addWidget(createSeparator());
+		layout->addSpacing(5);
+		layout->addWidget(m_disconnectButton);
 	}
 
-	struct ServerNavigatorPresenceDisplay {
-		QString name;
-		QString label;
-		ServerNavigatorPresenceState currentState = ServerNavigatorPresenceState::Online;
-		QColor presenceColor;
-		QColor onlineColor;
-		QColor awayColor;
-		QColor mutedStateColor;
-		QColor deafenedColor;
-		QColor mutedTextColor;
-		QColor textColor;
-		QColor avatarBackgroundColor;
-		QColor avatarTextColor;
-		QColor presenceRingColor;
-		QColor panelColor;
-		QColor borderColor;
-		QColor hoverColor;
-		QColor selectedColor;
-		QColor dividerColor;
-		QColor dangerColor;
-	};
+	void sync(const ServerNavigatorPresenceDisplay &display, bool muteChecked, bool deafChecked, bool settingsEnabled,
+			  bool disconnectEnabled) {
+		m_panelColor   = display.panelColor;
+		m_borderColor  = display.borderColor;
+		m_arrowFill    = display.panelColor;
+		m_arrowOutline = display.borderColor;
 
-	QColor serverNavigatorPresenceStateColor(const ServerNavigatorPresenceDisplay &display,
-											 ServerNavigatorPresenceState state) {
-		switch (state) {
-			case ServerNavigatorPresenceState::Away:
-				return display.awayColor;
-			case ServerNavigatorPresenceState::Muted:
-				return display.mutedStateColor;
-			case ServerNavigatorPresenceState::Deafened:
-				return display.deafenedColor;
-			case ServerNavigatorPresenceState::Online:
-			default:
-				return display.onlineColor;
-		}
-	}
-
-	QPixmap serverNavigatorStatusDotPixmap(const QSize &size, const QColor &fillColor, const QColor &ringColor = QColor()) {
-		const QSize effectiveSize = size.isValid() ? size : QSize(10, 10);
-		QPixmap pixmap(effectiveSize);
-		pixmap.fill(Qt::transparent);
-
-		QPainter painter(&pixmap);
-		painter.setRenderHint(QPainter::Antialiasing, true);
-		const QRectF dotRect(1.0, 1.0, effectiveSize.width() - 2.0, effectiveSize.height() - 2.0);
-		if (ringColor.isValid() && ringColor.alpha() > 0) {
-			painter.setPen(Qt::NoPen);
-			painter.setBrush(ringColor);
-			painter.drawEllipse(dotRect);
-			painter.setBrush(fillColor);
-			painter.drawEllipse(dotRect.adjusted(1.5, 1.5, -1.5, -1.5));
-		} else {
-			painter.setPen(Qt::NoPen);
-			painter.setBrush(fillColor);
-			painter.drawEllipse(dotRect);
-		}
-
-		return pixmap;
-	}
-
-	QIcon serverNavigatorSkinIcon(const QString &skinPath) {
-		QIcon icon;
-		SvgIcon::addSvgPixmapsToIcon(icon, skinPath);
-		return icon;
-	}
-
-	class ServerNavigatorUserMenuPopup : public QFrame {
-	public:
-		explicit ServerNavigatorUserMenuPopup(QWidget *parent = nullptr) : QFrame(parent) {
-			setObjectName(QLatin1String("qwServerNavigatorUserMenuPopup"));
-			setAttribute(Qt::WA_StyledBackground, false);
-			setAttribute(Qt::WA_TranslucentBackground, true);
-			setFocusPolicy(Qt::StrongFocus);
-			setFixedWidth(214);
-
-			QVBoxLayout *layout = new QVBoxLayout(this);
-			layout->setContentsMargins(8, 8, 8, 18);
-			layout->setSpacing(0);
-
-			QFrame *headerFrame = new QFrame(this);
-			headerFrame->setObjectName(QLatin1String("qfServerNavigatorUserMenuHeader"));
-			headerFrame->setAttribute(Qt::WA_StyledBackground, true);
-			QHBoxLayout *headerLayout = new QHBoxLayout(headerFrame);
-			headerLayout->setContentsMargins(14, 10, 14, 12);
-			headerLayout->setSpacing(10);
-
-			m_avatarLabel = new QLabel(headerFrame);
-			m_avatarLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuAvatar"));
-			m_avatarLabel->setAlignment(Qt::AlignCenter);
-			m_avatarLabel->setFixedSize(38, 38);
-
-			QWidget *headerTextWidget = new QWidget(headerFrame);
-			QVBoxLayout *headerTextLayout = new QVBoxLayout(headerTextWidget);
-			headerTextLayout->setContentsMargins(0, 0, 0, 0);
-			headerTextLayout->setSpacing(1);
-
-			m_nameLabel = new QLabel(QObject::tr("You"), headerTextWidget);
-			m_nameLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuName"));
-			m_nameLabel->setTextFormat(Qt::PlainText);
-			QFont nameFont = m_nameLabel->font();
-			nameFont.setBold(true);
-			nameFont.setPointSizeF(std::max(nameFont.pointSizeF() - 0.4, 10.2));
-			m_nameLabel->setFont(nameFont);
-
-			m_statusLabel = new QLabel(QObject::tr("Online"), headerTextWidget);
-			m_statusLabel->setObjectName(QLatin1String("qlServerNavigatorUserMenuStatus"));
-			m_statusLabel->setTextFormat(Qt::PlainText);
-			QFont statusFont = m_statusLabel->font();
-			statusFont.setPointSizeF(std::max(statusFont.pointSizeF() - 1.0, 8.8));
-			m_statusLabel->setFont(statusFont);
-
-			headerTextLayout->addWidget(m_nameLabel);
-			headerTextLayout->addWidget(m_statusLabel);
-			headerLayout->addWidget(m_avatarLabel, 0, Qt::AlignTop);
-			headerLayout->addWidget(headerTextWidget, 1, Qt::AlignVCenter);
-
-			m_stateList = new QWidget(this);
-			QVBoxLayout *stateListLayout = new QVBoxLayout(m_stateList);
-			stateListLayout->setContentsMargins(0, 0, 0, 0);
-			stateListLayout->setSpacing(1);
-
-			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Online);
-			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Away);
-			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Muted);
-			addPresenceRow(stateListLayout, ServerNavigatorPresenceState::Deafened);
-
-			m_muteButton = createActionButton(QObject::tr("Self mute"), true, QLatin1String("neutral"));
-			m_deafButton = createActionButton(QObject::tr("Self deafen"), true, QLatin1String("neutral"));
-			m_settingsButton = createActionButton(QObject::tr("Settings"), false, QLatin1String("neutral"));
-			m_disconnectButton = createActionButton(QObject::tr("Disconnect"), false, QLatin1String("danger"));
-
-			layout->addWidget(headerFrame);
-			layout->addSpacing(4);
-			layout->addWidget(m_stateList);
-			layout->addSpacing(5);
-			layout->addWidget(createSeparator());
-			layout->addSpacing(5);
-			layout->addWidget(m_muteButton);
-			layout->addWidget(m_deafButton);
-			layout->addSpacing(5);
-			layout->addWidget(createSeparator());
-			layout->addSpacing(5);
-			layout->addWidget(m_settingsButton);
-			layout->addSpacing(5);
-			layout->addWidget(createSeparator());
-			layout->addSpacing(5);
-			layout->addWidget(m_disconnectButton);
-		}
-
-		void sync(const ServerNavigatorPresenceDisplay &display, bool muteChecked, bool deafChecked, bool settingsEnabled,
-				  bool disconnectEnabled) {
-			m_panelColor   = display.panelColor;
-			m_borderColor  = display.borderColor;
-			m_arrowFill    = display.panelColor;
-			m_arrowOutline = display.borderColor;
-
-			m_avatarLabel->setPixmap(serverNavigatorSelfAvatarPixmap(display.name.left(1), m_avatarLabel->size(),
+		m_avatarLabel->setPixmap(serverNavigatorSelfAvatarPixmap(display.name.left(1), m_avatarLabel->size(),
 																 display.avatarBackgroundColor, display.avatarTextColor,
 																 display.presenceColor, display.presenceRingColor));
-			m_nameLabel->setText(display.name);
-			m_statusLabel->setText(display.label);
-			m_statusLabel->setStyleSheet(
-				QString::fromLatin1("color:%1;").arg(display.presenceColor.name(QColor::HexArgb)));
+		m_nameLabel->setText(display.name);
+		m_statusLabel->setText(display.label);
+		m_statusLabel->setStyleSheet(QString::fromLatin1("color:%1;").arg(display.presenceColor.name(QColor::HexArgb)));
 
-			m_preferredFocusButton = nullptr;
-			for (const PresenceRowWidgets &row : m_presenceRows) {
-				const QColor rowColor = serverNavigatorPresenceStateColor(display, row.state);
-				const bool selected   = row.state == display.currentState;
-				const bool interactive = row.state != ServerNavigatorPresenceState::Away;
-				const QColor rowBackground = selected ? alphaColor(rowColor, 0.14) : QColor(Qt::transparent);
-				const QColor rowTextColor = selected ? display.textColor : display.mutedTextColor;
-				const QColor hoverBackground = interactive ? display.hoverColor : rowBackground;
-				const QColor hoverTextColor = interactive ? display.textColor : rowTextColor;
-				row.button->setIcon(QIcon(serverNavigatorStatusDotPixmap(row.button->iconSize(), rowColor)));
-				row.button->setToolTip(interactive ? QString() : QObject::tr("Away is shown automatically when you are idle."));
-				row.button->setStyleSheet(
-					QString::fromLatin1("QPushButton {"
-										" border: none;"
-										" border-radius: 5px;"
-										" background: %1;"
-										" color: %2;"
-										" font-size: 12px;"
-										" padding: 6px 10px;"
-										" text-align: left;"
-										"}"
-										"QPushButton:hover {"
-										" background: %3;"
-										" color: %4;"
-										"}")
-						.arg(rowBackground.name(QColor::HexArgb), rowTextColor.name(QColor::HexArgb),
-							 hoverBackground.name(QColor::HexArgb), hoverTextColor.name(QColor::HexArgb)));
-				if (selected && interactive) {
-					m_preferredFocusButton = row.button;
-				}
+		m_preferredFocusButton = nullptr;
+		for (const PresenceRowWidgets &row : m_presenceRows) {
+			const QColor rowColor        = serverNavigatorPresenceStateColor(display, row.state);
+			const bool selected          = row.state == display.currentState;
+			const bool interactive       = row.state != ServerNavigatorPresenceState::Away;
+			const QColor rowBackground   = selected ? alphaColor(rowColor, 0.14) : QColor(Qt::transparent);
+			const QColor rowTextColor    = selected ? display.textColor : display.mutedTextColor;
+			const QColor hoverBackground = interactive ? display.hoverColor : rowBackground;
+			const QColor hoverTextColor  = interactive ? display.textColor : rowTextColor;
+			row.button->setIcon(QIcon(serverNavigatorStatusDotPixmap(row.button->iconSize(), rowColor)));
+			row.button->setToolTip(interactive ? QString()
+											   : QObject::tr("Away is shown automatically when you are idle."));
+			row.button->setStyleSheet(QString::fromLatin1("QPushButton {"
+														  " border: none;"
+														  " border-radius: 5px;"
+														  " background: %1;"
+														  " color: %2;"
+														  " font-size: 12px;"
+														  " padding: 6px 10px;"
+														  " text-align: left;"
+														  "}"
+														  "QPushButton:hover {"
+														  " background: %3;"
+														  " color: %4;"
+														  "}")
+										  .arg(rowBackground.name(QColor::HexArgb), rowTextColor.name(QColor::HexArgb),
+											   hoverBackground.name(QColor::HexArgb),
+											   hoverTextColor.name(QColor::HexArgb)));
+			if (selected && interactive) {
+				m_preferredFocusButton = row.button;
 			}
+		}
 
-			m_muteButton->setChecked(muteChecked);
-			m_deafButton->setChecked(deafChecked);
-			m_settingsButton->setEnabled(settingsEnabled);
-			m_disconnectButton->setEnabled(disconnectEnabled);
-			if (!m_preferredFocusButton) {
-				m_preferredFocusButton = m_muteButton;
-			}
+		m_muteButton->setChecked(muteChecked);
+		m_deafButton->setChecked(deafChecked);
+		m_settingsButton->setEnabled(settingsEnabled);
+		m_disconnectButton->setEnabled(disconnectEnabled);
+		if (!m_preferredFocusButton) {
+			m_preferredFocusButton = m_muteButton;
+		}
 
-			QColor neutralActionColor = display.textColor;
-			neutralActionColor.setAlphaF(0.72f);
-			const QColor neutralIconColor = neutralActionColor;
-			const QColor dangerIconColor  = display.dangerColor;
-			m_muteButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:muted_self.svg")),
+		QColor neutralActionColor = display.textColor;
+		neutralActionColor.setAlphaF(0.72f);
+		const QColor neutralIconColor = neutralActionColor;
+		const QColor dangerIconColor  = display.dangerColor;
+		m_muteButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:muted_self.svg")),
 													 QSize(14, 14), neutralIconColor)));
-			m_deafButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:deafened_self.svg")),
+		m_deafButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:deafened_self.svg")),
 													 QSize(14, 14), neutralIconColor)));
-			m_settingsButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:config_ui.svg")),
+		m_settingsButton->setIcon(QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:config_ui.svg")),
 														 QSize(14, 14), neutralIconColor)));
-			m_disconnectButton->setIcon(
-				QIcon(tintedIconPixmap(serverNavigatorSkinIcon(QLatin1String("skin:disconnect.svg")), QSize(14, 14),
-									  dangerIconColor)));
+		m_disconnectButton->setIcon(QIcon(tintedIconPixmap(
+			serverNavigatorSkinIcon(QLatin1String("skin:disconnect.svg")), QSize(14, 14), dangerIconColor)));
 
-			const QString colorText = display.textColor.name(QColor::HexArgb);
-			const QString colorMuted = neutralActionColor.name(QColor::HexArgb);
-			const QString colorHover = display.hoverColor.name(QColor::HexArgb);
-			const QString colorSelected = display.selectedColor.name(QColor::HexArgb);
-			const QString colorDivider = display.dividerColor.name(QColor::HexArgb);
-			const QString colorDanger = display.dangerColor.name(QColor::HexArgb);
-			setStyleSheet(QString::fromLatin1(
-							  "QFrame#qfServerNavigatorUserMenuHeader {"
-							  " border-bottom: 1px solid %1;"
-							  "}"
-							  "QLabel#qlServerNavigatorUserMenuName {"
-							  " color: %3;"
-							  "}"
-							  "QFrame#qfServerNavigatorUserMenuSeparator {"
-							  " background: %1;"
-							  "}"
-							  "QPushButton[serverNavigatorMenuRow='true'] {"
-							  " border: none;"
-							  " border-radius: 5px;"
-							  " background: transparent;"
-							  " color: %4;"
-							  " font-size: 12px;"
-							  " padding: 6px 10px;"
-							  " text-align: left;"
-							  "}"
-							  "QPushButton[serverNavigatorMenuRow='true']:hover {"
-							  " background: %5;"
-							  " color: %3;"
-							  "}"
-							  "QPushButton[serverNavigatorMenuRow='true']:checked {"
-							  " background: %6;"
-							  " color: %3;"
-							  "}"
-							  "QPushButton[serverNavigatorMenuRole='danger'] {"
-							  " color: %7;"
-							  "}"
-							  "QPushButton[serverNavigatorMenuRole='danger']:hover {"
-							  " background: %5;"
-							  " color: %7;"
-							  "}"
-							  "QPushButton[serverNavigatorMenuRow='true']:disabled {"
-							  " color: %4;"
-							  "}")
-							  .arg(colorDivider, colorSelected, colorText, colorMuted, colorHover, colorSelected,
-								   colorDanger));
-			adjustSize();
-			update();
-		}
+		const QString colorText     = display.textColor.name(QColor::HexArgb);
+		const QString colorMuted    = neutralActionColor.name(QColor::HexArgb);
+		const QString colorHover    = display.hoverColor.name(QColor::HexArgb);
+		const QString colorSelected = display.selectedColor.name(QColor::HexArgb);
+		const QString colorDivider  = display.dividerColor.name(QColor::HexArgb);
+		const QString colorDanger   = display.dangerColor.name(QColor::HexArgb);
+		setStyleSheet(
+			QString::fromLatin1("QFrame#qfServerNavigatorUserMenuHeader {"
+								" border-bottom: 1px solid %1;"
+								"}"
+								"QLabel#qlServerNavigatorUserMenuName {"
+								" color: %3;"
+								"}"
+								"QFrame#qfServerNavigatorUserMenuSeparator {"
+								" background: %1;"
+								"}"
+								"QPushButton[serverNavigatorMenuRow='true'] {"
+								" border: none;"
+								" border-radius: 5px;"
+								" background: transparent;"
+								" color: %4;"
+								" font-size: 12px;"
+								" padding: 6px 10px;"
+								" text-align: left;"
+								"}"
+								"QPushButton[serverNavigatorMenuRow='true']:hover {"
+								" background: %5;"
+								" color: %3;"
+								"}"
+								"QPushButton[serverNavigatorMenuRow='true']:checked {"
+								" background: %6;"
+								" color: %3;"
+								"}"
+								"QPushButton[serverNavigatorMenuRole='danger'] {"
+								" color: %7;"
+								"}"
+								"QPushButton[serverNavigatorMenuRole='danger']:hover {"
+								" background: %5;"
+								" color: %7;"
+								"}"
+								"QPushButton[serverNavigatorMenuRow='true']:disabled {"
+								" color: %4;"
+								"}")
+				.arg(colorDivider, colorSelected, colorText, colorMuted, colorHover, colorSelected, colorDanger));
+		adjustSize();
+		update();
+	}
 
-		void setArrowCenterX(int x) {
-			m_arrowCenterX = x;
-			update();
-		}
+	void setArrowCenterX(int x) {
+		m_arrowCenterX = x;
+		update();
+	}
 
-		QPushButton *presenceButton(ServerNavigatorPresenceState state) const {
-			for (const PresenceRowWidgets &row : m_presenceRows) {
-				if (row.state == state) {
-					return row.button;
-				}
+	QPushButton *presenceButton(ServerNavigatorPresenceState state) const {
+		for (const PresenceRowWidgets &row : m_presenceRows) {
+			if (row.state == state) {
+				return row.button;
 			}
-
-			return nullptr;
 		}
 
-		QPushButton *preferredFocusButton() const {
-			return m_preferredFocusButton ? m_preferredFocusButton : m_muteButton;
-		}
+		return nullptr;
+	}
 
-		QPushButton *muteButton() const {
-			return m_muteButton;
-		}
+	QPushButton *preferredFocusButton() const { return m_preferredFocusButton ? m_preferredFocusButton : m_muteButton; }
 
-		QPushButton *deafButton() const {
-			return m_deafButton;
-		}
+	QPushButton *muteButton() const { return m_muteButton; }
 
-		QPushButton *settingsButton() const {
-			return m_settingsButton;
-		}
+	QPushButton *deafButton() const { return m_deafButton; }
 
-		QPushButton *disconnectButton() const {
-			return m_disconnectButton;
-		}
+	QPushButton *settingsButton() const { return m_settingsButton; }
 
-	protected:
-		void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE {
-			Q_UNUSED(event);
+	QPushButton *disconnectButton() const { return m_disconnectButton; }
 
-			QPainter painter(this);
-			painter.setRenderHint(QPainter::Antialiasing, true);
+protected:
+	void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE {
+		Q_UNUSED(event);
 
-			constexpr qreal arrowHeight = 10.0;
-			constexpr qreal arrowHalfWidth = 8.0;
-			const QRectF bubbleRect = rect().adjusted(0.5, 0.5, -0.5, -arrowHeight - 0.5);
-			const qreal arrowCenter =
-				qBound(bubbleRect.left() + 20.0, static_cast< qreal >(m_arrowCenterX), bubbleRect.right() - 20.0);
+		QPainter painter(this);
+		painter.setRenderHint(QPainter::Antialiasing, true);
 
-			QPainterPath bubblePath;
-			bubblePath.addRoundedRect(bubbleRect, 10.0, 10.0);
+		constexpr qreal arrowHeight    = 10.0;
+		constexpr qreal arrowHalfWidth = 8.0;
+		const QRectF bubbleRect        = rect().adjusted(0.5, 0.5, -0.5, -arrowHeight - 0.5);
+		const qreal arrowCenter =
+			qBound(bubbleRect.left() + 20.0, static_cast< qreal >(m_arrowCenterX), bubbleRect.right() - 20.0);
 
-			QPainterPath arrowPath;
-			arrowPath.moveTo(arrowCenter - arrowHalfWidth, bubbleRect.bottom());
-			arrowPath.lineTo(arrowCenter, bubbleRect.bottom() + arrowHeight);
-			arrowPath.lineTo(arrowCenter + arrowHalfWidth, bubbleRect.bottom());
-			arrowPath.closeSubpath();
+		QPainterPath bubblePath;
+		bubblePath.addRoundedRect(bubbleRect, 10.0, 10.0);
 
-			const QPainterPath popupPath = bubblePath.united(arrowPath);
-			painter.setPen(QPen(m_borderColor, 1.0));
-			painter.setBrush(m_panelColor);
-			painter.drawPath(popupPath);
-		}
+		QPainterPath arrowPath;
+		arrowPath.moveTo(arrowCenter - arrowHalfWidth, bubbleRect.bottom());
+		arrowPath.lineTo(arrowCenter, bubbleRect.bottom() + arrowHeight);
+		arrowPath.lineTo(arrowCenter + arrowHalfWidth, bubbleRect.bottom());
+		arrowPath.closeSubpath();
 
-	private:
-		struct PresenceRowWidgets {
-			ServerNavigatorPresenceState state = ServerNavigatorPresenceState::Online;
-			QPushButton *button = nullptr;
-		};
+		const QPainterPath popupPath = bubblePath.united(arrowPath);
+		painter.setPen(QPen(m_borderColor, 1.0));
+		painter.setBrush(m_panelColor);
+		painter.drawPath(popupPath);
+	}
 
-		void addPresenceRow(QVBoxLayout *layout, ServerNavigatorPresenceState state) {
-			QPushButton *button = new QPushButton(serverNavigatorPresenceStateLabel(state), m_stateList);
-			button->setProperty("serverNavigatorPresenceRow", true);
-			button->setCursor(state == ServerNavigatorPresenceState::Away ? Qt::ArrowCursor : Qt::PointingHandCursor);
-			button->setFlat(true);
-			button->setIconSize(QSize(9, 9));
-			button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-			button->setFocusPolicy(state == ServerNavigatorPresenceState::Away ? Qt::NoFocus : Qt::StrongFocus);
-			layout->addWidget(button);
-			m_presenceRows << PresenceRowWidgets{ state, button };
-		}
-
-		QPushButton *createActionButton(const QString &label, bool checkable, const QString &role) {
-			QPushButton *button = new QPushButton(label, this);
-			button->setProperty("serverNavigatorMenuRow", true);
-			button->setProperty("serverNavigatorMenuRole", role);
-			button->setCheckable(checkable);
-			button->setCursor(Qt::PointingHandCursor);
-			button->setFlat(true);
-			button->setIconSize(QSize(14, 14));
-			button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-			return button;
-		}
-
-		QWidget *createSeparator() {
-			QFrame *separator = new QFrame(this);
-			separator->setObjectName(QLatin1String("qfServerNavigatorUserMenuSeparator"));
-			separator->setAttribute(Qt::WA_StyledBackground, true);
-			separator->setFixedHeight(1);
-			return separator;
-		}
-
-		QLabel *m_avatarLabel = nullptr;
-		QLabel *m_nameLabel = nullptr;
-		QLabel *m_statusLabel = nullptr;
-		QWidget *m_stateList = nullptr;
-		QList< PresenceRowWidgets > m_presenceRows;
-		QPushButton *m_preferredFocusButton = nullptr;
-		QPushButton *m_muteButton = nullptr;
-		QPushButton *m_deafButton = nullptr;
-		QPushButton *m_settingsButton = nullptr;
-		QPushButton *m_disconnectButton = nullptr;
-		int m_arrowCenterX = 170;
-		QColor m_panelColor = QColor(46, 51, 60);
-		QColor m_borderColor = QColor(58, 63, 74);
-		QColor m_arrowFill = QColor(46, 51, 60);
-		QColor m_arrowOutline = QColor(58, 63, 74);
+private:
+	struct PresenceRowWidgets {
+		ServerNavigatorPresenceState state = ServerNavigatorPresenceState::Online;
+		QPushButton *button                = nullptr;
 	};
 
-	bool chatMessageLessThan(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
-		const quint64 lhsCreatedAt = lhs.has_created_at() ? lhs.created_at() : 0;
-		const quint64 rhsCreatedAt = rhs.has_created_at() ? rhs.created_at() : 0;
-		if (lhsCreatedAt != rhsCreatedAt) {
-			return lhsCreatedAt < rhsCreatedAt;
-		}
-		if (lhs.thread_id() != rhs.thread_id()) {
-			return lhs.thread_id() < rhs.thread_id();
-		}
-
-		return lhs.message_id() < rhs.message_id();
+	void addPresenceRow(QVBoxLayout *layout, ServerNavigatorPresenceState state) {
+		QPushButton *button = new QPushButton(serverNavigatorPresenceStateLabel(state), m_stateList);
+		button->setProperty("serverNavigatorPresenceRow", true);
+		button->setCursor(state == ServerNavigatorPresenceState::Away ? Qt::ArrowCursor : Qt::PointingHandCursor);
+		button->setFlat(true);
+		button->setIconSize(QSize(9, 9));
+		button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+		button->setFocusPolicy(state == ServerNavigatorPresenceState::Away ? Qt::NoFocus : Qt::StrongFocus);
+		layout->addWidget(button);
+		m_presenceRows << PresenceRowWidgets{ state, button };
 	}
 
-	[[maybe_unused]] QString persistentChatScopeCacheKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
-		return QString::fromLatin1("%1:%2").arg(static_cast< int >(scope)).arg(scopeID);
+	QPushButton *createActionButton(const QString &label, bool checkable, const QString &role) {
+		QPushButton *button = new QPushButton(label, this);
+		button->setProperty("serverNavigatorMenuRow", true);
+		button->setProperty("serverNavigatorMenuRole", role);
+		button->setCheckable(checkable);
+		button->setCursor(Qt::PointingHandCursor);
+		button->setFlat(true);
+		button->setIconSize(QSize(14, 14));
+		button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+		return button;
 	}
 
-	[[maybe_unused]] QString persistentChatScopeJumpUrl(MumbleProto::ChatScope scope, unsigned int scopeID) {
-		switch (scope) {
-			case MumbleProto::TextChannel:
-				return QString::fromLatin1("mumble-chat://scope/text/%1").arg(scopeID);
-			case MumbleProto::Channel:
-			case MumbleProto::ServerGlobal:
-			case MumbleProto::Aggregate:
+	QWidget *createSeparator() {
+		QFrame *separator = new QFrame(this);
+		separator->setObjectName(QLatin1String("qfServerNavigatorUserMenuSeparator"));
+		separator->setAttribute(Qt::WA_StyledBackground, true);
+		separator->setFixedHeight(1);
+		return separator;
+	}
+
+	QLabel *m_avatarLabel = nullptr;
+	QLabel *m_nameLabel   = nullptr;
+	QLabel *m_statusLabel = nullptr;
+	QWidget *m_stateList  = nullptr;
+	QList< PresenceRowWidgets > m_presenceRows;
+	QPushButton *m_preferredFocusButton = nullptr;
+	QPushButton *m_muteButton           = nullptr;
+	QPushButton *m_deafButton           = nullptr;
+	QPushButton *m_settingsButton       = nullptr;
+	QPushButton *m_disconnectButton     = nullptr;
+	int m_arrowCenterX                  = 170;
+	QColor m_panelColor                 = QColor(46, 51, 60);
+	QColor m_borderColor                = QColor(58, 63, 74);
+	QColor m_arrowFill                  = QColor(46, 51, 60);
+	QColor m_arrowOutline               = QColor(58, 63, 74);
+};
+
+bool chatMessageLessThan(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
+	const quint64 lhsCreatedAt = lhs.has_created_at() ? lhs.created_at() : 0;
+	const quint64 rhsCreatedAt = rhs.has_created_at() ? rhs.created_at() : 0;
+	if (lhsCreatedAt != rhsCreatedAt) {
+		return lhsCreatedAt < rhsCreatedAt;
+	}
+	if (lhs.thread_id() != rhs.thread_id()) {
+		return lhs.thread_id() < rhs.thread_id();
+	}
+
+	return lhs.message_id() < rhs.message_id();
+}
+
+[[maybe_unused]] QString persistentChatScopeCacheKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
+	return QString::fromLatin1("%1:%2").arg(static_cast< int >(scope)).arg(scopeID);
+}
+
+[[maybe_unused]] QString persistentChatScopeJumpUrl(MumbleProto::ChatScope scope, unsigned int scopeID) {
+	switch (scope) {
+		case MumbleProto::TextChannel:
+			return QString::fromLatin1("mumble-chat://scope/text/%1").arg(scopeID);
+		case MumbleProto::Channel:
+		case MumbleProto::ServerGlobal:
+		case MumbleProto::Aggregate:
+		default:
+			return QString();
+	}
+}
+
+[[maybe_unused]] std::size_t unreadMessagesAfter(const std::vector< MumbleProto::ChatMessage > &messages,
+												 unsigned int lastReadMessageID) {
+	std::size_t unreadCount = 0;
+	for (const MumbleProto::ChatMessage &message : messages) {
+		if (message.message_id() > lastReadMessageID) {
+			++unreadCount;
+		}
+	}
+
+	return unreadCount;
+}
+
+QString persistentChatDateLabel(const QDate &date) {
+	if (!date.isValid()) {
+		return QObject::tr("Unknown date");
+	}
+
+	const QDate today = QDate::currentDate();
+	if (date == today) {
+		return QObject::tr("Today");
+	}
+	if (date == today.addDays(-1)) {
+		return QObject::tr("Yesterday");
+	}
+
+	return QLocale().toString(date, QLocale::LongFormat);
+}
+
+QString persistentChatTimestampLabel(const QDateTime &dateTime) {
+	return dateTime.isValid() ? dateTime.time().toString(QLatin1String("HH:mm")) : QObject::tr("Unknown time");
+}
+
+QString persistentChatTimestampToolTip(const QDateTime &dateTime) {
+	if (!dateTime.isValid()) {
+		return QObject::tr("Unknown time");
+	}
+
+	return QLocale().toString(dateTime.date(), QLatin1String("d MMM yyyy")) + QString::fromLatin1(", ")
+		   + dateTime.time().toString(QLatin1String("HH:mm:ss"));
+}
+
+QString persistentChatInitials(const QString &name) {
+	const QString simplified = name.simplified();
+	if (simplified.isEmpty()) {
+		return QStringLiteral("?");
+	}
+
+	QString initials;
+	const QStringList parts = simplified.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+	for (const QString &part : parts) {
+		initials.append(part.left(1).toUpper());
+		if (initials.size() >= 2) {
+			break;
+		}
+	}
+
+	if (initials.isEmpty()) {
+		initials = simplified.left(1).toUpper();
+	}
+
+	return initials.left(2);
+}
+
+QColor persistentChatActorAccentColor(const QString &actorSeed) {
+	const QString seed =
+		actorSeed.trimmed().toCaseFolded().isEmpty() ? QStringLiteral("?") : actorSeed.trimmed().toCaseFolded();
+	const auto pickFromPalette = [&seed](const QStringList &palette) {
+		return QColor(palette.at(static_cast< int >(qHash(seed) % static_cast< uint >(palette.size()))));
+	};
+
+	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+		switch (tokens->preset) {
+			case UiThemePreset::CatppuccinMocha:
+				return pickFromPalette(QStringList{ QStringLiteral("#f38ba8"), QStringLiteral("#fab387"),
+													QStringLiteral("#f9e2af"), QStringLiteral("#a6e3a1"),
+													QStringLiteral("#94e2d5"), QStringLiteral("#89b4fa"),
+													QStringLiteral("#cba6f7"), QStringLiteral("#f5c2e7") });
+			case UiThemePreset::MumbleLight:
+				return pickFromPalette(QStringList{ QStringLiteral("#cf222e"), QStringLiteral("#bc4c00"),
+													QStringLiteral("#9a6700"), QStringLiteral("#116329"),
+													QStringLiteral("#0969da"), QStringLiteral("#5e4db2"),
+													QStringLiteral("#8250df"), QStringLiteral("#bf3989") });
+			case UiThemePreset::MumbleDark:
 			default:
-				return QString();
+				return pickFromPalette(QStringList{ QStringLiteral("#f47067"), QStringLiteral("#e0823d"),
+													QStringLiteral("#c69026"), QStringLiteral("#57ab5a"),
+													QStringLiteral("#39c5cf"), QStringLiteral("#6cb6ff"),
+													QStringLiteral("#b083f0"), QStringLiteral("#f0a8c4") });
 		}
 	}
 
-	[[maybe_unused]] std::size_t unreadMessagesAfter(const std::vector< MumbleProto::ChatMessage > &messages,
-													 unsigned int lastReadMessageID) {
-		std::size_t unreadCount = 0;
-		for (const MumbleProto::ChatMessage &message : messages) {
-			if (message.message_id() > lastReadMessageID) {
-				++unreadCount;
+	const QPalette fallbackPalette = qApp ? qApp->palette() : QPalette();
+	const bool darkTheme =
+		fallbackPalette.color(QPalette::WindowText).lightness() > fallbackPalette.color(QPalette::Window).lightness();
+	return darkTheme ? QColor(QStringLiteral("#6cb6ff")) : QColor(QStringLiteral("#0969da"));
+}
+
+QColor persistentChatActorAccentBackground(const QColor &accentColor) {
+	QColor backgroundColor = accentColor;
+	backgroundColor.setAlphaF(0.15f);
+	return backgroundColor;
+}
+
+QString roomPopulationLabel(int count) {
+	return count == 1 ? QObject::tr("1 person here") : QObject::tr("%1 people here").arg(count);
+}
+
+[[maybe_unused]] QSize persistentChatMeasuredItemHint(QWidget *widget, int itemWidth) {
+	if (!widget) {
+		return QSize(std::max(0, itemWidth), 1);
+	}
+
+	const int measuredWidth = std::max(0, itemWidth);
+	widget->ensurePolished();
+	widget->setFixedWidth(measuredWidth);
+	if (QLayout *layout = widget->layout()) {
+		layout->activate();
+	}
+	widget->updateGeometry();
+	widget->adjustSize();
+
+	const QVariant explicitHeight = widget->property("persistentChatItemHeight");
+	int measuredHeight            = explicitHeight.isValid() ? explicitHeight.toInt() : widget->sizeHint().height();
+	if (QLayout *layout = widget->layout()) {
+		measuredHeight = std::max(measuredHeight, layout->sizeHint().height());
+	}
+
+	measuredHeight = std::max(measuredHeight, widget->minimumSizeHint().height());
+	return QSize(measuredWidth, std::max(1, measuredHeight));
+}
+
+QWidget *createPersistentChatStateWidget(const QString &eyebrow, const QString &title, const QString &body,
+										 const QStringList &hints, QWidget *parent, int minimumHeight) {
+	QWidget *widget = new QWidget(parent);
+	widget->setAttribute(Qt::WA_StyledBackground, true);
+	widget->setProperty("persistentChatItemHeight", std::max(180, minimumHeight));
+
+	QVBoxLayout *layout = new QVBoxLayout(widget);
+	layout->setContentsMargins(20, 12, 20, 12);
+	layout->setSpacing(0);
+	layout->addStretch(1);
+
+	QFrame *card = new QFrame(widget);
+	card->setObjectName(QLatin1String("qfPersistentChatBanner"));
+	card->setAttribute(Qt::WA_StyledBackground, true);
+	card->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+	card->setMaximumWidth(440);
+
+	QVBoxLayout *cardLayout = new QVBoxLayout(card);
+	cardLayout->setContentsMargins(18, 18, 18, 18);
+	cardLayout->setSpacing(8);
+
+	QLabel *eyebrowLabel = new QLabel(eyebrow, card);
+	eyebrowLabel->setObjectName(QLatin1String("qlPersistentChatBannerEyebrow"));
+	eyebrowLabel->setTextFormat(Qt::PlainText);
+	QFont eyebrowFont = eyebrowLabel->font();
+	eyebrowFont.setCapitalization(QFont::AllUppercase);
+	eyebrowFont.setBold(true);
+	eyebrowFont.setPointSizeF(std::max(eyebrowFont.pointSizeF() - 1.0, 8.0));
+	eyebrowLabel->setFont(eyebrowFont);
+
+	QLabel *titleLabel = new QLabel(title, card);
+	titleLabel->setObjectName(QLatin1String("qlPersistentChatBannerTitle"));
+	titleLabel->setTextFormat(Qt::PlainText);
+	titleLabel->setWordWrap(true);
+	QFont titleFont = titleLabel->font();
+	titleFont.setBold(true);
+	titleFont.setPointSizeF(titleFont.pointSizeF() + 2.0);
+	titleLabel->setFont(titleFont);
+
+	QLabel *bodyLabel = new QLabel(body, card);
+	bodyLabel->setObjectName(QLatin1String("qlPersistentChatBannerBody"));
+	bodyLabel->setTextFormat(Qt::PlainText);
+	bodyLabel->setWordWrap(true);
+	bodyLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+
+	cardLayout->addWidget(eyebrowLabel);
+	cardLayout->addWidget(titleLabel);
+	cardLayout->addWidget(bodyLabel);
+
+	if (!hints.isEmpty()) {
+		QWidget *hintRow = new QWidget(card);
+		hintRow->setObjectName(QLatin1String("qwPersistentChatBannerHints"));
+		QHBoxLayout *hintLayout = new QHBoxLayout(hintRow);
+		hintLayout->setContentsMargins(0, 4, 0, 0);
+		hintLayout->setSpacing(6);
+		hintLayout->addStretch(1);
+		for (const QString &hint : hints) {
+			if (hint.trimmed().isEmpty()) {
+				continue;
 			}
-		}
 
-		return unreadCount;
+			QLabel *hintLabel = new QLabel(hint, hintRow);
+			hintLabel->setObjectName(QLatin1String("qlPersistentChatBannerHint"));
+			hintLabel->setAttribute(Qt::WA_StyledBackground, true);
+			hintLabel->setTextFormat(Qt::PlainText);
+			hintLayout->addWidget(hintLabel);
+		}
+		hintLayout->addStretch(1);
+		cardLayout->addWidget(hintRow);
 	}
 
-	QString persistentChatDateLabel(const QDate &date) {
-		if (!date.isValid()) {
-			return QObject::tr("Unknown date");
-		}
+	layout->addWidget(card, 0, Qt::AlignHCenter);
+	layout->addStretch(1);
+	return widget;
+}
 
-		const QDate today = QDate::currentDate();
-		if (date == today) {
-			return QObject::tr("Today");
-		}
-		if (date == today.addDays(-1)) {
-			return QObject::tr("Yesterday");
-		}
-
-		return QLocale().toString(date, QLocale::LongFormat);
+QImage persistentChatAvatarTexture(const ClientUser *user, int avatarSize) {
+	if (!user) {
+		return QImage();
 	}
 
-	QString persistentChatTimestampLabel(const QDateTime &dateTime) {
-		return dateTime.isValid() ? dateTime.time().toString(QLatin1String("HH:mm")) : QObject::tr("Unknown time");
+	if (user->qbaTexture.isEmpty() && !user->qbaTextureHash.isEmpty() && Global::get().db) {
+		const_cast< ClientUser * >(user)->qbaTexture = Global::get().db->blob(user->qbaTextureHash);
 	}
 
-	QString persistentChatTimestampToolTip(const QDateTime &dateTime) {
-		if (!dateTime.isValid()) {
-			return QObject::tr("Unknown time");
-		}
-
-		return QLocale().toString(dateTime.date(), QLatin1String("d MMM yyyy")) + QString::fromLatin1(", ")
-			   + dateTime.time().toString(QLatin1String("HH:mm:ss"));
+	if (user->qbaTexture.isEmpty()) {
+		return QImage();
 	}
 
-	QString persistentChatInitials(const QString &name) {
-		const QString simplified = name.simplified();
-		if (simplified.isEmpty()) {
-			return QStringLiteral("?");
-		}
+	QBuffer buffer(const_cast< QByteArray * >(&user->qbaTexture));
+	buffer.open(QIODevice::ReadOnly);
+	QImageReader reader(&buffer, user->qbaTextureFormat);
+	QSize scaledSize = reader.size();
+	scaledSize.scale(avatarSize, avatarSize, Qt::KeepAspectRatio);
+	reader.setScaledSize(scaledSize);
+	return reader.read();
+}
 
-		QString initials;
-		const QStringList parts = simplified.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-		for (const QString &part : parts) {
-			initials.append(part.left(1).toUpper());
-			if (initials.size() >= 2) {
-				break;
-			}
-		}
-
-		if (initials.isEmpty()) {
-			initials = simplified.left(1).toUpper();
-		}
-
-		return initials.left(2);
+[[maybe_unused]] QString modernShellAvatarDataUrl(const ClientUser *user, int avatarSize) {
+	const QImage image = persistentChatAvatarTexture(user, avatarSize);
+	if (image.isNull()) {
+		return QString();
 	}
 
-	QColor persistentChatActorAccentColor(const QString &actorSeed) {
-		const QString seed = actorSeed.trimmed().toCaseFolded().isEmpty() ? QStringLiteral("?")
-																		  : actorSeed.trimmed().toCaseFolded();
-		const auto pickFromPalette = [&seed](const QStringList &palette) {
-			return QColor(palette.at(static_cast< int >(qHash(seed) % static_cast< uint >(palette.size()))));
-		};
-
-		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-			switch (tokens->preset) {
-				case UiThemePreset::CatppuccinMocha:
-					return pickFromPalette(QStringList { QStringLiteral("#f38ba8"), QStringLiteral("#fab387"),
-														 QStringLiteral("#f9e2af"), QStringLiteral("#a6e3a1"),
-														 QStringLiteral("#94e2d5"), QStringLiteral("#89b4fa"),
-														 QStringLiteral("#cba6f7"), QStringLiteral("#f5c2e7") });
-				case UiThemePreset::MumbleLight:
-					return pickFromPalette(QStringList { QStringLiteral("#cf222e"), QStringLiteral("#bc4c00"),
-														 QStringLiteral("#9a6700"), QStringLiteral("#116329"),
-														 QStringLiteral("#0969da"), QStringLiteral("#5e4db2"),
-														 QStringLiteral("#8250df"), QStringLiteral("#bf3989") });
-				case UiThemePreset::MumbleDark:
-				default:
-					return pickFromPalette(QStringList { QStringLiteral("#f47067"), QStringLiteral("#e0823d"),
-														 QStringLiteral("#c69026"), QStringLiteral("#57ab5a"),
-														 QStringLiteral("#39c5cf"), QStringLiteral("#6cb6ff"),
-														 QStringLiteral("#b083f0"), QStringLiteral("#f0a8c4") });
-			}
-		}
-
-		const QPalette fallbackPalette = qApp ? qApp->palette() : QPalette();
-		const bool darkTheme =
-			fallbackPalette.color(QPalette::WindowText).lightness() > fallbackPalette.color(QPalette::Window).lightness();
-		return darkTheme ? QColor(QStringLiteral("#6cb6ff")) : QColor(QStringLiteral("#0969da"));
+	QByteArray encodedBytes;
+	QBuffer buffer(&encodedBytes);
+	if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG") || encodedBytes.isEmpty()) {
+		return QString();
 	}
 
-	QColor persistentChatActorAccentBackground(const QColor &accentColor) {
-		QColor backgroundColor = accentColor;
-		backgroundColor.setAlphaF(0.15f);
-		return backgroundColor;
+	return QString::fromLatin1("data:image/png;base64,%1").arg(QString::fromLatin1(encodedBytes.toBase64()));
+}
+
+bool isDarkPalette(const QPalette &palette) {
+	return palette.color(QPalette::WindowText).lightness() > palette.color(QPalette::Window).lightness();
+}
+
+QString qssColor(const QColor &color) {
+	return uiThemeQssColor(color);
+}
+
+QString applyQssArgs(QString style, const QStringList &args) {
+	for (int i = args.size(); i >= 1; --i) {
+		const QString placeholder = QStringLiteral("%") + QString::number(i);
+		style.replace(placeholder, args.at(i - 1));
+	}
+	return style;
+}
+
+QColor mixColors(const QColor &baseColor, const QColor &overlayColor, qreal overlayRatio) {
+	const qreal clampedRatio = qBound< qreal >(0.0, overlayRatio, 1.0);
+	const qreal baseRatio    = 1.0 - clampedRatio;
+	return QColor::fromRgbF(baseColor.redF() * baseRatio + overlayColor.redF() * clampedRatio,
+							baseColor.greenF() * baseRatio + overlayColor.greenF() * clampedRatio,
+							baseColor.blueF() * baseRatio + overlayColor.blueF() * clampedRatio, 1.0);
+}
+
+struct ChromePaletteColors {
+	bool darkTheme = false;
+	QColor railColor;
+	QColor cardColor;
+	QColor elevatedCardColor;
+	QColor panelColor;
+	QColor inputColor;
+	QColor accentColor;
+	QColor textColor;
+	QColor mutedTextColor;
+	QColor eyebrowColor;
+	QColor borderColor;
+	QColor dividerColor;
+	QColor hoverColor;
+	QColor selectedColor;
+	QColor selectedTextColor;
+	QColor scrollbarHandleColor;
+	QColor scrollbarHandleHoverColor;
+};
+
+ChromePaletteColors buildChromePalette(const QPalette &palette) {
+	ChromePaletteColors colors;
+	colors.darkTheme = isDarkPalette(palette);
+
+	const QColor windowColor     = palette.color(QPalette::Window);
+	const QColor baseColor       = palette.color(QPalette::Base);
+	const QColor alternateColor  = palette.color(QPalette::AlternateBase);
+	const QColor highlightColor  = palette.color(QPalette::Highlight);
+	const QColor highlightedText = palette.color(QPalette::HighlightedText);
+	const QColor textColor       = palette.color(QPalette::WindowText);
+
+	colors.railColor         = colors.darkTheme ? mixColors(windowColor, textColor, 0.02) : windowColor;
+	colors.textColor         = textColor;
+	colors.selectedTextColor = highlightedText;
+	colors.accentColor =
+		colors.darkTheme ? mixColors(textColor, highlightColor, 0.24) : mixColors(textColor, highlightColor, 0.24);
+
+	if (colors.darkTheme) {
+		colors.cardColor         = mixColors(windowColor, alternateColor, 0.26);
+		colors.elevatedCardColor = mixColors(baseColor, alternateColor, 0.70);
+		colors.panelColor        = mixColors(baseColor, alternateColor, 0.48);
+		colors.inputColor        = mixColors(colors.panelColor, alternateColor, 0.20);
+		colors.borderColor       = mixColors(alternateColor, textColor, 0.14);
+		colors.dividerColor      = mixColors(colors.panelColor, textColor, 0.08);
+	} else {
+		colors.cardColor         = mixColors(windowColor, alternateColor, 0.40);
+		colors.elevatedCardColor = mixColors(colors.cardColor, baseColor, 0.18);
+		colors.panelColor        = mixColors(colors.elevatedCardColor, baseColor, 0.08);
+		colors.inputColor        = mixColors(colors.panelColor, windowColor, 0.32);
+		colors.borderColor       = mixColors(colors.cardColor, textColor, 0.16);
+		colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.66);
 	}
 
-	QString roomPopulationLabel(int count) {
-		return count == 1 ? QObject::tr("1 person here") : QObject::tr("%1 people here").arg(count);
-	}
+	colors.mutedTextColor       = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.44 : 0.34);
+	colors.eyebrowColor         = mixColors(textColor, colors.accentColor, colors.darkTheme ? 0.30 : 0.42);
+	colors.hoverColor           = mixColors(colors.elevatedCardColor, textColor, colors.darkTheme ? 0.05 : 0.05);
+	colors.selectedColor        = mixColors(colors.elevatedCardColor, highlightColor, colors.darkTheme ? 0.28 : 0.16);
+	colors.scrollbarHandleColor = colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.20)
+												   : mixColors(colors.panelColor, textColor, 0.10);
+	colors.scrollbarHandleHoverColor = colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.30)
+														: mixColors(colors.panelColor, textColor, 0.18);
 
-	[[maybe_unused]] QSize persistentChatMeasuredItemHint(QWidget *widget, int itemWidth) {
-		if (!widget) {
-			return QSize(std::max(0, itemWidth), 1);
-		}
+	return colors;
+}
 
-		const int measuredWidth = std::max(0, itemWidth);
-		widget->ensurePolished();
-		widget->setFixedWidth(measuredWidth);
-		if (QLayout *layout = widget->layout()) {
-			layout->activate();
-		}
-		widget->updateGeometry();
-		widget->adjustSize();
+[[maybe_unused]] QString peopleHereLabel(int count) {
+	const QString countLabel = QLocale().toString(std::max(0, count));
+	return count == 1 ? QObject::tr("%1 person here").arg(countLabel) : QObject::tr("%1 people here").arg(countLabel);
+}
 
-		const QVariant explicitHeight = widget->property("persistentChatItemHeight");
-		int measuredHeight            = explicitHeight.isValid() ? explicitHeight.toInt() : widget->sizeHint().height();
-		if (QLayout *layout = widget->layout()) {
-			measuredHeight = std::max(measuredHeight, layout->sizeHint().height());
-		}
-
-		measuredHeight = std::max(measuredHeight, widget->minimumSizeHint().height());
-		return QSize(measuredWidth, std::max(1, measuredHeight));
-	}
-
-	QWidget *createPersistentChatStateWidget(const QString &eyebrow, const QString &title, const QString &body,
-											 const QStringList &hints, QWidget *parent, int minimumHeight) {
-		QWidget *widget = new QWidget(parent);
-		widget->setAttribute(Qt::WA_StyledBackground, true);
-		widget->setProperty("persistentChatItemHeight", std::max(180, minimumHeight));
-
-		QVBoxLayout *layout = new QVBoxLayout(widget);
-		layout->setContentsMargins(20, 12, 20, 12);
-		layout->setSpacing(0);
-		layout->addStretch(1);
-
-		QFrame *card = new QFrame(widget);
-		card->setObjectName(QLatin1String("qfPersistentChatBanner"));
-		card->setAttribute(Qt::WA_StyledBackground, true);
-		card->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
-		card->setMaximumWidth(440);
-
-		QVBoxLayout *cardLayout = new QVBoxLayout(card);
-		cardLayout->setContentsMargins(18, 18, 18, 18);
-		cardLayout->setSpacing(8);
-
-		QLabel *eyebrowLabel = new QLabel(eyebrow, card);
-		eyebrowLabel->setObjectName(QLatin1String("qlPersistentChatBannerEyebrow"));
-		eyebrowLabel->setTextFormat(Qt::PlainText);
-		QFont eyebrowFont = eyebrowLabel->font();
-		eyebrowFont.setCapitalization(QFont::AllUppercase);
-		eyebrowFont.setBold(true);
-		eyebrowFont.setPointSizeF(std::max(eyebrowFont.pointSizeF() - 1.0, 8.0));
-		eyebrowLabel->setFont(eyebrowFont);
-
-		QLabel *titleLabel = new QLabel(title, card);
-		titleLabel->setObjectName(QLatin1String("qlPersistentChatBannerTitle"));
-		titleLabel->setTextFormat(Qt::PlainText);
-		titleLabel->setWordWrap(true);
-		QFont titleFont = titleLabel->font();
-		titleFont.setBold(true);
-		titleFont.setPointSizeF(titleFont.pointSizeF() + 2.0);
-		titleLabel->setFont(titleFont);
-
-		QLabel *bodyLabel = new QLabel(body, card);
-		bodyLabel->setObjectName(QLatin1String("qlPersistentChatBannerBody"));
-		bodyLabel->setTextFormat(Qt::PlainText);
-		bodyLabel->setWordWrap(true);
-		bodyLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-
-		cardLayout->addWidget(eyebrowLabel);
-		cardLayout->addWidget(titleLabel);
-		cardLayout->addWidget(bodyLabel);
-
-		if (!hints.isEmpty()) {
-			QWidget *hintRow = new QWidget(card);
-			hintRow->setObjectName(QLatin1String("qwPersistentChatBannerHints"));
-			QHBoxLayout *hintLayout = new QHBoxLayout(hintRow);
-			hintLayout->setContentsMargins(0, 4, 0, 0);
-			hintLayout->setSpacing(6);
-			hintLayout->addStretch(1);
-			for (const QString &hint : hints) {
-				if (hint.trimmed().isEmpty()) {
-					continue;
-				}
-
-				QLabel *hintLabel = new QLabel(hint, hintRow);
-				hintLabel->setObjectName(QLatin1String("qlPersistentChatBannerHint"));
-				hintLabel->setAttribute(Qt::WA_StyledBackground, true);
-				hintLabel->setTextFormat(Qt::PlainText);
-				hintLayout->addWidget(hintLabel);
-			}
-			hintLayout->addStretch(1);
-			cardLayout->addWidget(hintRow);
-		}
-
-		layout->addWidget(card, 0, Qt::AlignHCenter);
-		layout->addStretch(1);
-		return widget;
-	}
-
-	QImage persistentChatAvatarTexture(const ClientUser *user, int avatarSize) {
-		if (!user) {
-			return QImage();
-		}
-
-		if (user->qbaTexture.isEmpty() && !user->qbaTextureHash.isEmpty() && Global::get().db) {
-			const_cast< ClientUser * >(user)->qbaTexture = Global::get().db->blob(user->qbaTextureHash);
-		}
-
-		if (user->qbaTexture.isEmpty()) {
-			return QImage();
-		}
-
-		QBuffer buffer(const_cast< QByteArray * >(&user->qbaTexture));
-		buffer.open(QIODevice::ReadOnly);
-		QImageReader reader(&buffer, user->qbaTextureFormat);
-		QSize scaledSize = reader.size();
-		scaledSize.scale(avatarSize, avatarSize, Qt::KeepAspectRatio);
-		reader.setScaledSize(scaledSize);
-		return reader.read();
-	}
-
-	[[maybe_unused]] QString modernShellAvatarDataUrl(const ClientUser *user, int avatarSize) {
-		const QImage image = persistentChatAvatarTexture(user, avatarSize);
-		if (image.isNull()) {
-			return QString();
-		}
-
-		QByteArray encodedBytes;
-		QBuffer buffer(&encodedBytes);
-		if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "PNG") || encodedBytes.isEmpty()) {
-			return QString();
-		}
-
-		return QString::fromLatin1("data:image/png;base64,%1").arg(QString::fromLatin1(encodedBytes.toBase64()));
-	}
-
-	bool isDarkPalette(const QPalette &palette) {
-		return palette.color(QPalette::WindowText).lightness() > palette.color(QPalette::Window).lightness();
-	}
-
-	QString qssColor(const QColor &color) {
-		return uiThemeQssColor(color);
-	}
-
-	QString applyQssArgs(QString style, const QStringList &args) {
-		for (int i = args.size(); i >= 1; --i) {
-			const QString placeholder = QStringLiteral("%") + QString::number(i);
-			style.replace(placeholder, args.at(i - 1));
-		}
-		return style;
-	}
-
-	QColor mixColors(const QColor &baseColor, const QColor &overlayColor, qreal overlayRatio) {
-		const qreal clampedRatio = qBound< qreal >(0.0, overlayRatio, 1.0);
-		const qreal baseRatio    = 1.0 - clampedRatio;
-		return QColor::fromRgbF(baseColor.redF() * baseRatio + overlayColor.redF() * clampedRatio,
-								baseColor.greenF() * baseRatio + overlayColor.greenF() * clampedRatio,
-								baseColor.blueF() * baseRatio + overlayColor.blueF() * clampedRatio, 1.0);
-	}
-
-	struct ChromePaletteColors {
-		bool darkTheme = false;
-		QColor railColor;
-		QColor cardColor;
-		QColor elevatedCardColor;
-		QColor panelColor;
-		QColor inputColor;
-		QColor accentColor;
-		QColor textColor;
-		QColor mutedTextColor;
-		QColor eyebrowColor;
-		QColor borderColor;
-		QColor dividerColor;
-		QColor hoverColor;
-		QColor selectedColor;
-		QColor selectedTextColor;
-		QColor scrollbarHandleColor;
-		QColor scrollbarHandleHoverColor;
-	};
-
-	ChromePaletteColors buildChromePalette(const QPalette &palette) {
-		ChromePaletteColors colors;
-		colors.darkTheme = isDarkPalette(palette);
-
-		const QColor windowColor      = palette.color(QPalette::Window);
-		const QColor baseColor        = palette.color(QPalette::Base);
-		const QColor alternateColor   = palette.color(QPalette::AlternateBase);
-		const QColor highlightColor   = palette.color(QPalette::Highlight);
-		const QColor highlightedText  = palette.color(QPalette::HighlightedText);
-		const QColor textColor        = palette.color(QPalette::WindowText);
-
-		colors.railColor         = colors.darkTheme ? mixColors(windowColor, textColor, 0.02) : windowColor;
-		colors.textColor         = textColor;
-		colors.selectedTextColor = highlightedText;
-		colors.accentColor =
-			colors.darkTheme ? mixColors(textColor, highlightColor, 0.24) : mixColors(textColor, highlightColor, 0.24);
-
-		if (colors.darkTheme) {
-			colors.cardColor         = mixColors(windowColor, alternateColor, 0.26);
-			colors.elevatedCardColor = mixColors(baseColor, alternateColor, 0.70);
-			colors.panelColor        = mixColors(baseColor, alternateColor, 0.48);
-			colors.inputColor        = mixColors(colors.panelColor, alternateColor, 0.20);
-			colors.borderColor       = mixColors(alternateColor, textColor, 0.14);
-			colors.dividerColor      = mixColors(colors.panelColor, textColor, 0.08);
-		} else {
-			colors.cardColor         = mixColors(windowColor, alternateColor, 0.40);
-			colors.elevatedCardColor = mixColors(colors.cardColor, baseColor, 0.18);
-			colors.panelColor        = mixColors(colors.elevatedCardColor, baseColor, 0.08);
-			colors.inputColor        = mixColors(colors.panelColor, windowColor, 0.32);
-			colors.borderColor       = mixColors(colors.cardColor, textColor, 0.16);
-			colors.dividerColor      = mixColors(colors.cardColor, colors.borderColor, 0.66);
-		}
-
-		colors.mutedTextColor = mixColors(textColor, colors.railColor, colors.darkTheme ? 0.44 : 0.34);
-		colors.eyebrowColor   = mixColors(textColor, colors.accentColor, colors.darkTheme ? 0.30 : 0.42);
-		colors.hoverColor     = mixColors(colors.elevatedCardColor, textColor, colors.darkTheme ? 0.05 : 0.05);
-		colors.selectedColor  = mixColors(colors.elevatedCardColor, highlightColor, colors.darkTheme ? 0.28 : 0.16);
-		colors.scrollbarHandleColor =
-			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.20) : mixColors(colors.panelColor, textColor, 0.10);
-		colors.scrollbarHandleHoverColor =
-			colors.darkTheme ? mixColors(colors.panelColor, textColor, 0.30) : mixColors(colors.panelColor, textColor, 0.18);
-
-		return colors;
-	}
-
-	[[maybe_unused]] QString peopleHereLabel(int count) {
-		const QString countLabel = QLocale().toString(std::max(0, count));
-		return count == 1 ? QObject::tr("%1 person here").arg(countLabel)
-						  : QObject::tr("%1 people here").arg(countLabel);
-	}
-
-	QModelIndex resolveTreeViewportIndex(const QTreeView *view, const QPoint &viewportPos) {
-		if (!view || !view->viewport() || !view->model() || viewportPos.y() < 0
-			|| viewportPos.y() >= view->viewport()->height()) {
-			return QModelIndex();
-		}
-
-		QModelIndex idx = view->indexAt(viewportPos);
-		if (idx.isValid()) {
-			return idx;
-		}
-
-		const int viewportWidth = view->viewport()->width();
-		if (viewportWidth <= 0) {
-			return QModelIndex();
-		}
-
-		const int probeXs[] = { qBound(0, viewportPos.x(), viewportWidth - 1),
-								qBound(0, viewportWidth / 2, viewportWidth - 1),
-								qBound(0, viewportWidth - 12, viewportWidth - 1),
-								qBound(0, 12, viewportWidth - 1) };
-		for (const int probeX : probeXs) {
-			idx = view->indexAt(QPoint(probeX, viewportPos.y()));
-			if (idx.isValid()) {
-				return idx;
-			}
-		}
-
-		for (int probeX = 4; probeX < viewportWidth; probeX += 24) {
-			idx = view->indexAt(QPoint(probeX, viewportPos.y()));
-			if (idx.isValid()) {
-				return idx;
-			}
-		}
-
+QModelIndex resolveTreeViewportIndex(const QTreeView *view, const QPoint &viewportPos) {
+	if (!view || !view->viewport() || !view->model() || viewportPos.y() < 0
+		|| viewportPos.y() >= view->viewport()->height()) {
 		return QModelIndex();
 	}
 
-	class PersistentChatScopeListDelegate : public QStyledItemDelegate {
-	public:
-		explicit PersistentChatScopeListDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {
+	QModelIndex idx = view->indexAt(viewportPos);
+	if (idx.isValid()) {
+		return idx;
+	}
+
+	const int viewportWidth = view->viewport()->width();
+	if (viewportWidth <= 0) {
+		return QModelIndex();
+	}
+
+	const int probeXs[] = { qBound(0, viewportPos.x(), viewportWidth - 1),
+							qBound(0, viewportWidth / 2, viewportWidth - 1),
+							qBound(0, viewportWidth - 12, viewportWidth - 1), qBound(0, 12, viewportWidth - 1) };
+	for (const int probeX : probeXs) {
+		idx = view->indexAt(QPoint(probeX, viewportPos.y()));
+		if (idx.isValid()) {
+			return idx;
+		}
+	}
+
+	for (int probeX = 4; probeX < viewportWidth; probeX += 24) {
+		idx = view->indexAt(QPoint(probeX, viewportPos.y()));
+		if (idx.isValid()) {
+			return idx;
+		}
+	}
+
+	return QModelIndex();
+}
+
+class PersistentChatScopeListDelegate : public QStyledItemDelegate {
+public:
+	explicit PersistentChatScopeListDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+
+	QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
+		QSize hint = QStyledItemDelegate::sizeHint(option, index);
+		if (!index.isValid()) {
+			return hint;
 		}
 
-		QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
-			QSize hint = QStyledItemDelegate::sizeHint(option, index);
-			if (!index.isValid()) {
-				return hint;
-			}
+		return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 10));
+	}
 
-			return QSize(hint.width(), std::max(hint.height(), QFontMetrics(option.font).height() + 10));
+	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
+		if (!index.isValid()) {
+			return;
 		}
 
-		void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE {
-			if (!index.isValid()) {
-				return;
+		QStyleOptionViewItem opt(option);
+		initStyleOption(&opt, index);
+
+		const QPalette effectivePalette = opt.widget ? opt.widget->palette() : opt.palette;
+		const bool selected             = opt.state.testFlag(QStyle::State_Selected);
+		const bool hovered              = opt.state.testFlag(QStyle::State_MouseOver);
+		const QString label             = index.data(PersistentChatLabelRole).toString().isEmpty()
+								  ? opt.text
+								  : index.data(PersistentChatLabelRole).toString();
+		const qulonglong unreadCount = index.data(PersistentChatUnreadRole).toULongLong();
+		const int scopeValue         = index.data(PersistentChatScopeRole).toInt();
+		const bool utilityRow =
+			scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal);
+		const bool textChannelRow  = scopeValue == static_cast< int >(MumbleProto::TextChannel);
+		const bool voiceChannelRow = scopeValue == static_cast< int >(MumbleProto::Channel);
+		static const QIcon s_voiceRoomIcon(QLatin1String("skin:priority_speaker.svg"));
+
+		QString chipText = QStringLiteral("#");
+		switch (scopeValue) {
+			case LocalServerLogScope:
+				chipText = QObject::tr("LOG");
+				break;
+			case static_cast< int >(MumbleProto::ServerGlobal):
+				chipText = QObject::tr("ALL");
+				break;
+			case static_cast< int >(MumbleProto::Channel):
+				chipText = QObject::tr("VC");
+				break;
+			case static_cast< int >(MumbleProto::TextChannel):
+				chipText = QObject::tr("TXT");
+				break;
+			default:
+				break;
+		}
+
+		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+			QColor backgroundColor(Qt::transparent);
+			if (selected) {
+				backgroundColor = alphaColor(tokens->surface1, 0.42);
+			} else if (hovered) {
+				backgroundColor = alphaColor(tokens->surface1, 0.24);
 			}
-
-			QStyleOptionViewItem opt(option);
-			initStyleOption(&opt, index);
-
-			const QPalette effectivePalette = opt.widget ? opt.widget->palette() : opt.palette;
-			const bool selected             = opt.state.testFlag(QStyle::State_Selected);
-			const bool hovered              = opt.state.testFlag(QStyle::State_MouseOver);
-			const QString label =
-				index.data(PersistentChatLabelRole).toString().isEmpty() ? opt.text : index.data(PersistentChatLabelRole).toString();
-			const qulonglong unreadCount = index.data(PersistentChatUnreadRole).toULongLong();
-			const int scopeValue         = index.data(PersistentChatScopeRole).toInt();
-			const bool utilityRow =
-				scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal);
-			const bool textChannelRow = scopeValue == static_cast< int >(MumbleProto::TextChannel);
-			const bool voiceChannelRow = scopeValue == static_cast< int >(MumbleProto::Channel);
-			static const QIcon s_voiceRoomIcon(QLatin1String("skin:priority_speaker.svg"));
-
-			QString chipText = QStringLiteral("#");
-			switch (scopeValue) {
-				case LocalServerLogScope:
-					chipText = QObject::tr("LOG");
-					break;
-				case static_cast< int >(MumbleProto::ServerGlobal):
-					chipText = QObject::tr("ALL");
-					break;
-				case static_cast< int >(MumbleProto::Channel):
-					chipText = QObject::tr("VC");
-					break;
-				case static_cast< int >(MumbleProto::TextChannel):
-					chipText = QObject::tr("TXT");
-					break;
-				default:
-					break;
-			}
-
-			if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-				QColor backgroundColor(Qt::transparent);
-				if (selected) {
-					backgroundColor = alphaColor(tokens->surface1, 0.42);
-				} else if (hovered) {
-					backgroundColor = alphaColor(tokens->surface1, 0.24);
-				}
-				const QColor textColor =
-					selected ? tokens->textPrimary
-							 : ((hovered || unreadCount > 0 || utilityRow || voiceChannelRow) ? tokens->textPrimary
-																							  : tokens->textSecondary);
-				const QColor secondaryTextColor = selected ? textColor : tokens->textMuted;
-				const QColor unreadFillColor    = tokens->accentSubtle;
-				const QColor unreadTextColor    = tokens->accent;
-				const QColor chipFillColor =
-					scopeValue == LocalServerLogScope
-						? alphaColor(tokens->yellow, 0.82)
-						: (scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
-							   ? alphaColor(tokens->accent, 0.18)
-							   : (textChannelRow
-									  ? (selected ? alphaColor(tokens->accent, 0.18) : alphaColor(tokens->surface1, 0.62))
-									  : QColor(Qt::transparent)));
-				const QColor chipTextColor =
-					scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
-						? tokens->crust
-						: (textChannelRow ? (selected ? tokens->accent : tokens->textMuted) : secondaryTextColor);
-				const QColor voiceIconColor = selected ? tokens->accent : secondaryTextColor;
-
-				QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
-				painter->save();
-				painter->setRenderHint(QPainter::Antialiasing, true);
-				if (rowRect.isValid() && backgroundColor.alpha() > 0) {
-					painter->setPen(Qt::NoPen);
-					painter->setBrush(backgroundColor);
-					painter->drawRoundedRect(rowRect, 8.0f, 8.0f);
-				}
-				if (selected && rowRect.isValid()) {
-					const QRect accentRect(rowRect.left(), rowRect.top() + 3, 3, rowRect.height() - 6);
-					painter->setPen(Qt::NoPen);
-					painter->setBrush(tokens->accent);
-					painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
-				}
-
-				QFont chipFont(opt.font);
-				chipFont.setBold(true);
-				chipFont.setPointSizeF(std::max(chipFont.pointSizeF() - 1.0, 8.0));
-				const QFontMetrics chipMetrics(chipFont);
-
-				int x = rowRect.left() + 8;
-				if (voiceChannelRow) {
-					const QRect iconRect(x, rowRect.center().y() - 6, 12, 12);
-					painter->drawPixmap(iconRect.topLeft(),
-										tintedIconPixmap(s_voiceRoomIcon, iconRect.size(), voiceIconColor));
-					x = iconRect.right() + 8;
-				} else {
-					const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
-					const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
-					if (chipFillColor.alpha() > 0) {
-						painter->setPen(Qt::NoPen);
-						painter->setBrush(chipFillColor);
-						painter->drawRoundedRect(chipRect, 4.0f, 4.0f);
-					}
-					painter->setPen(chipTextColor);
-					painter->setFont(chipFont);
-					painter->drawText(chipRect, Qt::AlignCenter, chipText);
-					x = chipRect.right() + 8;
-				}
-
-				int textRight = rowRect.right() - 8;
-				if (unreadCount > 0) {
-					const QString unreadText = QString::number(unreadCount);
-					const int unreadWidth = chipMetrics.horizontalAdvance(unreadText) + 12;
-					const QRect unreadRect(textRight - unreadWidth, rowRect.center().y() - 9, unreadWidth, 18);
-					painter->setPen(Qt::NoPen);
-					painter->setBrush(unreadFillColor);
-					painter->drawRoundedRect(unreadRect, 10.0f, 10.0f);
-					painter->setPen(unreadTextColor);
-					painter->drawText(unreadRect, Qt::AlignCenter, unreadText);
-					textRight = unreadRect.left() - 6;
-				}
-
-				const QRect textRect(x, rowRect.top(), std::max(18, textRight - x), rowRect.height());
-				QFont titleFont(opt.font);
-				titleFont.setBold(selected || utilityRow || unreadCount > 0);
-				painter->setFont(titleFont);
-				painter->setPen(textChannelRow && !selected && !hovered && unreadCount == 0 ? tokens->textSecondary : textColor);
-				painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
-								  QFontMetrics(titleFont).elidedText(label.simplified(), Qt::ElideRight, textRect.width()));
-				painter->restore();
-				return;
-			}
-
-			const ChromePaletteColors chrome = buildChromePalette(effectivePalette);
-
-			const QColor utilityRowColor =
-				mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.10 : 0.04);
-			const QColor channelRowColor =
-				mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.04 : 0.02);
-			const QColor channelHoverColor =
-				mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.03 : 0.02);
-			const QColor utilityOutlineColor =
-				mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.05);
-			const QColor rowFillColor =
-				selected
-					? (utilityRow ? mixColors(utilityRowColor, chrome.selectedColor, chrome.darkTheme ? 0.22 : 0.14)
-								  : mixColors(channelRowColor, chrome.accentColor, chrome.darkTheme ? 0.10 : 0.06))
-					: (hovered ? (utilityRow
-									  ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.03)
-									  : channelHoverColor)
-							   : (utilityRow ? utilityRowColor : QColor(Qt::transparent)));
-			const QColor rowOutlineColor =
-				selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.30 : 0.14)
-						 : (utilityRow ? utilityOutlineColor : QColor(Qt::transparent));
 			const QColor textColor =
-				selected
-					? chrome.textColor
-					: ((textChannelRow || voiceChannelRow) && unreadCount == 0
-						   ? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.10 : 0.05)
-						   : chrome.textColor);
-			const QColor mutedTextColor =
-				selected
-					? chrome.textColor
-					: ((textChannelRow || voiceChannelRow)
-						   ? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.18 : 0.10)
-						   : chrome.mutedTextColor);
-			const QColor chipFillColor =
-				selected
-					? (textChannelRow
-						   ? mixColors(chrome.selectedColor, chrome.panelColor, chrome.darkTheme ? 0.22 : 0.14)
-						   : mixColors(chrome.selectedColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.05))
-					: (utilityRow ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06)
-								  : (textChannelRow
-										 ? mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.08)
-										 : QColor(Qt::transparent)));
+				selected ? tokens->textPrimary
+						 : ((hovered || unreadCount > 0 || utilityRow || voiceChannelRow) ? tokens->textPrimary
+																						  : tokens->textSecondary);
+			const QColor secondaryTextColor = selected ? textColor : tokens->textMuted;
+			const QColor unreadFillColor    = tokens->accentSubtle;
+			const QColor unreadTextColor    = tokens->accent;
+			const QColor chipFillColor      = scopeValue == LocalServerLogScope
+											 ? alphaColor(tokens->yellow, 0.82)
+											 : (scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
+													? alphaColor(tokens->accent, 0.18)
+													: (textChannelRow ? (selected ? alphaColor(tokens->accent, 0.18)
+																				  : alphaColor(tokens->surface1, 0.62))
+																	  : QColor(Qt::transparent)));
 			const QColor chipTextColor =
-				textChannelRow ? (selected ? chrome.selectedTextColor : mutedTextColor)
-							   : (selected ? chrome.textColor : mutedTextColor);
-			const QColor unreadFillColor =
-				selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.16 : 0.10)
-						 : mixColors(chrome.selectedColor, utilityRow ? utilityRowColor : channelRowColor,
-									 chrome.darkTheme ? 0.44 : 0.28);
-			const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
-			const QColor voiceIconColor  = selected ? chrome.accentColor : mutedTextColor;
+				scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
+					? tokens->crust
+					: (textChannelRow ? (selected ? tokens->accent : tokens->textMuted) : secondaryTextColor);
+			const QColor voiceIconColor = selected ? tokens->accent : secondaryTextColor;
 
 			QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
 			painter->save();
 			painter->setRenderHint(QPainter::Antialiasing, true);
-			if (rowRect.isValid() && (selected || hovered || utilityRow)) {
-				painter->setPen(rowOutlineColor.alpha() == 0 ? Qt::NoPen : QPen(rowOutlineColor, 1.0));
-				painter->setBrush(rowFillColor);
-				painter->drawRoundedRect(rowRect, 10.0f, 10.0f);
+			if (rowRect.isValid() && backgroundColor.alpha() > 0) {
+				painter->setPen(Qt::NoPen);
+				painter->setBrush(backgroundColor);
+				painter->drawRoundedRect(rowRect, 8.0f, 8.0f);
 			}
 			if (selected && rowRect.isValid()) {
 				const QRect accentRect(rowRect.left(), rowRect.top() + 3, 3, rowRect.height() - 6);
 				painter->setPen(Qt::NoPen);
-				painter->setBrush(chrome.accentColor);
+				painter->setBrush(tokens->accent);
 				painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
 			}
 
@@ -1610,11 +1467,11 @@ namespace {
 			int textRight = rowRect.right() - 8;
 			if (unreadCount > 0) {
 				const QString unreadText = QString::number(unreadCount);
-				const int unreadWidth = chipMetrics.horizontalAdvance(unreadText) + 12;
+				const int unreadWidth    = chipMetrics.horizontalAdvance(unreadText) + 12;
 				const QRect unreadRect(textRight - unreadWidth, rowRect.center().y() - 9, unreadWidth, 18);
 				painter->setPen(Qt::NoPen);
 				painter->setBrush(unreadFillColor);
-				painter->drawRoundedRect(unreadRect, 9.0f, 9.0f);
+				painter->drawRoundedRect(unreadRect, 10.0f, 10.0f);
 				painter->setPen(unreadTextColor);
 				painter->drawText(unreadRect, Qt::AlignCenter, unreadText);
 				textRight = unreadRect.left() - 6;
@@ -1624,418 +1481,522 @@ namespace {
 			QFont titleFont(opt.font);
 			titleFont.setBold(selected || utilityRow || unreadCount > 0);
 			painter->setFont(titleFont);
-			painter->setPen(textColor);
+			painter->setPen(textChannelRow && !selected && !hovered && unreadCount == 0 ? tokens->textSecondary
+																						: textColor);
 			painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
 							  QFontMetrics(titleFont).elidedText(label.simplified(), Qt::ElideRight, textRect.width()));
 			painter->restore();
+			return;
 		}
-	};
+
+		const ChromePaletteColors chrome = buildChromePalette(effectivePalette);
+
+		const QColor utilityRowColor =
+			mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.10 : 0.04);
+		const QColor channelRowColor =
+			mixColors(effectivePalette.color(QPalette::Window), chrome.textColor, chrome.darkTheme ? 0.04 : 0.02);
+		const QColor channelHoverColor = mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.03 : 0.02);
+		const QColor utilityOutlineColor =
+			mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.05);
+		const QColor rowFillColor =
+			selected
+				? (utilityRow ? mixColors(utilityRowColor, chrome.selectedColor, chrome.darkTheme ? 0.22 : 0.14)
+							  : mixColors(channelRowColor, chrome.accentColor, chrome.darkTheme ? 0.10 : 0.06))
+				: (hovered ? (utilityRow ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.04 : 0.03)
+										 : channelHoverColor)
+						   : (utilityRow ? utilityRowColor : QColor(Qt::transparent)));
+		const QColor rowOutlineColor =
+			selected ? mixColors(chrome.borderColor, chrome.accentColor, chrome.darkTheme ? 0.30 : 0.14)
+					 : (utilityRow ? utilityOutlineColor : QColor(Qt::transparent));
+		const QColor textColor =
+			selected ? chrome.textColor
+					 : ((textChannelRow || voiceChannelRow) && unreadCount == 0
+							? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.10 : 0.05)
+							: chrome.textColor);
+		const QColor mutedTextColor =
+			selected ? chrome.textColor
+					 : ((textChannelRow || voiceChannelRow)
+							? mixColors(chrome.textColor, chrome.panelColor, chrome.darkTheme ? 0.18 : 0.10)
+							: chrome.mutedTextColor);
+		const QColor chipFillColor =
+			selected
+				? (textChannelRow ? mixColors(chrome.selectedColor, chrome.panelColor, chrome.darkTheme ? 0.22 : 0.14)
+								  : mixColors(chrome.selectedColor, chrome.textColor, chrome.darkTheme ? 0.08 : 0.05))
+				: (utilityRow
+					   ? mixColors(utilityRowColor, chrome.textColor, chrome.darkTheme ? 0.12 : 0.06)
+					   : (textChannelRow ? mixColors(channelRowColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.08)
+										 : QColor(Qt::transparent)));
+		const QColor chipTextColor = textChannelRow ? (selected ? chrome.selectedTextColor : mutedTextColor)
+													: (selected ? chrome.textColor : mutedTextColor);
+		const QColor unreadFillColor =
+			selected ? mixColors(chrome.selectedColor, chrome.selectedTextColor, chrome.darkTheme ? 0.16 : 0.10)
+					 : mixColors(chrome.selectedColor, utilityRow ? utilityRowColor : channelRowColor,
+								 chrome.darkTheme ? 0.44 : 0.28);
+		const QColor unreadTextColor = selected ? chrome.selectedTextColor : chrome.textColor;
+		const QColor voiceIconColor  = selected ? chrome.accentColor : mutedTextColor;
+
+		QRect rowRect = option.rect.adjusted(4, 1, -4, -1);
+		painter->save();
+		painter->setRenderHint(QPainter::Antialiasing, true);
+		if (rowRect.isValid() && (selected || hovered || utilityRow)) {
+			painter->setPen(rowOutlineColor.alpha() == 0 ? Qt::NoPen : QPen(rowOutlineColor, 1.0));
+			painter->setBrush(rowFillColor);
+			painter->drawRoundedRect(rowRect, 10.0f, 10.0f);
+		}
+		if (selected && rowRect.isValid()) {
+			const QRect accentRect(rowRect.left(), rowRect.top() + 3, 3, rowRect.height() - 6);
+			painter->setPen(Qt::NoPen);
+			painter->setBrush(chrome.accentColor);
+			painter->drawRoundedRect(accentRect, 1.5f, 1.5f);
+		}
+
+		QFont chipFont(opt.font);
+		chipFont.setBold(true);
+		chipFont.setPointSizeF(std::max(chipFont.pointSizeF() - 1.0, 8.0));
+		const QFontMetrics chipMetrics(chipFont);
+
+		int x = rowRect.left() + 8;
+		if (voiceChannelRow) {
+			const QRect iconRect(x, rowRect.center().y() - 6, 12, 12);
+			painter->drawPixmap(iconRect.topLeft(), tintedIconPixmap(s_voiceRoomIcon, iconRect.size(), voiceIconColor));
+			x = iconRect.right() + 8;
+		} else {
+			const int chipWidth = std::max(20, chipMetrics.horizontalAdvance(chipText) + 10);
+			const QRect chipRect(x, rowRect.center().y() - 9, chipWidth, 18);
+			if (chipFillColor.alpha() > 0) {
+				painter->setPen(Qt::NoPen);
+				painter->setBrush(chipFillColor);
+				painter->drawRoundedRect(chipRect, 4.0f, 4.0f);
+			}
+			painter->setPen(chipTextColor);
+			painter->setFont(chipFont);
+			painter->drawText(chipRect, Qt::AlignCenter, chipText);
+			x = chipRect.right() + 8;
+		}
+
+		int textRight = rowRect.right() - 8;
+		if (unreadCount > 0) {
+			const QString unreadText = QString::number(unreadCount);
+			const int unreadWidth    = chipMetrics.horizontalAdvance(unreadText) + 12;
+			const QRect unreadRect(textRight - unreadWidth, rowRect.center().y() - 9, unreadWidth, 18);
+			painter->setPen(Qt::NoPen);
+			painter->setBrush(unreadFillColor);
+			painter->drawRoundedRect(unreadRect, 9.0f, 9.0f);
+			painter->setPen(unreadTextColor);
+			painter->drawText(unreadRect, Qt::AlignCenter, unreadText);
+			textRight = unreadRect.left() - 6;
+		}
+
+		const QRect textRect(x, rowRect.top(), std::max(18, textRight - x), rowRect.height());
+		QFont titleFont(opt.font);
+		titleFont.setBold(selected || utilityRow || unreadCount > 0);
+		painter->setFont(titleFont);
+		painter->setPen(textColor);
+		painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+						  QFontMetrics(titleFont).elidedText(label.simplified(), Qt::ElideRight, textRect.width()));
+		painter->restore();
+	}
+};
 
 #ifdef Q_OS_WIN
-	using DwmSetWindowAttributeFn = HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD);
+using DwmSetWindowAttributeFn = HRESULT(WINAPI *)(HWND, DWORD, LPCVOID, DWORD);
 
-	constexpr DWORD DwmUseImmersiveDarkModeAttribute       = 20;
-	constexpr DWORD DwmUseImmersiveDarkModeLegacyAttribute = 19;
-	constexpr DWORD DwmBorderColorAttribute                = 34;
-	constexpr DWORD DwmCaptionColorAttribute               = 35;
-	constexpr DWORD DwmTextColorAttribute                  = 36;
+constexpr DWORD DwmUseImmersiveDarkModeAttribute       = 20;
+constexpr DWORD DwmUseImmersiveDarkModeLegacyAttribute = 19;
+constexpr DWORD DwmBorderColorAttribute                = 34;
+constexpr DWORD DwmCaptionColorAttribute               = 35;
+constexpr DWORD DwmTextColorAttribute                  = 36;
 
-	COLORREF colorRefFromQColor(const QColor &color) {
-		return RGB(color.red(), color.green(), color.blue());
+COLORREF colorRefFromQColor(const QColor &color) {
+	return RGB(color.red(), color.green(), color.blue());
+}
+
+void applyNativeTitleBarTheme(QWidget *widget) {
+	if (!widget) {
+		return;
 	}
 
-	void applyNativeTitleBarTheme(QWidget *widget) {
-		if (!widget) {
-			return;
-		}
-
-		const HWND hwnd = reinterpret_cast< HWND >(widget->winId());
-		if (!hwnd) {
-			return;
-		}
-
-		static const HMODULE dwmapiModule = GetModuleHandleW(L"dwmapi.dll");
-		if (!dwmapiModule) {
-			return;
-		}
-
-		static const DwmSetWindowAttributeFn setWindowAttribute =
-			reinterpret_cast< DwmSetWindowAttributeFn >(GetProcAddress(dwmapiModule, "DwmSetWindowAttribute"));
-		if (!setWindowAttribute) {
-			return;
-		}
-
-		const QPalette palette = widget->palette();
-		const bool darkTheme   = isDarkPalette(palette);
-		QColor captionColor;
-		QColor titleTextColor;
-		QColor borderColor;
-
-		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-			captionColor   = tokens->crust;
-			titleTextColor = tokens->text;
-			borderColor    = tokens->surface1;
-		} else {
-			const QColor windowColor = palette.color(QPalette::Window);
-			const QColor baseColor   = palette.color(QPalette::Base);
-			const QColor accentColor = palette.color(QPalette::Highlight);
-			titleTextColor           = palette.color(QPalette::WindowText);
-			captionColor =
-				darkTheme ? mixColors(windowColor, baseColor, 0.22) : mixColors(windowColor, accentColor, 0.08);
-			borderColor =
-				darkTheme ? mixColors(captionColor, accentColor, 0.18) : mixColors(captionColor, accentColor, 0.26);
-		}
-
-		const BOOL immersiveDarkMode = darkTheme ? TRUE : FALSE;
-		HRESULT result =
-			setWindowAttribute(hwnd, DwmUseImmersiveDarkModeAttribute, &immersiveDarkMode, sizeof(immersiveDarkMode));
-		if (FAILED(result)) {
-			setWindowAttribute(hwnd, DwmUseImmersiveDarkModeLegacyAttribute, &immersiveDarkMode,
-							   sizeof(immersiveDarkMode));
-		}
-
-		const COLORREF captionColorRef = colorRefFromQColor(captionColor);
-		const COLORREF textColorRef    = colorRefFromQColor(titleTextColor);
-		const COLORREF borderColorRef  = colorRefFromQColor(borderColor);
-		setWindowAttribute(hwnd, DwmCaptionColorAttribute, &captionColorRef, sizeof(captionColorRef));
-		setWindowAttribute(hwnd, DwmTextColorAttribute, &textColorRef, sizeof(textColorRef));
-		setWindowAttribute(hwnd, DwmBorderColorAttribute, &borderColorRef, sizeof(borderColorRef));
+	const HWND hwnd = reinterpret_cast< HWND >(widget->winId());
+	if (!hwnd) {
+		return;
 	}
+
+	static const HMODULE dwmapiModule = GetModuleHandleW(L"dwmapi.dll");
+	if (!dwmapiModule) {
+		return;
+	}
+
+	static const DwmSetWindowAttributeFn setWindowAttribute =
+		reinterpret_cast< DwmSetWindowAttributeFn >(GetProcAddress(dwmapiModule, "DwmSetWindowAttribute"));
+	if (!setWindowAttribute) {
+		return;
+	}
+
+	const QPalette palette = widget->palette();
+	const bool darkTheme   = isDarkPalette(palette);
+	QColor captionColor;
+	QColor titleTextColor;
+	QColor borderColor;
+
+	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+		captionColor   = tokens->crust;
+		titleTextColor = tokens->text;
+		borderColor    = tokens->surface1;
+	} else {
+		const QColor windowColor = palette.color(QPalette::Window);
+		const QColor baseColor   = palette.color(QPalette::Base);
+		const QColor accentColor = palette.color(QPalette::Highlight);
+		titleTextColor           = palette.color(QPalette::WindowText);
+		captionColor = darkTheme ? mixColors(windowColor, baseColor, 0.22) : mixColors(windowColor, accentColor, 0.08);
+		borderColor =
+			darkTheme ? mixColors(captionColor, accentColor, 0.18) : mixColors(captionColor, accentColor, 0.26);
+	}
+
+	const BOOL immersiveDarkMode = darkTheme ? TRUE : FALSE;
+	HRESULT result =
+		setWindowAttribute(hwnd, DwmUseImmersiveDarkModeAttribute, &immersiveDarkMode, sizeof(immersiveDarkMode));
+	if (FAILED(result)) {
+		setWindowAttribute(hwnd, DwmUseImmersiveDarkModeLegacyAttribute, &immersiveDarkMode, sizeof(immersiveDarkMode));
+	}
+
+	const COLORREF captionColorRef = colorRefFromQColor(captionColor);
+	const COLORREF textColorRef    = colorRefFromQColor(titleTextColor);
+	const COLORREF borderColorRef  = colorRefFromQColor(borderColor);
+	setWindowAttribute(hwnd, DwmCaptionColorAttribute, &captionColorRef, sizeof(captionColorRef));
+	setWindowAttribute(hwnd, DwmTextColorAttribute, &textColorRef, sizeof(textColorRef));
+	setWindowAttribute(hwnd, DwmBorderColorAttribute, &borderColorRef, sizeof(borderColorRef));
+}
 #endif
 
-	bool samePersistentChatActor(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
-		if (lhs.has_actor() || rhs.has_actor()) {
-			return lhs.has_actor() && rhs.has_actor() && lhs.actor() == rhs.actor();
-		}
+bool samePersistentChatActor(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
+	if (lhs.has_actor() || rhs.has_actor()) {
+		return lhs.has_actor() && rhs.has_actor() && lhs.actor() == rhs.actor();
+	}
 
-		if (lhs.has_actor_user_id() || rhs.has_actor_user_id()) {
-			return lhs.has_actor_user_id() && rhs.has_actor_user_id() && lhs.actor_user_id() == rhs.actor_user_id();
-		}
+	if (lhs.has_actor_user_id() || rhs.has_actor_user_id()) {
+		return lhs.has_actor_user_id() && rhs.has_actor_user_id() && lhs.actor_user_id() == rhs.actor_user_id();
+	}
 
-		if (lhs.has_actor_name() || rhs.has_actor_name()) {
-			return lhs.has_actor_name() && rhs.has_actor_name() && u8(lhs.actor_name()) == u8(rhs.actor_name());
-		}
+	if (lhs.has_actor_name() || rhs.has_actor_name()) {
+		return lhs.has_actor_name() && rhs.has_actor_name() && u8(lhs.actor_name()) == u8(rhs.actor_name());
+	}
 
+	return true;
+}
+
+bool samePersistentChatScope(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
+	const MumbleProto::ChatScope lhsScope = lhs.has_scope() ? lhs.scope() : MumbleProto::Channel;
+	const MumbleProto::ChatScope rhsScope = rhs.has_scope() ? rhs.scope() : MumbleProto::Channel;
+	const unsigned int lhsScopeID         = lhs.has_scope_id() ? lhs.scope_id() : 0;
+	const unsigned int rhsScopeID         = rhs.has_scope_id() ? rhs.scope_id() : 0;
+	return lhsScope == rhsScope && lhsScopeID == rhsScopeID;
+}
+
+[[maybe_unused]] bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
+												const QDateTime &previousCreatedAt,
+												const MumbleProto::ChatMessage &message, const QDateTime &createdAt) {
+	if (!previousMessage.has_value()) {
 		return true;
 	}
 
-	bool samePersistentChatScope(const MumbleProto::ChatMessage &lhs, const MumbleProto::ChatMessage &rhs) {
-		const MumbleProto::ChatScope lhsScope = lhs.has_scope() ? lhs.scope() : MumbleProto::Channel;
-		const MumbleProto::ChatScope rhsScope = rhs.has_scope() ? rhs.scope() : MumbleProto::Channel;
-		const unsigned int lhsScopeID         = lhs.has_scope_id() ? lhs.scope_id() : 0;
-		const unsigned int rhsScopeID         = rhs.has_scope_id() ? rhs.scope_id() : 0;
-		return lhsScope == rhsScope && lhsScopeID == rhsScopeID;
+	if (previousCreatedAt.date() != createdAt.date()) {
+		return true;
 	}
 
-	[[maybe_unused]] bool startsPersistentChatGroup(const std::optional< MumbleProto::ChatMessage > &previousMessage,
-													const QDateTime &previousCreatedAt,
-													const MumbleProto::ChatMessage &message,
-													const QDateTime &createdAt) {
-		if (!previousMessage.has_value()) {
-			return true;
-		}
-
-		if (previousCreatedAt.date() != createdAt.date()) {
-			return true;
-		}
-
-		if (!samePersistentChatActor(previousMessage.value(), message)
-			|| !samePersistentChatScope(previousMessage.value(), message)) {
-			return true;
-		}
-
-		if (previousCreatedAt.isValid() && createdAt.isValid() && previousCreatedAt.secsTo(createdAt) > (5 * 60)) {
-			return true;
-		}
-
-		return false;
+	if (!samePersistentChatActor(previousMessage.value(), message)
+		|| !samePersistentChatScope(previousMessage.value(), message)) {
+		return true;
 	}
 
-	QString persistentChatActorLabel(const MumbleProto::ChatMessage &msg) {
-		if (msg.has_actor_name()) {
-			const QString actorName = u8(msg.actor_name()).trimmed();
-			if (!actorName.isEmpty()) {
-				return actorName;
-			}
-		}
-
-		if (msg.has_actor()) {
-			ClientUser *user = ClientUser::get(msg.actor());
-			if (user) {
-				return user->qsName;
-			}
-		}
-
-		if (msg.has_actor_user_id()) {
-			return QObject::tr("User %1").arg(msg.actor_user_id());
-		}
-
-		return QObject::tr("Unknown user");
+	if (previousCreatedAt.isValid() && createdAt.isValid() && previousCreatedAt.secsTo(createdAt) > (5 * 60)) {
+		return true;
 	}
 
-	QString normalizedPersistentChatText(QString text) {
-		return text.replace(QLatin1String("\r\n"), QLatin1String("\n")).replace(QLatin1Char('\r'),
-																			 QLatin1Char('\n'));
+	return false;
+}
+
+QString persistentChatActorLabel(const MumbleProto::ChatMessage &msg) {
+	if (msg.has_actor_name()) {
+		const QString actorName = u8(msg.actor_name()).trimmed();
+		if (!actorName.isEmpty()) {
+			return actorName;
+		}
 	}
 
-	constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH  = 480;
-	constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT = 320;
-
-	QSize persistentChatInlineImageDisplaySize(const QSize &sourceSize) {
-		if (!sourceSize.isValid() || sourceSize.isEmpty()) {
-			return QSize();
+	if (msg.has_actor()) {
+		ClientUser *user = ClientUser::get(msg.actor());
+		if (user) {
+			return user->qsName;
 		}
-
-		return sourceSize.scaled(PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH, PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT,
-								 Qt::KeepAspectRatio);
 	}
 
-	QString sanitizePersistentChatInlineStyle(QString style) {
-		if (style.trimmed().isEmpty()) {
-			return QString();
-		}
-
-		static const QRegularExpression s_blockedDeclarationPattern(
-			QLatin1String("(?:^|;)\\s*(?:overflow(?:-x|-y)?|text-overflow|max-height|-webkit-line-clamp)\\s*:[^;]*;?"),
-			QRegularExpression::CaseInsensitiveOption);
-		static const QRegularExpression s_duplicateSemicolonPattern(QLatin1String(";{2,}"));
-		static const QRegularExpression s_leadingTrailingSemicolonPattern(QLatin1String("^;+|;+$"));
-
-		style.replace(s_blockedDeclarationPattern, QStringLiteral(";"));
-		style.replace(s_duplicateSemicolonPattern, QStringLiteral(";"));
-		style.remove(s_leadingTrailingSemicolonPattern);
-
-		QStringList declarations;
-		for (const QString &segment : style.split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
-			const QString declaration = segment.trimmed();
-			if (!declaration.isEmpty()) {
-				declarations << declaration;
-			}
-		}
-
-		if (declarations.isEmpty()) {
-			return QString();
-		}
-
-		return declarations.join(QStringLiteral("; ")) + QLatin1Char(';');
+	if (msg.has_actor_user_id()) {
+		return QObject::tr("User %1").arg(msg.actor_user_id());
 	}
 
-	QString normalizePersistentChatInlineStyles(QString html) {
-		if (!html.contains(QLatin1String("style="), Qt::CaseInsensitive)) {
-			return html;
-		}
+	return QObject::tr("Unknown user");
+}
 
-		static const QRegularExpression s_styleAttributePattern(
-			QLatin1String("\\bstyle\\s*=\\s*(['\"])(.*?)\\1"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+QString normalizedPersistentChatText(QString text) {
+	return text.replace(QLatin1String("\r\n"), QLatin1String("\n")).replace(QLatin1Char('\r'), QLatin1Char('\n'));
+}
 
-		QString normalizedHtml;
-		normalizedHtml.reserve(html.size());
-		int lastOffset = 0;
+constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH  = 480;
+constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT = 320;
 
-		QRegularExpressionMatchIterator it = s_styleAttributePattern.globalMatch(html);
-		while (it.hasNext()) {
-			const QRegularExpressionMatch match = it.next();
-			normalizedHtml += html.mid(lastOffset, match.capturedStart() - lastOffset);
-
-			const QString sanitizedStyle = sanitizePersistentChatInlineStyle(match.captured(2));
-			if (!sanitizedStyle.isEmpty()) {
-				const QString quote = match.captured(1);
-				normalizedHtml += QString::fromLatin1("style=%1%2%1").arg(quote, sanitizedStyle);
-			}
-
-			lastOffset = match.capturedEnd();
-		}
-
-		normalizedHtml += html.mid(lastOffset);
-		return normalizedHtml;
+QSize persistentChatInlineImageDisplaySize(const QSize &sourceSize) {
+	if (!sourceSize.isValid() || sourceSize.isEmpty()) {
+		return QSize();
 	}
 
-	QString persistentChatInlineImageStyle(const QString &existingStyle = QString()) {
-		QString style = sanitizePersistentChatInlineStyle(existingStyle);
-		if (!style.isEmpty() && !style.endsWith(QLatin1Char(';'))) {
-			style.append(QLatin1Char(';'));
-		}
+	return sourceSize.scaled(PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH, PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT,
+							 Qt::KeepAspectRatio);
+}
 
-		style += QString::fromLatin1(
-					 "max-width:100%%; max-height:%1px; width:auto; height:auto; border:none; outline:none; display:block; "
-					 "margin:0; overflow:visible;")
-					 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT);
-		return style;
+QString sanitizePersistentChatInlineStyle(QString style) {
+	if (style.trimmed().isEmpty()) {
+		return QString();
 	}
 
-	struct PersistentChatInlineDataImageInfo {
-		bool valid          = false;
-		bool base64         = false;
-		QString mimeType;
-		QString formatLabel;
-		qint64 estimatedBytes = -1;
-	};
+	static const QRegularExpression s_blockedDeclarationPattern(
+		QLatin1String("(?:^|;)\\s*(?:overflow(?:-x|-y)?|text-overflow|max-height|-webkit-line-clamp)\\s*:[^;]*;?"),
+		QRegularExpression::CaseInsensitiveOption);
+	static const QRegularExpression s_duplicateSemicolonPattern(QLatin1String(";{2,}"));
+	static const QRegularExpression s_leadingTrailingSemicolonPattern(QLatin1String("^;+|;+$"));
 
-	using PersistentChatInlineDataImageReplacementBuilder =
-		std::function< QString(const QString &, const QString &, const PersistentChatInlineDataImageInfo &) >;
+	style.replace(s_blockedDeclarationPattern, QStringLiteral(";"));
+	style.replace(s_duplicateSemicolonPattern, QStringLiteral(";"));
+	style.remove(s_leadingTrailingSemicolonPattern);
 
-	QString persistentChatInlineDataImageFormatLabel(const QString &mimeType) {
-		const QString subtype = mimeType.section(QLatin1Char('/'), 1, 1).trimmed().toUpper();
-		return subtype.isEmpty() ? QObject::tr("image") : subtype;
+	QStringList declarations;
+	for (const QString &segment : style.split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+		const QString declaration = segment.trimmed();
+		if (!declaration.isEmpty()) {
+			declarations << declaration;
+		}
 	}
 
-	QString persistentChatInlineDataImageSizeLabel(qint64 bytes) {
-		if (bytes < 0) {
-			return QString();
-		}
-		if (bytes >= 1024 * 1024) {
-			return QString::fromLatin1("%1 MB").arg(static_cast< double >(bytes) / (1024.0 * 1024.0), 0, 'f', 1);
-		}
-		if (bytes >= 1024) {
-			return QString::fromLatin1("%1 KB").arg(static_cast< double >(bytes) / 1024.0, 0, 'f', 1);
-		}
-
-		return QString::fromLatin1("%1 B").arg(bytes);
+	if (declarations.isEmpty()) {
+		return QString();
 	}
 
-	QString persistentChatInlineDataImageToken(const QString &source) {
-		return QString::fromLatin1(
-			QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex().left(24));
+	return declarations.join(QStringLiteral("; ")) + QLatin1Char(';');
+}
+
+QString normalizePersistentChatInlineStyles(QString html) {
+	if (!html.contains(QLatin1String("style="), Qt::CaseInsensitive)) {
+		return html;
 	}
 
-	bool persistentChatInlineDataLooksLikeImageBytes(const QByteArray &bytes) {
-		if (bytes.size() >= 3 && static_cast< unsigned char >(bytes[0]) == 0xFF
-			&& static_cast< unsigned char >(bytes[1]) == 0xD8
-			&& static_cast< unsigned char >(bytes[2]) == 0xFF) {
-			return true;
+	static const QRegularExpression s_styleAttributePattern(QLatin1String("\\bstyle\\s*=\\s*(['\"])(.*?)\\1"),
+															QRegularExpression::CaseInsensitiveOption
+																| QRegularExpression::DotMatchesEverythingOption);
+
+	QString normalizedHtml;
+	normalizedHtml.reserve(html.size());
+	int lastOffset = 0;
+
+	QRegularExpressionMatchIterator it = s_styleAttributePattern.globalMatch(html);
+	while (it.hasNext()) {
+		const QRegularExpressionMatch match = it.next();
+		normalizedHtml += html.mid(lastOffset, match.capturedStart() - lastOffset);
+
+		const QString sanitizedStyle = sanitizePersistentChatInlineStyle(match.captured(2));
+		if (!sanitizedStyle.isEmpty()) {
+			const QString quote = match.captured(1);
+			normalizedHtml += QString::fromLatin1("style=%1%2%1").arg(quote, sanitizedStyle);
 		}
-		if (bytes.startsWith("\x89PNG\r\n\x1A\n")) {
-			return true;
-		}
-		if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a")) {
-			return true;
-		}
-		if (bytes.startsWith("BM")) {
-			return true;
-		}
-		return bytes.size() >= 12 && bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WEBP";
+
+		lastOffset = match.capturedEnd();
 	}
 
-	QByteArray persistentChatInlineDataNormalizedBase64(QByteArray payload) {
-		QByteArray normalized;
-		normalized.reserve(payload.size());
-		for (char ch : payload) {
-			switch (ch) {
-				case ' ':
-				case '\t':
-				case '\r':
-				case '\n':
-					break;
-				default:
-					normalized.push_back(ch);
-					break;
-			}
-		}
-		return normalized;
+	normalizedHtml += html.mid(lastOffset);
+	return normalizedHtml;
+}
+
+QString persistentChatInlineImageStyle(const QString &existingStyle = QString()) {
+	QString style = sanitizePersistentChatInlineStyle(existingStyle);
+	if (!style.isEmpty() && !style.endsWith(QLatin1Char(';'))) {
+		style.append(QLatin1Char(';'));
 	}
 
-	PersistentChatInlineDataImageInfo persistentChatInlineDataImageInfo(const QString &source) {
-		PersistentChatInlineDataImageInfo info;
-		if (!source.startsWith(QLatin1String("data:image/"), Qt::CaseInsensitive)) {
-			return info;
-		}
+	style += QString::fromLatin1(
+				 "max-width:100%%; max-height:%1px; width:auto; height:auto; border:none; outline:none; display:block; "
+				 "margin:0; overflow:visible;")
+				 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT);
+	return style;
+}
 
-		const int commaIndex = source.indexOf(QLatin1Char(','));
-		if (commaIndex <= 5) {
-			return info;
-		}
+struct PersistentChatInlineDataImageInfo {
+	bool valid  = false;
+	bool base64 = false;
+	QString mimeType;
+	QString formatLabel;
+	qint64 estimatedBytes = -1;
+};
 
-		const QString metadata = source.mid(5, commaIndex - 5);
-		const QStringList parts = metadata.split(QLatin1Char(';'), Qt::SkipEmptyParts);
-		if (parts.isEmpty()) {
-			return info;
-		}
+using PersistentChatInlineDataImageReplacementBuilder =
+	std::function< QString(const QString &, const QString &, const PersistentChatInlineDataImageInfo &) >;
 
-		info.valid       = true;
-		info.mimeType    = parts.front().trimmed().toLower();
-		info.formatLabel = persistentChatInlineDataImageFormatLabel(info.mimeType);
-		for (int i = 1; i < parts.size(); ++i) {
-			if (parts[i].trimmed().compare(QLatin1String("base64"), Qt::CaseInsensitive) == 0) {
-				info.base64 = true;
+QString persistentChatInlineDataImageFormatLabel(const QString &mimeType) {
+	const QString subtype = mimeType.section(QLatin1Char('/'), 1, 1).trimmed().toUpper();
+	return subtype.isEmpty() ? QObject::tr("image") : subtype;
+}
+
+QString persistentChatInlineDataImageSizeLabel(qint64 bytes) {
+	if (bytes < 0) {
+		return QString();
+	}
+	if (bytes >= 1024 * 1024) {
+		return QString::fromLatin1("%1 MB").arg(static_cast< double >(bytes) / (1024.0 * 1024.0), 0, 'f', 1);
+	}
+	if (bytes >= 1024) {
+		return QString::fromLatin1("%1 KB").arg(static_cast< double >(bytes) / 1024.0, 0, 'f', 1);
+	}
+
+	return QString::fromLatin1("%1 B").arg(bytes);
+}
+
+QString persistentChatInlineDataImageToken(const QString &source) {
+	return QString::fromLatin1(QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex().left(24));
+}
+
+bool persistentChatInlineDataLooksLikeImageBytes(const QByteArray &bytes) {
+	if (bytes.size() >= 3 && static_cast< unsigned char >(bytes[0]) == 0xFF
+		&& static_cast< unsigned char >(bytes[1]) == 0xD8 && static_cast< unsigned char >(bytes[2]) == 0xFF) {
+		return true;
+	}
+	if (bytes.startsWith("\x89PNG\r\n\x1A\n")) {
+		return true;
+	}
+	if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a")) {
+		return true;
+	}
+	if (bytes.startsWith("BM")) {
+		return true;
+	}
+	return bytes.size() >= 12 && bytes.startsWith("RIFF") && bytes.mid(8, 4) == "WEBP";
+}
+
+QByteArray persistentChatInlineDataNormalizedBase64(QByteArray payload) {
+	QByteArray normalized;
+	normalized.reserve(payload.size());
+	for (char ch : payload) {
+		switch (ch) {
+			case ' ':
+			case '\t':
+			case '\r':
+			case '\n':
 				break;
-			}
+			default:
+				normalized.push_back(ch);
+				break;
 		}
+	}
+	return normalized;
+}
 
-		if (info.base64) {
-			const QString payload = source.mid(commaIndex + 1).trimmed();
-			int padding           = 0;
-			if (payload.endsWith(QLatin1String("=="))) {
-				padding = 2;
-			} else if (payload.endsWith(QLatin1Char('='))) {
-				padding = 1;
-			}
-			info.estimatedBytes = std::max< qint64 >(0, (static_cast< qint64 >(payload.size()) * 3) / 4 - padding);
-		}
-
+PersistentChatInlineDataImageInfo persistentChatInlineDataImageInfo(const QString &source) {
+	PersistentChatInlineDataImageInfo info;
+	if (!source.startsWith(QLatin1String("data:image/"), Qt::CaseInsensitive)) {
 		return info;
 	}
 
-	QByteArray persistentChatInlineDataImageBytes(const QString &source, const PersistentChatInlineDataImageInfo &info) {
-		const int commaIndex = source.indexOf(QLatin1Char(','));
-		if (!info.valid || commaIndex < 0) {
-			return QByteArray();
-		}
+	const int commaIndex = source.indexOf(QLatin1Char(','));
+	if (commaIndex <= 5) {
+		return info;
+	}
 
-		const QByteArray payload = source.mid(commaIndex + 1).trimmed().toLatin1();
-		if (payload.isEmpty()) {
-			return QByteArray();
-		}
+	const QString metadata  = source.mid(5, commaIndex - 5);
+	const QStringList parts = metadata.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+	if (parts.isEmpty()) {
+		return info;
+	}
 
-		if (!info.base64) {
-			const QByteArray bytes = QByteArray::fromPercentEncoding(payload);
-			if (mumble::chatperf::enabled()) {
-				mumble::chatperf::recordNote("chat.inline_data_image.decode",
-											 QString::fromLatin1("mode=percent bytes=%1").arg(bytes.size()));
-			}
-			return bytes;
+	info.valid       = true;
+	info.mimeType    = parts.front().trimmed().toLower();
+	info.formatLabel = persistentChatInlineDataImageFormatLabel(info.mimeType);
+	for (int i = 1; i < parts.size(); ++i) {
+		if (parts[i].trimmed().compare(QLatin1String("base64"), Qt::CaseInsensitive) == 0) {
+			info.base64 = true;
+			break;
 		}
+	}
 
-		QByteArray normalizedPayload = payload;
-		if (normalizedPayload.contains('%')) {
-			normalizedPayload = QByteArray::fromPercentEncoding(normalizedPayload);
+	if (info.base64) {
+		const QString payload = source.mid(commaIndex + 1).trimmed();
+		int padding           = 0;
+		if (payload.endsWith(QLatin1String("=="))) {
+			padding = 2;
+		} else if (payload.endsWith(QLatin1Char('='))) {
+			padding = 1;
 		}
-		if (persistentChatInlineDataLooksLikeImageBytes(normalizedPayload)) {
-			if (mumble::chatperf::enabled()) {
-				mumble::chatperf::recordNote("chat.inline_data_image.decode",
-											 QString::fromLatin1("mode=percent_raw bytes=%1").arg(normalizedPayload.size()));
-			}
-			return normalizedPayload;
-		}
+		info.estimatedBytes = std::max< qint64 >(0, (static_cast< qint64 >(payload.size()) * 3) / 4 - padding);
+	}
 
-		QByteArray decodedBytes = QByteArray::fromBase64(persistentChatInlineDataNormalizedBase64(normalizedPayload));
-		if (!decodedBytes.isEmpty()) {
-			if (mumble::chatperf::enabled()) {
-				mumble::chatperf::recordNote(
-					"chat.inline_data_image.decode",
-					QString::fromLatin1("mode=base64_normalized bytes=%1 percent=%2")
-						.arg(decodedBytes.size())
-						.arg(payload.contains('%') ? 1 : 0));
-			}
-			return decodedBytes;
-		}
+	return info;
+}
 
-		decodedBytes = QByteArray::fromBase64(persistentChatInlineDataNormalizedBase64(payload));
-		if (!decodedBytes.isEmpty()) {
-			if (mumble::chatperf::enabled()) {
-				mumble::chatperf::recordNote("chat.inline_data_image.decode",
-											 QString::fromLatin1("mode=base64_raw bytes=%1").arg(decodedBytes.size()));
-			}
-			return decodedBytes;
-		}
+QByteArray persistentChatInlineDataImageBytes(const QString &source, const PersistentChatInlineDataImageInfo &info) {
+	const int commaIndex = source.indexOf(QLatin1Char(','));
+	if (!info.valid || commaIndex < 0) {
+		return QByteArray();
+	}
 
+	const QByteArray payload = source.mid(commaIndex + 1).trimmed().toLatin1();
+	if (payload.isEmpty()) {
+		return QByteArray();
+	}
+
+	if (!info.base64) {
+		const QByteArray bytes = QByteArray::fromPercentEncoding(payload);
+		if (mumble::chatperf::enabled()) {
+			mumble::chatperf::recordNote("chat.inline_data_image.decode",
+										 QString::fromLatin1("mode=percent bytes=%1").arg(bytes.size()));
+		}
+		return bytes;
+	}
+
+	QByteArray normalizedPayload = payload;
+	if (normalizedPayload.contains('%')) {
+		normalizedPayload = QByteArray::fromPercentEncoding(normalizedPayload);
+	}
+	if (persistentChatInlineDataLooksLikeImageBytes(normalizedPayload)) {
 		if (mumble::chatperf::enabled()) {
 			mumble::chatperf::recordNote(
 				"chat.inline_data_image.decode",
-				QString::fromLatin1("mode=failed prefix=\"%1\"").arg(QString::fromLatin1(payload.left(32))));
+				QString::fromLatin1("mode=percent_raw bytes=%1").arg(normalizedPayload.size()));
 		}
-		return QByteArray();
+		return normalizedPayload;
 	}
+
+	QByteArray decodedBytes = QByteArray::fromBase64(persistentChatInlineDataNormalizedBase64(normalizedPayload));
+	if (!decodedBytes.isEmpty()) {
+		if (mumble::chatperf::enabled()) {
+			mumble::chatperf::recordNote("chat.inline_data_image.decode",
+										 QString::fromLatin1("mode=base64_normalized bytes=%1 percent=%2")
+											 .arg(decodedBytes.size())
+											 .arg(payload.contains('%') ? 1 : 0));
+		}
+		return decodedBytes;
+	}
+
+	decodedBytes = QByteArray::fromBase64(persistentChatInlineDataNormalizedBase64(payload));
+	if (!decodedBytes.isEmpty()) {
+		if (mumble::chatperf::enabled()) {
+			mumble::chatperf::recordNote("chat.inline_data_image.decode",
+										 QString::fromLatin1("mode=base64_raw bytes=%1").arg(decodedBytes.size()));
+		}
+		return decodedBytes;
+	}
+
+	if (mumble::chatperf::enabled()) {
+		mumble::chatperf::recordNote(
+			"chat.inline_data_image.decode",
+			QString::fromLatin1("mode=failed prefix=\"%1\"").arg(QString::fromLatin1(payload.left(32))));
+	}
+	return QByteArray();
+}
 
 QImage persistentChatInlineDataImagePreviewImage(const QString &source, const PersistentChatInlineDataImageInfo &info) {
 	const QByteArray bytes = persistentChatInlineDataImageBytes(source, info);
@@ -2043,23 +2004,23 @@ QImage persistentChatInlineDataImagePreviewImage(const QString &source, const Pe
 		return QImage();
 	}
 
-		QBuffer buffer;
-		buffer.setData(bytes);
-		if (!buffer.open(QIODevice::ReadOnly)) {
-			return QImage();
-		}
+	QBuffer buffer;
+	buffer.setData(bytes);
+	if (!buffer.open(QIODevice::ReadOnly)) {
+		return QImage();
+	}
 
-		QImageReader reader(&buffer);
-		reader.setAutoTransform(true);
-		QImage image = reader.read();
-		if (image.isNull()) {
-			return QImage();
-		}
+	QImageReader reader(&buffer);
+	reader.setAutoTransform(true);
+	QImage image = reader.read();
+	if (image.isNull()) {
+		return QImage();
+	}
 
-		const QSize boundedSize = persistentChatInlineImageDisplaySize(image.size());
-		if (boundedSize.isValid() && image.size() != boundedSize) {
-			image = image.scaled(boundedSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-		}
+	const QSize boundedSize = persistentChatInlineImageDisplaySize(image.size());
+	if (boundedSize.isValid() && image.size() != boundedSize) {
+		image = image.scaled(boundedSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+	}
 
 	return image;
 }
@@ -2095,209 +2056,204 @@ QImage persistentChatInlineDataImagePreviewImage(const QString &source, const Pe
 }
 
 QString persistentChatInlineDataImageThumbnailHtml(const QString &imageSrc, const QString &openHref,
-													  const QString &altText, const QSize &imageSize,
-													  qint64 estimatedBytes) {
-	const QString title = !altText.trimmed().isEmpty()
-							  ? altText.trimmed().toHtmlEscaped()
-							  : QObject::tr("Embedded image").toHtmlEscaped();
+												   const QString &altText, const QSize &imageSize,
+												   qint64 estimatedBytes) {
+	const QString title = !altText.trimmed().isEmpty() ? altText.trimmed().toHtmlEscaped()
+													   : QObject::tr("Embedded image").toHtmlEscaped();
 	QString caption = title;
 	if (const QString sizeLabel = persistentChatInlineDataImageSizeLabel(estimatedBytes); !sizeLabel.isEmpty()) {
-			caption += QString::fromLatin1(" (%1)").arg(sizeLabel.toHtmlEscaped());
-		}
+		caption += QString::fromLatin1(" (%1)").arg(sizeLabel.toHtmlEscaped());
+	}
 	caption += QString::fromLatin1(" - ") + QObject::tr("Click to open or save.").toHtmlEscaped();
 
 	const int boundedWidth  = std::max(1, imageSize.width());
 	const int boundedHeight = std::max(1, std::min(imageSize.height(), PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT));
-	QString imageHtml       = QString::fromLatin1(
-								  "<img src=\"%1\" alt=\"%2\" "
-								  "width=\"%3\" height=\"%4\" "
-								  "style=\"display:block; width:%3px; height:%4px; max-width:%3px; max-height:%4px; "
-								  "border:none; outline:none; margin:0; background:transparent;\" />")
-								  .arg(imageSrc.toHtmlEscaped())
-								  .arg(altText.toHtmlEscaped())
-								  .arg(boundedWidth)
-								  .arg(boundedHeight);
+	QString imageHtml =
+		QString::fromLatin1("<img src=\"%1\" alt=\"%2\" "
+							"width=\"%3\" height=\"%4\" "
+							"style=\"display:block; width:%3px; height:%4px; max-width:%3px; max-height:%4px; "
+							"border:none; outline:none; margin:0; background:transparent;\" />")
+			.arg(imageSrc.toHtmlEscaped())
+			.arg(altText.toHtmlEscaped())
+			.arg(boundedWidth)
+			.arg(boundedHeight);
 	if (!openHref.isEmpty()) {
-		imageHtml = QString::fromLatin1(
-						"<a href=\"%1\" style=\"display:block; text-decoration:none; color:inherit; line-height:0;\">%2</a>")
-						.arg(openHref.toHtmlEscaped(), imageHtml);
-		}
-	imageHtml = QString::fromLatin1(
-					"<table cellspacing='0' cellpadding='0' width='100%%' "
-					"style='border-collapse:collapse; border:none; background:transparent;'>"
-					"<tr><td align='left' style='padding:0; line-height:0;'>%1</td></tr></table>")
+		imageHtml =
+			QString::fromLatin1(
+				"<a href=\"%1\" style=\"display:block; text-decoration:none; color:inherit; line-height:0;\">%2</a>")
+				.arg(openHref.toHtmlEscaped(), imageHtml);
+	}
+	imageHtml = QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='100%%' "
+									"style='border-collapse:collapse; border:none; background:transparent;'>"
+									"<tr><td align='left' style='padding:0; line-height:0;'>%1</td></tr></table>")
 					.arg(imageHtml);
 
-		return QString::fromLatin1(
-				   "<div style='margin:6px 0 2px 0;'>%1</div>"
-				   "<div style='margin-top:4px; opacity:0.78; font-size:0.92em;'>%2</div>")
-			.arg(imageHtml, caption);
+	return QString::fromLatin1("<div style='margin:6px 0 2px 0;'>%1</div>"
+							   "<div style='margin-top:4px; opacity:0.78; font-size:0.92em;'>%2</div>")
+		.arg(imageHtml, caption);
+}
+
+QString persistentChatInlineDataImagePlaceholderHtml(const PersistentChatInlineDataImageInfo &info,
+													 const QString &altText, const QString &openHref) {
+	const QString title = !altText.trimmed().isEmpty()
+							  ? altText.trimmed().toHtmlEscaped()
+							  : QObject::tr("Embedded %1 image").arg(info.formatLabel).toHtmlEscaped();
+
+	QString detail = QObject::tr("Inline render skipped for performance");
+	if (const QString sizeLabel = persistentChatInlineDataImageSizeLabel(info.estimatedBytes); !sizeLabel.isEmpty()) {
+		detail += QString::fromLatin1(" (%1)").arg(sizeLabel);
+	}
+	detail += QString::fromLatin1(". ") + QObject::tr("Open image to view or save.");
+
+	QString actionRow;
+	if (!openHref.isEmpty()) {
+		actionRow = QString::fromLatin1("<div style='margin-top:6px;'><a href=\"%1\" "
+										"style='font-weight:600; text-decoration:none;'>%2</a></div>")
+						.arg(openHref.toHtmlEscaped(), QObject::tr("Open image").toHtmlEscaped());
 	}
 
-	QString persistentChatInlineDataImagePlaceholderHtml(const PersistentChatInlineDataImageInfo &info,
-														 const QString &altText, const QString &openHref) {
-		const QString title = !altText.trimmed().isEmpty()
-								  ? altText.trimmed().toHtmlEscaped()
-								  : QObject::tr("Embedded %1 image").arg(info.formatLabel).toHtmlEscaped();
+	return QString::fromLatin1("<div style='margin:6px 0; padding:8px 10px; border-left:3px solid #8b93a6; "
+							   "background:rgba(139,147,166,0.10); border-radius:4px;'>"
+							   "<div style='font-weight:600;'>%1</div>"
+							   "<div style='margin-top:3px; opacity:0.78;'>%2</div>"
+							   "%3"
+							   "</div>")
+		.arg(title, detail.toHtmlEscaped(), actionRow);
+}
 
-		QString detail = QObject::tr("Inline render skipped for performance");
-		if (const QString sizeLabel = persistentChatInlineDataImageSizeLabel(info.estimatedBytes); !sizeLabel.isEmpty()) {
-			detail += QString::fromLatin1(" (%1)").arg(sizeLabel);
-		}
-		detail += QString::fromLatin1(". ") + QObject::tr("Open image to view or save.");
-
-		QString actionRow;
-		if (!openHref.isEmpty()) {
-			actionRow = QString::fromLatin1(
-							"<div style='margin-top:6px;'><a href=\"%1\" "
-							"style='font-weight:600; text-decoration:none;'>%2</a></div>")
-							.arg(openHref.toHtmlEscaped(), QObject::tr("Open image").toHtmlEscaped());
-		}
-
-		return QString::fromLatin1(
-				   "<div style='margin:6px 0; padding:8px 10px; border-left:3px solid #8b93a6; "
-				   "background:rgba(139,147,166,0.10); border-radius:4px;'>"
-				   "<div style='font-weight:600;'>%1</div>"
-				   "<div style='margin-top:3px; opacity:0.78;'>%2</div>"
-				   "%3"
-				   "</div>")
-			.arg(title, detail.toHtmlEscaped(), actionRow);
-	}
-
-	QString normalizePersistentChatInlineImages(
-		QString html, const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
-		if (!html.contains(QLatin1String("<img"), Qt::CaseInsensitive)) {
-			return html;
-		}
-
-		static const QRegularExpression s_imgTagPattern(QLatin1String("<img\\b[^>]*>"),
-														 QRegularExpression::CaseInsensitiveOption);
-		static const QRegularExpression s_srcPattern(
-			QLatin1String("\\bsrc\\s*=\\s*(['\"])(.*?)\\1"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-		static const QRegularExpression s_altPattern(
-			QLatin1String("\\balt\\s*=\\s*(['\"])(.*?)\\1"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-		static const QRegularExpression s_widthPattern(QLatin1String("\\bwidth\\s*=\\s*(['\"]?)(\\d+)\\1"),
-													  QRegularExpression::CaseInsensitiveOption);
-		static const QRegularExpression s_heightPattern(QLatin1String("\\bheight\\s*=\\s*(['\"]?)(\\d+)\\1"),
-													   QRegularExpression::CaseInsensitiveOption);
-		static const QRegularExpression s_stylePattern(
-			QLatin1String("\\bstyle\\s*=\\s*(['\"])(.*?)\\1"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-		constexpr qint64 PersistentChatInlineDataImageInlineMaxBytes = 64 * 1024;
-
-		QString normalizedHtml;
-		normalizedHtml.reserve(html.size() + 128);
-		int lastOffset = 0;
-
-		QRegularExpressionMatchIterator it = s_imgTagPattern.globalMatch(html);
-		while (it.hasNext()) {
-			const QRegularExpressionMatch match = it.next();
-			normalizedHtml += html.mid(lastOffset, match.capturedStart() - lastOffset);
-
-			QString tag = match.captured(0);
-			const QRegularExpressionMatch srcMatch = s_srcPattern.match(tag);
-			if (srcMatch.hasMatch()) {
-				const PersistentChatInlineDataImageInfo dataImageInfo =
-					persistentChatInlineDataImageInfo(srcMatch.captured(2));
-				if (dataImageInfo.valid
-					&& (dataImageInfo.estimatedBytes < 0
-						|| dataImageInfo.estimatedBytes > PersistentChatInlineDataImageInlineMaxBytes)) {
-					const QRegularExpressionMatch altMatch = s_altPattern.match(tag);
-					const QString altText = altMatch.hasMatch() ? altMatch.captured(2) : QString();
-					const QString replacementHtml =
-						buildInlineDataImageReplacement
-							? buildInlineDataImageReplacement(srcMatch.captured(2), altText, dataImageInfo)
-							: QString();
-					if (!replacementHtml.isEmpty()) {
-						normalizedHtml += replacementHtml;
-					} else {
-						normalizedHtml += persistentChatInlineDataImagePlaceholderHtml(dataImageInfo, altText, QString());
-					}
-					mumble::chatperf::recordValue("chat.inline_data_image.replaced", 1);
-					lastOffset = match.capturedEnd();
-					continue;
-				}
-			}
-
-			const QRegularExpressionMatch widthMatch  = s_widthPattern.match(tag);
-			const QRegularExpressionMatch heightMatch = s_heightPattern.match(tag);
-			if (widthMatch.hasMatch() && heightMatch.hasMatch()) {
-				const QSize boundedSize =
-					persistentChatInlineImageDisplaySize(QSize(widthMatch.captured(2).toInt(), heightMatch.captured(2).toInt()));
-				if (boundedSize.isValid()) {
-					tag.replace(s_widthPattern, QString::fromLatin1("width=\"%1\"").arg(boundedSize.width()));
-					tag.replace(s_heightPattern, QString::fromLatin1("height=\"%1\"").arg(boundedSize.height()));
-				}
-			}
-
-			const QRegularExpressionMatch styleMatch = s_stylePattern.match(tag);
-			if (styleMatch.hasMatch()) {
-				const QString quote = styleMatch.captured(1);
-				tag.replace(styleMatch.capturedStart(), styleMatch.capturedLength(),
-							QString::fromLatin1("style=%1%2%1").arg(quote, persistentChatInlineImageStyle(styleMatch.captured(2))));
-			} else {
-				tag.insert(tag.size() - 1,
-						   QString::fromLatin1(" style=\"%1\"").arg(persistentChatInlineImageStyle()));
-			}
-
-			normalizedHtml += tag;
-			lastOffset = match.capturedEnd();
-		}
-
-		normalizedHtml += html.mid(lastOffset);
-		return normalizedHtml;
-	}
-
-	QString persistentChatLinkedPlainTextHtml(const QString &content) {
-		static const QRegularExpression s_urlRegex(QLatin1String("(https?://[^\\s<>\"']+)"),
-												   QRegularExpression::CaseInsensitiveOption);
-		QString html;
-		int lastOffset = 0;
-		auto appendEscapedSegment = [&html](const QString &segment) {
-			html += segment.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
-		};
-
-		for (QRegularExpressionMatchIterator it = s_urlRegex.globalMatch(content); it.hasNext();) {
-			const QRegularExpressionMatch match = it.next();
-			appendEscapedSegment(content.mid(lastOffset, match.capturedStart() - lastOffset));
-			const QString urlText = match.captured(1);
-			html += QString::fromLatin1("<a href=\"%1\">%2</a>")
-						.arg(urlText.toHtmlEscaped(), urlText.toHtmlEscaped());
-			lastOffset = match.capturedEnd();
-		}
-
-		appendEscapedSegment(content.mid(lastOffset));
+QString normalizePersistentChatInlineImages(
+	QString html, const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
+	if (!html.contains(QLatin1String("<img"), Qt::CaseInsensitive)) {
 		return html;
 	}
 
-	QString persistentChatContentHtml(
-		const QString &content,
-		const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
-		const QString normalizedContent = normalizedPersistentChatText(content);
-		if (!Qt::mightBeRichText(normalizedContent)) {
-			return persistentChatLinkedPlainTextHtml(normalizedContent);
+	static const QRegularExpression s_imgTagPattern(QLatin1String("<img\\b[^>]*>"),
+													QRegularExpression::CaseInsensitiveOption);
+	static const QRegularExpression s_srcPattern(QLatin1String("\\bsrc\\s*=\\s*(['\"])(.*?)\\1"),
+												 QRegularExpression::CaseInsensitiveOption
+													 | QRegularExpression::DotMatchesEverythingOption);
+	static const QRegularExpression s_altPattern(QLatin1String("\\balt\\s*=\\s*(['\"])(.*?)\\1"),
+												 QRegularExpression::CaseInsensitiveOption
+													 | QRegularExpression::DotMatchesEverythingOption);
+	static const QRegularExpression s_widthPattern(QLatin1String("\\bwidth\\s*=\\s*(['\"]?)(\\d+)\\1"),
+												   QRegularExpression::CaseInsensitiveOption);
+	static const QRegularExpression s_heightPattern(QLatin1String("\\bheight\\s*=\\s*(['\"]?)(\\d+)\\1"),
+													QRegularExpression::CaseInsensitiveOption);
+	static const QRegularExpression s_stylePattern(QLatin1String("\\bstyle\\s*=\\s*(['\"])(.*?)\\1"),
+												   QRegularExpression::CaseInsensitiveOption
+													   | QRegularExpression::DotMatchesEverythingOption);
+	constexpr qint64 PersistentChatInlineDataImageInlineMaxBytes = 64 * 1024;
+
+	QString normalizedHtml;
+	normalizedHtml.reserve(html.size() + 128);
+	int lastOffset = 0;
+
+	QRegularExpressionMatchIterator it = s_imgTagPattern.globalMatch(html);
+	while (it.hasNext()) {
+		const QRegularExpressionMatch match = it.next();
+		normalizedHtml += html.mid(lastOffset, match.capturedStart() - lastOffset);
+
+		QString tag                            = match.captured(0);
+		const QRegularExpressionMatch srcMatch = s_srcPattern.match(tag);
+		if (srcMatch.hasMatch()) {
+			const PersistentChatInlineDataImageInfo dataImageInfo =
+				persistentChatInlineDataImageInfo(srcMatch.captured(2));
+			if (dataImageInfo.valid
+				&& (dataImageInfo.estimatedBytes < 0
+					|| dataImageInfo.estimatedBytes > PersistentChatInlineDataImageInlineMaxBytes)) {
+				const QRegularExpressionMatch altMatch = s_altPattern.match(tag);
+				const QString altText                  = altMatch.hasMatch() ? altMatch.captured(2) : QString();
+				const QString replacementHtml =
+					buildInlineDataImageReplacement
+						? buildInlineDataImageReplacement(srcMatch.captured(2), altText, dataImageInfo)
+						: QString();
+				if (!replacementHtml.isEmpty()) {
+					normalizedHtml += replacementHtml;
+				} else {
+					normalizedHtml += persistentChatInlineDataImagePlaceholderHtml(dataImageInfo, altText, QString());
+				}
+				mumble::chatperf::recordValue("chat.inline_data_image.replaced", 1);
+				lastOffset = match.capturedEnd();
+				continue;
+			}
 		}
 
-		const QString sanitizedHtml = normalizePersistentChatInlineStyles(Log::validHtml(normalizedContent));
-		static const QRegularExpression bodyPattern(QLatin1String("<body[^>]*>(.*)</body>"),
-													QRegularExpression::DotMatchesEverythingOption
-														| QRegularExpression::CaseInsensitiveOption);
-		const QRegularExpressionMatch bodyMatch = bodyPattern.match(sanitizedHtml);
-		if (bodyMatch.hasMatch()) {
-			return normalizePersistentChatInlineImages(bodyMatch.captured(1), buildInlineDataImageReplacement);
+		const QRegularExpressionMatch widthMatch  = s_widthPattern.match(tag);
+		const QRegularExpressionMatch heightMatch = s_heightPattern.match(tag);
+		if (widthMatch.hasMatch() && heightMatch.hasMatch()) {
+			const QSize boundedSize = persistentChatInlineImageDisplaySize(
+				QSize(widthMatch.captured(2).toInt(), heightMatch.captured(2).toInt()));
+			if (boundedSize.isValid()) {
+				tag.replace(s_widthPattern, QString::fromLatin1("width=\"%1\"").arg(boundedSize.width()));
+				tag.replace(s_heightPattern, QString::fromLatin1("height=\"%1\"").arg(boundedSize.height()));
+			}
 		}
 
-		return normalizePersistentChatInlineImages(sanitizedHtml, buildInlineDataImageReplacement);
+		const QRegularExpressionMatch styleMatch = s_stylePattern.match(tag);
+		if (styleMatch.hasMatch()) {
+			const QString quote = styleMatch.captured(1);
+			tag.replace(
+				styleMatch.capturedStart(), styleMatch.capturedLength(),
+				QString::fromLatin1("style=%1%2%1").arg(quote, persistentChatInlineImageStyle(styleMatch.captured(2))));
+		} else {
+			tag.insert(tag.size() - 1, QString::fromLatin1(" style=\"%1\"").arg(persistentChatInlineImageStyle()));
+		}
+
+		normalizedHtml += tag;
+		lastOffset = match.capturedEnd();
 	}
+
+	normalizedHtml += html.mid(lastOffset);
+	return normalizedHtml;
+}
+
+QString persistentChatLinkedPlainTextHtml(const QString &content) {
+	static const QRegularExpression s_urlRegex(QLatin1String("(https?://[^\\s<>\"']+)"),
+											   QRegularExpression::CaseInsensitiveOption);
+	QString html;
+	int lastOffset            = 0;
+	auto appendEscapedSegment = [&html](const QString &segment) {
+		html += segment.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+	};
+
+	for (QRegularExpressionMatchIterator it = s_urlRegex.globalMatch(content); it.hasNext();) {
+		const QRegularExpressionMatch match = it.next();
+		appendEscapedSegment(content.mid(lastOffset, match.capturedStart() - lastOffset));
+		const QString urlText = match.captured(1);
+		html += QString::fromLatin1("<a href=\"%1\">%2</a>").arg(urlText.toHtmlEscaped(), urlText.toHtmlEscaped());
+		lastOffset = match.capturedEnd();
+	}
+
+	appendEscapedSegment(content.mid(lastOffset));
+	return html;
+}
+
+QString persistentChatContentHtml(
+	const QString &content,
+	const PersistentChatInlineDataImageReplacementBuilder &buildInlineDataImageReplacement = {}) {
+	const QString normalizedContent = normalizedPersistentChatText(content);
+	if (!Qt::mightBeRichText(normalizedContent)) {
+		return persistentChatLinkedPlainTextHtml(normalizedContent);
+	}
+
+	const QString sanitizedHtml = normalizePersistentChatInlineStyles(Log::validHtml(normalizedContent));
+	static const QRegularExpression bodyPattern(QLatin1String("<body[^>]*>(.*)</body>"),
+												QRegularExpression::DotMatchesEverythingOption
+													| QRegularExpression::CaseInsensitiveOption);
+	const QRegularExpressionMatch bodyMatch = bodyPattern.match(sanitizedHtml);
+	if (bodyMatch.hasMatch()) {
+		return normalizePersistentChatInlineImages(bodyMatch.captured(1), buildInlineDataImageReplacement);
+	}
+
+	return normalizePersistentChatInlineImages(sanitizedHtml, buildInlineDataImageReplacement);
+}
 
 QString persistentChatPlainTextSummary(const QString &content, int maxLength = 160) {
 	const QString plainText =
 		QTextDocumentFragment::fromHtml(persistentChatContentHtml(content)).toPlainText().simplified();
 	if (plainText.size() <= maxLength) {
 		return plainText;
-		}
+	}
 
 	return plainText.left(std::max(0, maxLength - 3)).trimmed() + QLatin1String("...");
 }
@@ -2313,11 +2269,10 @@ QString persistentChatCondensedBodyHtml(const QString &bodyHtml, const QString &
 		return bodyHtml;
 	}
 
-		const QString previewSource = sourceText.isEmpty() ? bodyHtml : sourceText;
-		const QString previewText   = persistentChatPlainTextSummary(previewSource, kPreviewPlainTextChars);
-	return QString::fromLatin1(
-			   "<div>%1</div>"
-			   "<div style='margin-top:6px; opacity:0.78;'><em>%2</em></div>")
+	const QString previewSource = sourceText.isEmpty() ? bodyHtml : sourceText;
+	const QString previewText   = persistentChatPlainTextSummary(previewSource, kPreviewPlainTextChars);
+	return QString::fromLatin1("<div>%1</div>"
+							   "<div style='margin-top:6px; opacity:0.78;'><em>%2</em></div>")
 		.arg(previewText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>")),
 			 QObject::tr("[Long message preview. Use Copy message for the full text.]").toHtmlEscaped());
 }
@@ -2332,31 +2287,30 @@ QString persistentChatMessageSourceText(const MumbleProto::ChatMessage &message)
 		return normalizedPersistentChatText(u8(message.body_text()));
 	}
 
-		return QTextDocumentFragment::fromHtml(u8(message.message())).toPlainText();
+	return QTextDocumentFragment::fromHtml(u8(message.message())).toPlainText();
+}
+
+std::optional< QString > persistentChatSystemMessageText(const MumbleProto::ChatMessage &message) {
+	const QString sourceText = persistentChatMessageSourceText(message).trimmed();
+	static const QRegularExpression s_systemPrefixPattern(QLatin1String("^\\[(stack|scope|system)\\]\\s*"),
+														  QRegularExpression::CaseInsensitiveOption);
+	if (!s_systemPrefixPattern.match(sourceText).hasMatch()) {
+		return std::nullopt;
 	}
 
-	std::optional< QString > persistentChatSystemMessageText(const MumbleProto::ChatMessage &message) {
-		const QString sourceText = persistentChatMessageSourceText(message).trimmed();
-		static const QRegularExpression s_systemPrefixPattern(
-			QLatin1String("^\\[(stack|scope|system)\\]\\s*"),
-			QRegularExpression::CaseInsensitiveOption);
-		if (!s_systemPrefixPattern.match(sourceText).hasMatch()) {
-			return std::nullopt;
-		}
+	QString systemText = sourceText;
+	systemText.remove(s_systemPrefixPattern);
+	return systemText.isEmpty() ? std::optional< QString >(QObject::tr("System event"))
+								: std::optional< QString >(systemText);
+}
 
-		QString systemText = sourceText;
-		systemText.remove(s_systemPrefixPattern);
-		return systemText.isEmpty() ? std::optional< QString >(QObject::tr("System event"))
-									: std::optional< QString >(systemText);
+QString persistentChatMessageRawBody(const MumbleProto::ChatMessage &message) {
+	if (message.has_body_text()) {
+		return normalizedPersistentChatText(u8(message.body_text()));
 	}
 
-	QString persistentChatMessageRawBody(const MumbleProto::ChatMessage &message) {
-		if (message.has_body_text()) {
-			return normalizedPersistentChatText(u8(message.body_text()));
-		}
-
-		return u8(message.message());
-	}
+	return u8(message.message());
+}
 
 QString persistentChatMessageBodyHtml(
 	const MumbleProto::ChatMessage &message,
@@ -2371,1070 +2325,1058 @@ QString persistentChatMessageBodyHtml(
 		}
 
 		return persistentChatContentHtml(bodyText, buildInlineDataImageReplacement);
-		}
-
-		return persistentChatContentHtml(u8(message.message()), buildInlineDataImageReplacement);
 	}
 
-	[[maybe_unused]] QString mirroredServerLogHtml(const QString &html) {
-		const QString fragmentHtml = persistentChatContentHtml(html);
-		return QString::fromLatin1(
-				   "<div style='margin:0; padding:0; border:none; background:transparent;'>%1</div>")
-			.arg(fragmentHtml);
+	return persistentChatContentHtml(u8(message.message()), buildInlineDataImageReplacement);
+}
+
+[[maybe_unused]] QString mirroredServerLogHtml(const QString &html) {
+	const QString fragmentHtml = persistentChatContentHtml(html);
+	return QString::fromLatin1("<div style='margin:0; padding:0; border:none; background:transparent;'>%1</div>")
+		.arg(fragmentHtml);
+}
+
+void insertPersistentChatContent(QTextCursor &cursor, const QString &content) {
+	const QString fragmentHtml = persistentChatContentHtml(content);
+	if (!fragmentHtml.isEmpty()) {
+		cursor.insertHtml(fragmentHtml);
+	}
+}
+
+QString persistentChatDocumentStylesheet(const QString &baseStylesheet) {
+	return baseStylesheet
+		   + QString::fromLatin1(
+				 "html, body { margin: 0; padding: 0; border: 0; background: transparent; }"
+				 "body, table, tr, td, div, span, p, a { font-size: 0.875em; line-height: 1.35; }"
+				 "p { margin-top: 0; margin-bottom: 4px; }"
+				 "table, tr, td { margin: 0; padding: 0; border: none; background: transparent; }"
+				 "img { border: none; outline: none; display: block; margin: 0; max-width: %1px; max-height: %2px;"
+				 " width: auto; height: auto; background: transparent; }")
+				 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH)
+				 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT);
+}
+
+void configurePersistentChatDocument(QTextDocument *document, const QString &baseStylesheet) {
+	if (!document) {
+		return;
 	}
 
-	void insertPersistentChatContent(QTextCursor &cursor, const QString &content) {
-		const QString fragmentHtml = persistentChatContentHtml(content);
-		if (!fragmentHtml.isEmpty()) {
-			cursor.insertHtml(fragmentHtml);
-		}
+	document->setDocumentMargin(0);
+	document->setDefaultStyleSheet(persistentChatDocumentStylesheet(baseStylesheet));
+	if (QTextFrame *rootFrame = document->rootFrame()) {
+		QTextFrameFormat rootFrameFormat = rootFrame->frameFormat();
+		rootFrameFormat.setBorder(0);
+		rootFrameFormat.setMargin(0);
+		rootFrameFormat.setPadding(0);
+		rootFrame->setFrameFormat(rootFrameFormat);
+	}
+}
+
+QString persistentTextAclChannelLabel(const Channel *channel) {
+	if (!channel) {
+		return QObject::tr("Unknown channel");
 	}
 
-	QString persistentChatDocumentStylesheet(const QString &baseStylesheet) {
-		return baseStylesheet
-			   + QString::fromLatin1(
-				   "html, body { margin: 0; padding: 0; border: 0; background: transparent; }"
-				   "body, table, tr, td, div, span, p, a { font-size: 0.875em; line-height: 1.35; }"
-				   "p { margin-top: 0; margin-bottom: 4px; }"
-				   "table, tr, td { margin: 0; padding: 0; border: none; background: transparent; }"
-				   "img { border: none; outline: none; display: block; margin: 0; max-width: %1px; max-height: %2px;"
-				   " width: auto; height: auto; background: transparent; }")
-					 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH)
-					 .arg(PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT);
+	QStringList segments;
+	for (const Channel *current = channel; current; current = current->cParent) {
+		segments.prepend(current->qsName);
 	}
 
-	void configurePersistentChatDocument(QTextDocument *document, const QString &baseStylesheet) {
-		if (!document) {
-			return;
-		}
+	return segments.join(QString::fromLatin1(" / "));
+}
 
-		document->setDocumentMargin(0);
-		document->setDefaultStyleSheet(persistentChatDocumentStylesheet(baseStylesheet));
-		if (QTextFrame *rootFrame = document->rootFrame()) {
-			QTextFrameFormat rootFrameFormat = rootFrame->frameFormat();
-			rootFrameFormat.setBorder(0);
-			rootFrameFormat.setMargin(0);
-			rootFrameFormat.setPadding(0);
-			rootFrame->setFrameFormat(rootFrameFormat);
-		}
-	}
-
-	QString persistentTextAclChannelLabel(const Channel *channel) {
-		if (!channel) {
-			return QObject::tr("Unknown channel");
-		}
-
-		QStringList segments;
-		for (const Channel *current = channel; current; current = current->cParent) {
-			segments.prepend(current->qsName);
-		}
-
-		return segments.join(QString::fromLatin1(" / "));
-	}
-
-	QString trimTrailingUrlPunctuation(QString url) {
-		while (!url.isEmpty()) {
-			const QChar last = url.back();
-			if (QString::fromLatin1(".,!?;:)]}>").contains(last)) {
-				url.chop(1);
-			} else {
-				break;
-			}
-		}
-
-		return url;
-	}
-
-	int countVisibleUserTreeRows(const QTreeView *tree, const QModelIndex &parent = QModelIndex()) {
-		if (!tree || !tree->model()) {
-			return 0;
-		}
-
-		int visibleRows = 0;
-		const QAbstractItemModel *model = tree->model();
-		const int rowCount              = model->rowCount(parent);
-		for (int row = 0; row < rowCount; ++row) {
-			if (tree->isRowHidden(row, parent)) {
-				continue;
-			}
-
-			const QModelIndex index = model->index(row, 0, parent);
-			if (!index.isValid()) {
-				continue;
-			}
-
-			++visibleRows;
-			if (tree->isExpanded(index)) {
-				visibleRows += countVisibleUserTreeRows(tree, index);
-			}
-		}
-
-		return visibleRows;
-	}
-
-	void setDockSplitterHandleWidth(QWidget *root, int width) {
-		if (!root) {
-			return;
-		}
-
-		for (QSplitter *splitter : root->findChildren< QSplitter * >()) {
-			splitter->setHandleWidth(width);
+QString trimTrailingUrlPunctuation(QString url) {
+	while (!url.isEmpty()) {
+		const QChar last = url.back();
+		if (QString::fromLatin1(".,!?;:)]}>").contains(last)) {
+			url.chop(1);
+		} else {
+			break;
 		}
 	}
 
-	std::optional< QString > extractYouTubeVideoId(const QUrl &url) {
-		if (!url.isValid()) {
-			return std::nullopt;
-		}
+	return url;
+}
 
-		QString host = url.host().toLower();
-		if (host.startsWith(QLatin1String("www."))) {
-			host.remove(0, 4);
-		}
-		if (host.startsWith(QLatin1String("m."))) {
-			host.remove(0, 2);
-		}
-
-		QString videoId;
-		const QStringList pathSegments = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
-		if (host == QLatin1String("youtu.be")) {
-			if (!pathSegments.isEmpty()) {
-				videoId = pathSegments.front();
-			}
-		} else if (host == QLatin1String("youtube.com") || host == QLatin1String("youtube-nocookie.com")) {
-			const QString path = url.path();
-			QUrlQuery query(url);
-			if (path == QLatin1String("/watch")) {
-				videoId = query.queryItemValue(QLatin1String("v"));
-			} else if (!pathSegments.isEmpty()) {
-				if (pathSegments.front() == QLatin1String("shorts") || pathSegments.front() == QLatin1String("embed")
-					|| pathSegments.front() == QLatin1String("live")) {
-					if (pathSegments.size() > 1) {
-						videoId = pathSegments.at(1);
-					}
-				}
-			}
-		}
-
-		static const QRegularExpression s_videoIdPattern(
-			QRegularExpression::anchoredPattern(QLatin1String("[A-Za-z0-9_-]{11}")));
-		if (!s_videoIdPattern.match(videoId).hasMatch()) {
-			return std::nullopt;
-		}
-
-		return videoId;
+int countVisibleUserTreeRows(const QTreeView *tree, const QModelIndex &parent = QModelIndex()) {
+	if (!tree || !tree->model()) {
+		return 0;
 	}
 
-	bool isYouTubeHost(QString host) {
-		host = host.toLower();
-		if (host.startsWith(QLatin1String("www."))) {
-			host.remove(0, 4);
-		}
-		if (host.startsWith(QLatin1String("m."))) {
-			host.remove(0, 2);
-		}
-		if (host.startsWith(QLatin1String("mobile."))) {
-			host.remove(0, 7);
+	int visibleRows                 = 0;
+	const QAbstractItemModel *model = tree->model();
+	const int rowCount              = model->rowCount(parent);
+	for (int row = 0; row < rowCount; ++row) {
+		if (tree->isRowHidden(row, parent)) {
+			continue;
 		}
 
-		return host == QLatin1String("youtube.com") || host == QLatin1String("youtube-nocookie.com")
-			   || host == QLatin1String("youtu.be");
+		const QModelIndex index = model->index(row, 0, parent);
+		if (!index.isValid()) {
+			continue;
+		}
+
+		++visibleRows;
+		if (tree->isExpanded(index)) {
+			visibleRows += countVisibleUserTreeRows(tree, index);
+		}
 	}
 
-	struct PersistentChatPreviewProviderInfo {
-		QString siteLabel;
-		QString openLabel;
-		QString fallbackTitle;
-	};
+	return visibleRows;
+}
 
-	bool isDirectImageUrl(const QUrl &url) {
-		if (!url.isValid()) {
-			return false;
-		}
-
-		const QString path = url.path().toLower();
-		return path.endsWith(QLatin1String(".png")) || path.endsWith(QLatin1String(".jpg"))
-			   || path.endsWith(QLatin1String(".jpeg")) || path.endsWith(QLatin1String(".gif"))
-			   || path.endsWith(QLatin1String(".webp")) || path.endsWith(QLatin1String(".bmp"));
+void setDockSplitterHandleWidth(QWidget *root, int width) {
+	if (!root) {
+		return;
 	}
 
-	QString normalizedPreviewUrl(const QUrl &url) {
-		QUrl normalized = url.adjusted(QUrl::NormalizePathSegments | QUrl::RemoveFragment);
-		return normalized.toString(QUrl::FullyEncoded);
+	for (QSplitter *splitter : root->findChildren< QSplitter * >()) {
+		splitter->setHandleWidth(width);
 	}
+}
 
-	QString previewDisplayHost(const QUrl &url) {
-		QString host = url.host().toLower();
-		if (host.startsWith(QLatin1String("www."))) {
-			host.remove(0, 4);
-		}
-		return host;
-	}
-
-	std::optional< PersistentChatPreviewProviderInfo > previewProviderInfo(const QUrl &url) {
-		const QString host = previewDisplayHost(url);
-		if (host == QLatin1String("open.spotify.com") || host == QLatin1String("spotify.link")) {
-			return PersistentChatPreviewProviderInfo { QObject::tr("Spotify"), QObject::tr("Open on Spotify"),
-													   QObject::tr("Spotify link") };
-		}
-		if (host == QLatin1String("patreon.com")) {
-			return PersistentChatPreviewProviderInfo { QObject::tr("Patreon"), QObject::tr("Open on Patreon"),
-													   QObject::tr("Patreon post") };
-		}
-		if (host == QLatin1String("reddit.com") || host == QLatin1String("old.reddit.com")
-			|| host == QLatin1String("redd.it")) {
-			return PersistentChatPreviewProviderInfo { QObject::tr("Reddit"), QObject::tr("Open on Reddit"),
-													   QObject::tr("Reddit post") };
-		}
-		if (host == QLatin1String("twitter.com") || host == QLatin1String("x.com")
-			|| host == QLatin1String("mobile.twitter.com")) {
-			return PersistentChatPreviewProviderInfo { QObject::tr("Twitter/X"), QObject::tr("Open on X"),
-													   QObject::tr("Post on X") };
-		}
-		if (host == QLatin1String("imgur.com") || host == QLatin1String("i.imgur.com")) {
-			return PersistentChatPreviewProviderInfo { QObject::tr("Imgur"), QObject::tr("Open on Imgur"),
-													   QObject::tr("Imgur link") };
-		}
-		if (isYouTubeHost(url.host())) {
-			return PersistentChatPreviewProviderInfo { QObject::tr("YouTube"), QObject::tr("Open on YouTube"),
-													   QObject::tr("YouTube video") };
-		}
-
+std::optional< QString > extractYouTubeVideoId(const QUrl &url) {
+	if (!url.isValid()) {
 		return std::nullopt;
 	}
 
-	bool isPrivateOrLocalAddress(const QHostAddress &address) {
-		if (address.isNull() || address.isLoopback() || address.isMulticast()) {
+	QString host = url.host().toLower();
+	if (host.startsWith(QLatin1String("www."))) {
+		host.remove(0, 4);
+	}
+	if (host.startsWith(QLatin1String("m."))) {
+		host.remove(0, 2);
+	}
+
+	QString videoId;
+	const QStringList pathSegments = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
+	if (host == QLatin1String("youtu.be")) {
+		if (!pathSegments.isEmpty()) {
+			videoId = pathSegments.front();
+		}
+	} else if (host == QLatin1String("youtube.com") || host == QLatin1String("youtube-nocookie.com")) {
+		const QString path = url.path();
+		QUrlQuery query(url);
+		if (path == QLatin1String("/watch")) {
+			videoId = query.queryItemValue(QLatin1String("v"));
+		} else if (!pathSegments.isEmpty()) {
+			if (pathSegments.front() == QLatin1String("shorts") || pathSegments.front() == QLatin1String("embed")
+				|| pathSegments.front() == QLatin1String("live")) {
+				if (pathSegments.size() > 1) {
+					videoId = pathSegments.at(1);
+				}
+			}
+		}
+	}
+
+	static const QRegularExpression s_videoIdPattern(
+		QRegularExpression::anchoredPattern(QLatin1String("[A-Za-z0-9_-]{11}")));
+	if (!s_videoIdPattern.match(videoId).hasMatch()) {
+		return std::nullopt;
+	}
+
+	return videoId;
+}
+
+bool isYouTubeHost(QString host) {
+	host = host.toLower();
+	if (host.startsWith(QLatin1String("www."))) {
+		host.remove(0, 4);
+	}
+	if (host.startsWith(QLatin1String("m."))) {
+		host.remove(0, 2);
+	}
+	if (host.startsWith(QLatin1String("mobile."))) {
+		host.remove(0, 7);
+	}
+
+	return host == QLatin1String("youtube.com") || host == QLatin1String("youtube-nocookie.com")
+		   || host == QLatin1String("youtu.be");
+}
+
+struct PersistentChatPreviewProviderInfo {
+	QString siteLabel;
+	QString openLabel;
+	QString fallbackTitle;
+};
+
+bool isDirectImageUrl(const QUrl &url) {
+	if (!url.isValid()) {
+		return false;
+	}
+
+	const QString path = url.path().toLower();
+	return path.endsWith(QLatin1String(".png")) || path.endsWith(QLatin1String(".jpg"))
+		   || path.endsWith(QLatin1String(".jpeg")) || path.endsWith(QLatin1String(".gif"))
+		   || path.endsWith(QLatin1String(".webp")) || path.endsWith(QLatin1String(".bmp"));
+}
+
+QString normalizedPreviewUrl(const QUrl &url) {
+	QUrl normalized = url.adjusted(QUrl::NormalizePathSegments | QUrl::RemoveFragment);
+	return normalized.toString(QUrl::FullyEncoded);
+}
+
+QString previewDisplayHost(const QUrl &url) {
+	QString host = url.host().toLower();
+	if (host.startsWith(QLatin1String("www."))) {
+		host.remove(0, 4);
+	}
+	return host;
+}
+
+std::optional< PersistentChatPreviewProviderInfo > previewProviderInfo(const QUrl &url) {
+	const QString host = previewDisplayHost(url);
+	if (host == QLatin1String("open.spotify.com") || host == QLatin1String("spotify.link")) {
+		return PersistentChatPreviewProviderInfo{ QObject::tr("Spotify"), QObject::tr("Open on Spotify"),
+												  QObject::tr("Spotify link") };
+	}
+	if (host == QLatin1String("patreon.com")) {
+		return PersistentChatPreviewProviderInfo{ QObject::tr("Patreon"), QObject::tr("Open on Patreon"),
+												  QObject::tr("Patreon post") };
+	}
+	if (host == QLatin1String("reddit.com") || host == QLatin1String("old.reddit.com")
+		|| host == QLatin1String("redd.it")) {
+		return PersistentChatPreviewProviderInfo{ QObject::tr("Reddit"), QObject::tr("Open on Reddit"),
+												  QObject::tr("Reddit post") };
+	}
+	if (host == QLatin1String("twitter.com") || host == QLatin1String("x.com")
+		|| host == QLatin1String("mobile.twitter.com")) {
+		return PersistentChatPreviewProviderInfo{ QObject::tr("Twitter/X"), QObject::tr("Open on X"),
+												  QObject::tr("Post on X") };
+	}
+	if (host == QLatin1String("imgur.com") || host == QLatin1String("i.imgur.com")) {
+		return PersistentChatPreviewProviderInfo{ QObject::tr("Imgur"), QObject::tr("Open on Imgur"),
+												  QObject::tr("Imgur link") };
+	}
+	if (isYouTubeHost(url.host())) {
+		return PersistentChatPreviewProviderInfo{ QObject::tr("YouTube"), QObject::tr("Open on YouTube"),
+												  QObject::tr("YouTube video") };
+	}
+
+	return std::nullopt;
+}
+
+bool isPrivateOrLocalAddress(const QHostAddress &address) {
+	if (address.isNull() || address.isLoopback() || address.isMulticast()) {
+		return true;
+	}
+
+	bool isIPv4               = false;
+	const quint32 ipv4Address = address.toIPv4Address(&isIPv4);
+	if (isIPv4) {
+		const quint8 firstOctet  = static_cast< quint8 >((ipv4Address >> 24) & 0xff);
+		const quint8 secondOctet = static_cast< quint8 >((ipv4Address >> 16) & 0xff);
+		if (firstOctet == 0 || firstOctet == 10 || firstOctet == 127) {
 			return true;
 		}
-
-		bool isIPv4 = false;
-		const quint32 ipv4Address = address.toIPv4Address(&isIPv4);
-		if (isIPv4) {
-			const quint8 firstOctet  = static_cast< quint8 >((ipv4Address >> 24) & 0xff);
-			const quint8 secondOctet = static_cast< quint8 >((ipv4Address >> 16) & 0xff);
-			if (firstOctet == 0 || firstOctet == 10 || firstOctet == 127) {
-				return true;
-			}
-			if (firstOctet == 169 && secondOctet == 254) {
-				return true;
-			}
-			if (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
-				return true;
-			}
-			if (firstOctet == 192 && secondOctet == 168) {
-				return true;
-			}
-			if (firstOctet == 100 && secondOctet >= 64 && secondOctet <= 127) {
-				return true;
-			}
-
-			return false;
-		}
-
-		const Q_IPV6ADDR ipv6Address = address.toIPv6Address();
-		if ((ipv6Address.c[0] & 0xfe) == 0xfc) {
+		if (firstOctet == 169 && secondOctet == 254) {
 			return true;
 		}
-		if (ipv6Address.c[0] == 0xfe && (ipv6Address.c[1] & 0xc0) == 0x80) {
+		if (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
 			return true;
 		}
-		if (ipv6Address.c[0] == 0xfe && (ipv6Address.c[1] & 0xc0) == 0xc0) {
+		if (firstOctet == 192 && secondOctet == 168) {
+			return true;
+		}
+		if (firstOctet == 100 && secondOctet >= 64 && secondOctet <= 127) {
 			return true;
 		}
 
 		return false;
 	}
 
-	bool isSafePreviewTarget(const QUrl &url) {
-		if (!url.isValid()) {
-			return false;
-		}
-
-		const QString scheme = url.scheme().toLower();
-		if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
-			return false;
-		}
-		if (!url.userName().isEmpty() || !url.password().isEmpty()) {
-			return false;
-		}
-
-		const QString host = previewDisplayHost(url);
-		if (host.isEmpty()) {
-			return false;
-		}
-		if (host == QLatin1String("localhost") || host.endsWith(QLatin1String(".localhost"))
-			|| host.endsWith(QLatin1String(".local")) || host.endsWith(QLatin1String(".lan"))
-			|| host.endsWith(QLatin1String(".internal")) || host.endsWith(QLatin1String(".home.arpa"))) {
-			return false;
-		}
-
-		QHostAddress literalAddress;
-		if (literalAddress.setAddress(host)) {
-			return !isPrivateOrLocalAddress(literalAddress);
-		}
-
-		if (!host.contains(QLatin1Char('.'))) {
-			return false;
-		}
-
+	const Q_IPV6ADDR ipv6Address = address.toIPv6Address();
+	if ((ipv6Address.c[0] & 0xfe) == 0xfc) {
+		return true;
+	}
+	if (ipv6Address.c[0] == 0xfe && (ipv6Address.c[1] & 0xc0) == 0x80) {
+		return true;
+	}
+	if (ipv6Address.c[0] == 0xfe && (ipv6Address.c[1] & 0xc0) == 0xc0) {
 		return true;
 	}
 
-	constexpr int PREVIEW_REQUEST_TIMEOUT_MSEC = 8000;
-	constexpr qint64 PREVIEW_MAX_PAGE_BYTES    = 512 * 1024;
-	constexpr qint64 PREVIEW_MAX_IMAGE_BYTES   = 4 * 1024 * 1024;
-	constexpr int PERSISTENT_CHAT_RESIZE_RENDER_DELAY_MSEC = 120;
-	constexpr int PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH   = 640;
-	constexpr int PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT  = 480;
-	constexpr int PERSISTENT_CHAT_PREVIEW_DISPLAY_WIDTH  = 360;
-	constexpr int PERSISTENT_CHAT_PREVIEW_DISPLAY_HEIGHT = 300;
-	constexpr int PERSISTENT_CHAT_PREVIEW_CARD_MAX_WIDTH = 480;
-	constexpr int PERSISTENT_CHAT_PREVIEW_WIDTH_STEP     = 16;
-	static const QByteArray s_previewBrowserUserAgent =
-		QByteArrayLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-						  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36");
-	static const QByteArray s_previewAcceptHeader =
-		QByteArrayLiteral("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8");
-	static const QByteArray s_previewAcceptLanguageHeader = QByteArrayLiteral("en-US,en;q=0.9");
+	return false;
+}
 
-	void preparePreviewRequest(QNetworkRequest &request) {
-		Network::prepareRequest(request);
-		request.setRawHeader(QByteArrayLiteral("User-Agent"), s_previewBrowserUserAgent);
-		request.setRawHeader(QByteArrayLiteral("Accept"), s_previewAcceptHeader);
-		request.setRawHeader(QByteArrayLiteral("Accept-Language"), s_previewAcceptLanguageHeader);
+bool isSafePreviewTarget(const QUrl &url) {
+	if (!url.isValid()) {
+		return false;
 	}
 
-	void setPreviewAbortReason(QNetworkReply *reply, const QString &reason) {
-		if (reply) {
-			reply->setProperty("previewAbortReason", reason);
+	const QString scheme = url.scheme().toLower();
+	if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
+		return false;
+	}
+	if (!url.userName().isEmpty() || !url.password().isEmpty()) {
+		return false;
+	}
+
+	const QString host = previewDisplayHost(url);
+	if (host.isEmpty()) {
+		return false;
+	}
+	if (host == QLatin1String("localhost") || host.endsWith(QLatin1String(".localhost"))
+		|| host.endsWith(QLatin1String(".local")) || host.endsWith(QLatin1String(".lan"))
+		|| host.endsWith(QLatin1String(".internal")) || host.endsWith(QLatin1String(".home.arpa"))) {
+		return false;
+	}
+
+	QHostAddress literalAddress;
+	if (literalAddress.setAddress(host)) {
+		return !isPrivateOrLocalAddress(literalAddress);
+	}
+
+	if (!host.contains(QLatin1Char('.'))) {
+		return false;
+	}
+
+	return true;
+}
+
+constexpr int PREVIEW_REQUEST_TIMEOUT_MSEC             = 8000;
+constexpr qint64 PREVIEW_MAX_PAGE_BYTES                = 512 * 1024;
+constexpr qint64 PREVIEW_MAX_IMAGE_BYTES               = 4 * 1024 * 1024;
+constexpr int PERSISTENT_CHAT_RESIZE_RENDER_DELAY_MSEC = 120;
+constexpr int PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH     = 640;
+constexpr int PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT    = 480;
+constexpr int PERSISTENT_CHAT_PREVIEW_DISPLAY_WIDTH    = 360;
+constexpr int PERSISTENT_CHAT_PREVIEW_DISPLAY_HEIGHT   = 300;
+constexpr int PERSISTENT_CHAT_PREVIEW_CARD_MAX_WIDTH   = 480;
+constexpr int PERSISTENT_CHAT_PREVIEW_WIDTH_STEP       = 16;
+static const QByteArray s_previewBrowserUserAgent =
+	QByteArrayLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+					  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36");
+static const QByteArray s_previewAcceptHeader =
+	QByteArrayLiteral("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8");
+static const QByteArray s_previewAcceptLanguageHeader = QByteArrayLiteral("en-US,en;q=0.9");
+
+void preparePreviewRequest(QNetworkRequest &request) {
+	Network::prepareRequest(request);
+	request.setRawHeader(QByteArrayLiteral("User-Agent"), s_previewBrowserUserAgent);
+	request.setRawHeader(QByteArrayLiteral("Accept"), s_previewAcceptHeader);
+	request.setRawHeader(QByteArrayLiteral("Accept-Language"), s_previewAcceptLanguageHeader);
+}
+
+void setPreviewAbortReason(QNetworkReply *reply, const QString &reason) {
+	if (reply) {
+		reply->setProperty("previewAbortReason", reason);
+	}
+}
+
+QString previewAbortReason(const QNetworkReply *reply) {
+	return reply ? reply->property("previewAbortReason").toString() : QString();
+}
+
+QString previewFailureText(const QNetworkReply *reply) {
+	const QString abortReason = previewAbortReason(reply);
+	if (abortReason == QLatin1String("timeout")) {
+		return QObject::tr("Preview request timed out");
+	}
+	if (abortReason == QLatin1String("too_large")) {
+		return QObject::tr("Preview exceeded size limit");
+	}
+
+	return QObject::tr("Preview unavailable");
+}
+
+bool previewContentTypeLooksHtml(const QString &contentType) {
+	return contentType.isEmpty() || contentType.contains(QLatin1String("html"))
+		   || contentType.contains(QLatin1String("xml"));
+}
+
+QString previewImageMetaTag(const QHash< QString, QString > &metaTags) {
+	static const QStringList preferredKeys = {
+		QStringLiteral("og:image"),      QStringLiteral("og:image:url"),      QStringLiteral("og:image:secure_url"),
+		QStringLiteral("twitter:image"), QStringLiteral("twitter:image:src"),
+	};
+
+	for (const QString &key : preferredKeys) {
+		const QString value = metaTags.value(key).trimmed();
+		if (!value.isEmpty()) {
+			return value;
 		}
 	}
 
-	QString previewAbortReason(const QNetworkReply *reply) {
-		return reply ? reply->property("previewAbortReason").toString() : QString();
+	return QString();
+}
+
+void applyPreviewReplyGuards(QNetworkReply *reply, qint64 maxBytes, bool abortOnContentLength = true) {
+	if (!reply) {
+		return;
 	}
 
-	QString previewFailureText(const QNetworkReply *reply) {
-		const QString abortReason = previewAbortReason(reply);
-		if (abortReason == QLatin1String("timeout")) {
-			return QObject::tr("Preview request timed out");
+	QTimer *timeoutTimer = new QTimer(reply);
+	timeoutTimer->setSingleShot(true);
+	timeoutTimer->setInterval(PREVIEW_REQUEST_TIMEOUT_MSEC);
+	QObject::connect(timeoutTimer, &QTimer::timeout, reply, [reply]() {
+		if (!reply->isFinished()) {
+			setPreviewAbortReason(reply, QLatin1String("timeout"));
+			reply->abort();
 		}
-		if (abortReason == QLatin1String("too_large")) {
-			return QObject::tr("Preview exceeded size limit");
-		}
+	});
+	QObject::connect(reply, &QNetworkReply::finished, timeoutTimer, &QTimer::stop);
+	timeoutTimer->start();
 
-		return QObject::tr("Preview unavailable");
-	}
-
-	bool previewContentTypeLooksHtml(const QString &contentType) {
-		return contentType.isEmpty() || contentType.contains(QLatin1String("html"))
-			   || contentType.contains(QLatin1String("xml"));
-	}
-
-	QString previewImageMetaTag(const QHash< QString, QString > &metaTags) {
-		static const QStringList preferredKeys = {
-			QStringLiteral("og:image"),
-			QStringLiteral("og:image:url"),
-			QStringLiteral("og:image:secure_url"),
-			QStringLiteral("twitter:image"),
-			QStringLiteral("twitter:image:src"),
-		};
-
-		for (const QString &key : preferredKeys) {
-			const QString value = metaTags.value(key).trimmed();
-			if (!value.isEmpty()) {
-				return value;
-			}
-		}
-
-		return QString();
-	}
-
-	void applyPreviewReplyGuards(QNetworkReply *reply, qint64 maxBytes, bool abortOnContentLength = true) {
-		if (!reply) {
-			return;
-		}
-
-		QTimer *timeoutTimer = new QTimer(reply);
-		timeoutTimer->setSingleShot(true);
-		timeoutTimer->setInterval(PREVIEW_REQUEST_TIMEOUT_MSEC);
-		QObject::connect(timeoutTimer, &QTimer::timeout, reply, [reply]() {
-			if (!reply->isFinished()) {
-				setPreviewAbortReason(reply, QLatin1String("timeout"));
-				reply->abort();
-			}
-		});
-		QObject::connect(reply, &QNetworkReply::finished, timeoutTimer, &QTimer::stop);
-		timeoutTimer->start();
-
-		if (maxBytes > 0) {
-			if (abortOnContentLength) {
-				QObject::connect(reply, &QNetworkReply::metaDataChanged, reply, [reply, maxBytes]() {
-					const qint64 contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-					if (contentLength > maxBytes && !reply->isFinished()) {
-						setPreviewAbortReason(reply, QLatin1String("too_large"));
-						reply->abort();
-					}
-				});
-			}
-			QObject::connect(reply, &QNetworkReply::downloadProgress, reply, [reply, maxBytes](qint64 received, qint64) {
-				if (received > maxBytes && !reply->isFinished()) {
+	if (maxBytes > 0) {
+		if (abortOnContentLength) {
+			QObject::connect(reply, &QNetworkReply::metaDataChanged, reply, [reply, maxBytes]() {
+				const qint64 contentLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+				if (contentLength > maxBytes && !reply->isFinished()) {
 					setPreviewAbortReason(reply, QLatin1String("too_large"));
 					reply->abort();
 				}
 			});
 		}
+		QObject::connect(reply, &QNetworkReply::downloadProgress, reply, [reply, maxBytes](qint64 received, qint64) {
+			if (received > maxBytes && !reply->isFinished()) {
+				setPreviewAbortReason(reply, QLatin1String("too_large"));
+				reply->abort();
+			}
+		});
 	}
+}
 
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
-	class PreviewSnapshotUrlInterceptor final : public QWebEngineUrlRequestInterceptor {
-	public:
-		explicit PreviewSnapshotUrlInterceptor(QObject *parent = nullptr) : QWebEngineUrlRequestInterceptor(parent) {
+class PreviewSnapshotUrlInterceptor final : public QWebEngineUrlRequestInterceptor {
+public:
+	explicit PreviewSnapshotUrlInterceptor(QObject *parent = nullptr) : QWebEngineUrlRequestInterceptor(parent) {}
+
+	void interceptRequest(QWebEngineUrlRequestInfo &info) override {
+		const QUrl url       = info.requestUrl();
+		const QString scheme = url.scheme().toLower();
+		if (scheme == QLatin1String("about") || scheme == QLatin1String("data") || scheme == QLatin1String("blob")) {
+			return;
 		}
 
-		void interceptRequest(QWebEngineUrlRequestInfo &info) override {
-			const QUrl url = info.requestUrl();
-			const QString scheme = url.scheme().toLower();
-			if (scheme == QLatin1String("about") || scheme == QLatin1String("data")
-				|| scheme == QLatin1String("blob")) {
-				return;
-			}
-
-			if (!isSafePreviewTarget(url)) {
-				info.block(true);
-				return;
-			}
-
-			info.setHttpHeader(QByteArrayLiteral("User-Agent"), s_previewBrowserUserAgent);
-			info.setHttpHeader(QByteArrayLiteral("Accept-Language"), s_previewAcceptLanguageHeader);
-			if (info.resourceType() == QWebEngineUrlRequestInfo::ResourceTypeMainFrame
-				|| info.resourceType() == QWebEngineUrlRequestInfo::ResourceTypeSubFrame) {
-				info.setHttpHeader(QByteArrayLiteral("Accept"), s_previewAcceptHeader);
-			}
-		}
-	};
-
-	class PersistentChatPreviewSnapshotRenderer final : public QObject {
-	public:
-		using ResultCallback = std::function< void(const QString &, const QImage &, bool) >;
-
-		explicit PersistentChatPreviewSnapshotRenderer(QObject *parent = nullptr) : QObject(parent) {
-			m_timeoutTimer = new QTimer(this);
-			m_timeoutTimer->setSingleShot(true);
-			m_timeoutTimer->setInterval(15000);
-			QObject::connect(m_timeoutTimer, &QTimer::timeout, this, [this]() { finishCurrent(false, QImage()); });
-
-			m_settleTimer = new QTimer(this);
-			m_settleTimer->setSingleShot(true);
-			m_settleTimer->setInterval(1200);
-			QObject::connect(m_settleTimer, &QTimer::timeout, this, [this]() { captureCurrentView(); });
+		if (!isSafePreviewTarget(url)) {
+			info.block(true);
+			return;
 		}
 
-		~PersistentChatPreviewSnapshotRenderer() override {
-			if (m_view) {
-				m_view->hide();
-				m_view->close();
-				delete m_view;
-				m_view = nullptr;
-				m_page = nullptr;
-			}
-			if (m_profile) {
-				delete m_profile;
-				m_profile     = nullptr;
-				m_interceptor = nullptr;
-			}
+		info.setHttpHeader(QByteArrayLiteral("User-Agent"), s_previewBrowserUserAgent);
+		info.setHttpHeader(QByteArrayLiteral("Accept-Language"), s_previewAcceptLanguageHeader);
+		if (info.resourceType() == QWebEngineUrlRequestInfo::ResourceTypeMainFrame
+			|| info.resourceType() == QWebEngineUrlRequestInfo::ResourceTypeSubFrame) {
+			info.setHttpHeader(QByteArrayLiteral("Accept"), s_previewAcceptHeader);
 		}
+	}
+};
 
-		void setResultCallback(ResultCallback callback) {
-			m_resultCallback = std::move(callback);
-		}
+class PersistentChatPreviewSnapshotRenderer final : public QObject {
+public:
+	using ResultCallback = std::function< void(const QString &, const QImage &, bool) >;
 
-		void requestSnapshot(const QString &previewKey, const QUrl &url) {
-			if (previewKey.trimmed().isEmpty() || !isSafePreviewTarget(url)) {
-				return;
-			}
+	explicit PersistentChatPreviewSnapshotRenderer(QObject *parent = nullptr) : QObject(parent) {
+		m_timeoutTimer = new QTimer(this);
+		m_timeoutTimer->setSingleShot(true);
+		m_timeoutTimer->setInterval(15000);
+		QObject::connect(m_timeoutTimer, &QTimer::timeout, this, [this]() { finishCurrent(false, QImage()); });
 
-			if ((m_busy && m_current.previewKey == previewKey) || m_queuedPreviewKeys.contains(previewKey)) {
-				return;
-			}
+		m_settleTimer = new QTimer(this);
+		m_settleTimer->setSingleShot(true);
+		m_settleTimer->setInterval(1200);
+		QObject::connect(m_settleTimer, &QTimer::timeout, this, [this]() { captureCurrentView(); });
+	}
 
-			Request request;
-			request.previewKey = previewKey;
-			request.url        = url;
-			m_queue.push_back(request);
-			m_queuedPreviewKeys.insert(previewKey);
-			startNextIfIdle();
-		}
-
-	private:
-		struct Request {
-			QString previewKey;
-			QUrl url;
-		};
-
-		static constexpr int kViewportWidth  = 960;
-		static constexpr int kViewportHeight = 720;
-		static constexpr int kCaptureRetryDelayMsec = 250;
-		static constexpr int kMaxCaptureAttempts = 2;
-
-		void ensureView() {
-			if (m_view) {
-				return;
-			}
-
-			m_profile = new QWebEngineProfile(this);
-			m_profile->setPersistentCookiesPolicy(QWebEngineProfile::NoPersistentCookies);
-			m_profile->setPersistentPermissionsPolicy(QWebEngineProfile::PersistentPermissionsPolicy::StoreInMemory);
-			m_profile->setHttpCacheType(QWebEngineProfile::MemoryHttpCache);
-			m_profile->setHttpUserAgent(QString::fromLatin1(s_previewBrowserUserAgent));
-			m_profile->setHttpAcceptLanguage(QString::fromLatin1(s_previewAcceptLanguageHeader));
-
-			m_interceptor = new PreviewSnapshotUrlInterceptor(m_profile);
-			m_profile->setUrlRequestInterceptor(m_interceptor);
-
-			m_view = new QWebEngineView();
-			m_view->setAttribute(Qt::WA_ShowWithoutActivating, true);
-			m_view->setFocusPolicy(Qt::NoFocus);
-			m_view->setContextMenuPolicy(Qt::NoContextMenu);
-			m_view->setWindowFlag(Qt::Tool, true);
-			m_view->setWindowFlag(Qt::FramelessWindowHint, true);
-			m_view->setWindowFlag(Qt::WindowDoesNotAcceptFocus, true);
-			m_view->resize(kViewportWidth, kViewportHeight);
-			m_view->move(-32000, -32000);
-
-			m_page = new QWebEnginePage(m_profile, m_view);
-			m_page->setAudioMuted(true);
-			m_page->setBackgroundColor(Qt::white);
-			m_view->setPage(m_page);
-
-			m_view->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture, true);
-			m_view->settings()->setAttribute(QWebEngineSettings::ShowScrollBars, false);
-			m_view->settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
-
-			QObject::connect(m_view, &QWebEngineView::loadFinished, this, [this](bool ok) {
-				if (!m_busy) {
-					return;
-				}
-				if (!ok) {
-					finishCurrent(false, QImage());
-					return;
-				}
-
-				m_captureAttempts = 0;
-				m_page->runJavaScript(QStringLiteral(
-										  "try {"
-										  "window.scrollTo(0, 0);"
-										  "document.documentElement.style.scrollBehavior = 'auto';"
-										  "if (document.body) { document.body.style.scrollBehavior = 'auto'; }"
-										  "} catch (e) {}"),
-									  [this](const QVariant &) {
-										  if (m_busy) {
-											  m_settleTimer->start();
-										  }
-									  });
-			});
-			QObject::connect(m_view, &QWebEngineView::renderProcessTerminated, this,
-							 [this](QWebEnginePage::RenderProcessTerminationStatus, int) {
-								 recreateView();
-								 finishCurrent(false, QImage());
-							 });
-			QObject::connect(m_page, &QWebEnginePage::contentsSizeChanged, this, [this](const QSizeF &) {
-				if (m_busy && !m_page->isLoading()) {
-					m_settleTimer->start();
-				}
-			});
-		}
-
-		void recreateView() {
-			if (!m_view) {
-				return;
-			}
-
+	~PersistentChatPreviewSnapshotRenderer() override {
+		if (m_view) {
 			m_view->hide();
 			m_view->close();
 			delete m_view;
-			m_view    = nullptr;
-			m_page    = nullptr;
-			if (m_profile) {
-				delete m_profile;
-				m_profile = nullptr;
-				m_interceptor = nullptr;
-			}
-			ensureView();
+			m_view = nullptr;
+			m_page = nullptr;
+		}
+		if (m_profile) {
+			delete m_profile;
+			m_profile     = nullptr;
+			m_interceptor = nullptr;
+		}
+	}
+
+	void setResultCallback(ResultCallback callback) { m_resultCallback = std::move(callback); }
+
+	void requestSnapshot(const QString &previewKey, const QUrl &url) {
+		if (previewKey.trimmed().isEmpty() || !isSafePreviewTarget(url)) {
+			return;
 		}
 
-		void startNextIfIdle() {
-			if (m_busy || m_queue.isEmpty()) {
-				return;
-			}
-
-			ensureView();
-
-			m_busy = true;
-			m_current = m_queue.takeFirst();
-			m_queuedPreviewKeys.remove(m_current.previewKey);
-			m_captureAttempts = 0;
-
-			m_view->resize(kViewportWidth, kViewportHeight);
-			m_view->move(-32000, -32000);
-			m_view->show();
-			m_view->raise();
-			m_page->setVisible(true);
-			m_page->setUrl(m_current.url);
-			m_timeoutTimer->start();
+		if ((m_busy && m_current.previewKey == previewKey) || m_queuedPreviewKeys.contains(previewKey)) {
+			return;
 		}
 
-		void captureCurrentView() {
-			if (!m_busy || !m_view) {
-				return;
-			}
+		Request request;
+		request.previewKey = previewKey;
+		request.url        = url;
+		m_queue.push_back(request);
+		m_queuedPreviewKeys.insert(previewKey);
+		startNextIfIdle();
+	}
 
-			m_page->runJavaScript(QStringLiteral(
-									  "try {"
-									  "window.scrollTo(0, 0);"
-									  "} catch (e) {}"),
-								  [this](const QVariant &) {
-									  if (!m_busy || !m_view) {
-										  return;
-									  }
+private:
+	struct Request {
+		QString previewKey;
+		QUrl url;
+	};
 
-									  const QPixmap pixmap = m_view->grab();
-									  const QImage image   = pixmap.toImage();
-									  if (!image.isNull() && image.width() > 1 && image.height() > 1) {
-										  finishCurrent(true, image);
-										  return;
-									  }
+	static constexpr int kViewportWidth         = 960;
+	static constexpr int kViewportHeight        = 720;
+	static constexpr int kCaptureRetryDelayMsec = 250;
+	static constexpr int kMaxCaptureAttempts    = 2;
 
-									  ++m_captureAttempts;
-									  if (m_captureAttempts < kMaxCaptureAttempts) {
-										  m_settleTimer->start(kCaptureRetryDelayMsec);
-										  return;
-									  }
-
-									  finishCurrent(false, QImage());
-								  });
+	void ensureView() {
+		if (m_view) {
+			return;
 		}
 
-		void finishCurrent(bool success, const QImage &image) {
+		m_profile = new QWebEngineProfile(this);
+		m_profile->setPersistentCookiesPolicy(QWebEngineProfile::NoPersistentCookies);
+		m_profile->setPersistentPermissionsPolicy(QWebEngineProfile::PersistentPermissionsPolicy::StoreInMemory);
+		m_profile->setHttpCacheType(QWebEngineProfile::MemoryHttpCache);
+		m_profile->setHttpUserAgent(QString::fromLatin1(s_previewBrowserUserAgent));
+		m_profile->setHttpAcceptLanguage(QString::fromLatin1(s_previewAcceptLanguageHeader));
+
+		m_interceptor = new PreviewSnapshotUrlInterceptor(m_profile);
+		m_profile->setUrlRequestInterceptor(m_interceptor);
+
+		m_view = new QWebEngineView();
+		m_view->setAttribute(Qt::WA_ShowWithoutActivating, true);
+		m_view->setFocusPolicy(Qt::NoFocus);
+		m_view->setContextMenuPolicy(Qt::NoContextMenu);
+		m_view->setWindowFlag(Qt::Tool, true);
+		m_view->setWindowFlag(Qt::FramelessWindowHint, true);
+		m_view->setWindowFlag(Qt::WindowDoesNotAcceptFocus, true);
+		m_view->resize(kViewportWidth, kViewportHeight);
+		m_view->move(-32000, -32000);
+
+		m_page = new QWebEnginePage(m_profile, m_view);
+		m_page->setAudioMuted(true);
+		m_page->setBackgroundColor(Qt::white);
+		m_view->setPage(m_page);
+
+		m_view->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture, true);
+		m_view->settings()->setAttribute(QWebEngineSettings::ShowScrollBars, false);
+		m_view->settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
+
+		QObject::connect(m_view, &QWebEngineView::loadFinished, this, [this](bool ok) {
 			if (!m_busy) {
 				return;
 			}
-
-			const QString previewKey = m_current.previewKey;
-			m_busy = false;
-			m_current = Request();
-			m_timeoutTimer->stop();
-			m_settleTimer->stop();
-
-			if (m_page) {
-				m_page->setVisible(false);
-				m_page->triggerAction(QWebEnginePage::Stop);
-			}
-			if (m_view) {
-				m_view->hide();
+			if (!ok) {
+				finishCurrent(false, QImage());
+				return;
 			}
 
-			if (m_resultCallback) {
-				m_resultCallback(previewKey, image, success);
+			m_captureAttempts = 0;
+			m_page->runJavaScript(QStringLiteral("try {"
+												 "window.scrollTo(0, 0);"
+												 "document.documentElement.style.scrollBehavior = 'auto';"
+												 "if (document.body) { document.body.style.scrollBehavior = 'auto'; }"
+												 "} catch (e) {}"),
+								  [this](const QVariant &) {
+									  if (m_busy) {
+										  m_settleTimer->start();
+									  }
+								  });
+		});
+		QObject::connect(m_view, &QWebEngineView::renderProcessTerminated, this,
+						 [this](QWebEnginePage::RenderProcessTerminationStatus, int) {
+							 recreateView();
+							 finishCurrent(false, QImage());
+						 });
+		QObject::connect(m_page, &QWebEnginePage::contentsSizeChanged, this, [this](const QSizeF &) {
+			if (m_busy && !m_page->isLoading()) {
+				m_settleTimer->start();
 			}
+		});
+	}
 
-			QTimer::singleShot(0, this, [this]() { startNextIfIdle(); });
+	void recreateView() {
+		if (!m_view) {
+			return;
 		}
 
-		ResultCallback m_resultCallback;
-		QList< Request > m_queue;
-		QSet< QString > m_queuedPreviewKeys;
-		Request m_current;
-		QTimer *m_timeoutTimer = nullptr;
-		QTimer *m_settleTimer = nullptr;
-		QWebEngineProfile *m_profile = nullptr;
-		PreviewSnapshotUrlInterceptor *m_interceptor = nullptr;
-		QWebEngineView *m_view = nullptr;
-		QWebEnginePage *m_page = nullptr;
-		bool m_busy = false;
-		int m_captureAttempts = 0;
-	};
+		m_view->hide();
+		m_view->close();
+		delete m_view;
+		m_view = nullptr;
+		m_page = nullptr;
+		if (m_profile) {
+			delete m_profile;
+			m_profile     = nullptr;
+			m_interceptor = nullptr;
+		}
+		ensureView();
+	}
+
+	void startNextIfIdle() {
+		if (m_busy || m_queue.isEmpty()) {
+			return;
+		}
+
+		ensureView();
+
+		m_busy    = true;
+		m_current = m_queue.takeFirst();
+		m_queuedPreviewKeys.remove(m_current.previewKey);
+		m_captureAttempts = 0;
+
+		m_view->resize(kViewportWidth, kViewportHeight);
+		m_view->move(-32000, -32000);
+		m_view->show();
+		m_view->raise();
+		m_page->setVisible(true);
+		m_page->setUrl(m_current.url);
+		m_timeoutTimer->start();
+	}
+
+	void captureCurrentView() {
+		if (!m_busy || !m_view) {
+			return;
+		}
+
+		m_page->runJavaScript(QStringLiteral("try {"
+											 "window.scrollTo(0, 0);"
+											 "} catch (e) {}"),
+							  [this](const QVariant &) {
+								  if (!m_busy || !m_view) {
+									  return;
+								  }
+
+								  const QPixmap pixmap = m_view->grab();
+								  const QImage image   = pixmap.toImage();
+								  if (!image.isNull() && image.width() > 1 && image.height() > 1) {
+									  finishCurrent(true, image);
+									  return;
+								  }
+
+								  ++m_captureAttempts;
+								  if (m_captureAttempts < kMaxCaptureAttempts) {
+									  m_settleTimer->start(kCaptureRetryDelayMsec);
+									  return;
+								  }
+
+								  finishCurrent(false, QImage());
+							  });
+	}
+
+	void finishCurrent(bool success, const QImage &image) {
+		if (!m_busy) {
+			return;
+		}
+
+		const QString previewKey = m_current.previewKey;
+		m_busy                   = false;
+		m_current                = Request();
+		m_timeoutTimer->stop();
+		m_settleTimer->stop();
+
+		if (m_page) {
+			m_page->setVisible(false);
+			m_page->triggerAction(QWebEnginePage::Stop);
+		}
+		if (m_view) {
+			m_view->hide();
+		}
+
+		if (m_resultCallback) {
+			m_resultCallback(previewKey, image, success);
+		}
+
+		QTimer::singleShot(0, this, [this]() { startNextIfIdle(); });
+	}
+
+	ResultCallback m_resultCallback;
+	QList< Request > m_queue;
+	QSet< QString > m_queuedPreviewKeys;
+	Request m_current;
+	QTimer *m_timeoutTimer                       = nullptr;
+	QTimer *m_settleTimer                        = nullptr;
+	QWebEngineProfile *m_profile                 = nullptr;
+	PreviewSnapshotUrlInterceptor *m_interceptor = nullptr;
+	QWebEngineView *m_view                       = nullptr;
+	QWebEnginePage *m_page                       = nullptr;
+	bool m_busy                                  = false;
+	int m_captureAttempts                        = 0;
+};
 #endif
 
-	QImage persistentChatThumbnailImage(const QImage &image) {
-		if (image.isNull()) {
-			return QImage();
-		}
-
-		if (image.width() <= PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH
-			&& image.height() <= PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT) {
-			return image;
-		}
-
-		return image.scaled(PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH, PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT,
-							Qt::KeepAspectRatio, Qt::SmoothTransformation);
+QImage persistentChatThumbnailImage(const QImage &image) {
+	if (image.isNull()) {
+		return QImage();
 	}
 
-	QImage decodePersistentChatThumbnailImage(const QByteArray &data) {
-		if (data.isEmpty()) {
-			return QImage();
-		}
-
-		QBuffer buffer;
-		buffer.setData(data);
-		if (!buffer.open(QIODevice::ReadOnly)) {
-			return QImage();
-		}
-
-		QImageReader reader(&buffer);
-		reader.setAutoTransform(true);
-		const QSize sourceSize = reader.size();
-		if (sourceSize.isValid() && (sourceSize.width() > PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH
-									 || sourceSize.height() > PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT)) {
-			reader.setScaledSize(sourceSize.scaled(PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH,
-												  PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT, Qt::KeepAspectRatio));
-		}
-
-		return reader.read();
+	if (image.width() <= PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH
+		&& image.height() <= PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT) {
+		return image;
 	}
 
-	QUrl persistentChatThumbnailResourceUrl(const QString &previewKey) {
-		QByteArray resourceUrl("mumble-preview:");
-		resourceUrl.append(QUrl::toPercentEncoding(previewKey));
-		return QUrl::fromEncoded(resourceUrl);
+	return image.scaled(PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH, PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT,
+						Qt::KeepAspectRatio, Qt::SmoothTransformation);
+}
+
+QImage decodePersistentChatThumbnailImage(const QByteArray &data) {
+	if (data.isEmpty()) {
+		return QImage();
 	}
 
-	QUrl persistentChatPreviewImageUrl(const QString &previewKey) {
-		QByteArray encodedUrl("mumble-chat://preview-image/");
-		encodedUrl.append(QUrl::toPercentEncoding(previewKey));
-		return QUrl::fromEncoded(encodedUrl);
+	QBuffer buffer;
+	buffer.setData(data);
+	if (!buffer.open(QIODevice::ReadOnly)) {
+		return QImage();
 	}
 
-	QString persistentChatThumbnailHtml(const QString &previewKey, const QImage &image, int maxWidth, int maxHeight,
-										 const QString &inlineStyle = QString(),
-										 const QString &anchorHref = QString()) {
-		if (previewKey.isEmpty() || image.isNull() || maxWidth <= 0 || maxHeight <= 0) {
-			return QString();
-		}
+	QImageReader reader(&buffer);
+	reader.setAutoTransform(true);
+	const QSize sourceSize = reader.size();
+	if (sourceSize.isValid()
+		&& (sourceSize.width() > PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH
+			|| sourceSize.height() > PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT)) {
+		reader.setScaledSize(sourceSize.scaled(PERSISTENT_CHAT_PREVIEW_SOURCE_WIDTH,
+											   PERSISTENT_CHAT_PREVIEW_SOURCE_HEIGHT, Qt::KeepAspectRatio));
+	}
 
-		const QSize displaySize = image.size().scaled(maxWidth, maxHeight, Qt::KeepAspectRatio);
-		if (!displaySize.isValid() || displaySize.isEmpty()) {
-			return QString();
-		}
+	return reader.read();
+}
 
-		const QString enforcedStyle = QString::fromLatin1(
-										 "border:none; outline:none; display:block; margin:0;"
-										 " width:%1px; max-width:%1px; height:%2px; max-height:%2px;"
-										 " object-fit:contain; background:transparent; %3")
-										 .arg(displaySize.width())
-										 .arg(displaySize.height())
-										 .arg(inlineStyle);
+QUrl persistentChatThumbnailResourceUrl(const QString &previewKey) {
+	QByteArray resourceUrl("mumble-preview:");
+	resourceUrl.append(QUrl::toPercentEncoding(previewKey));
+	return QUrl::fromEncoded(resourceUrl);
+}
 
-		QString imageHtml = QString::fromLatin1(
-								"<img src=\"%1\" width=\"%2\" height=\"%3\" "
-								"style=\"%4\" />")
+QUrl persistentChatPreviewImageUrl(const QString &previewKey) {
+	QByteArray encodedUrl("mumble-chat://preview-image/");
+	encodedUrl.append(QUrl::toPercentEncoding(previewKey));
+	return QUrl::fromEncoded(encodedUrl);
+}
+
+QString persistentChatThumbnailHtml(const QString &previewKey, const QImage &image, int maxWidth, int maxHeight,
+									const QString &inlineStyle = QString(), const QString &anchorHref = QString()) {
+	if (previewKey.isEmpty() || image.isNull() || maxWidth <= 0 || maxHeight <= 0) {
+		return QString();
+	}
+
+	const QSize displaySize = image.size().scaled(maxWidth, maxHeight, Qt::KeepAspectRatio);
+	if (!displaySize.isValid() || displaySize.isEmpty()) {
+		return QString();
+	}
+
+	const QString enforcedStyle = QString::fromLatin1("border:none; outline:none; display:block; margin:0;"
+													  " width:%1px; max-width:%1px; height:%2px; max-height:%2px;"
+													  " object-fit:contain; background:transparent; %3")
+									  .arg(displaySize.width())
+									  .arg(displaySize.height())
+									  .arg(inlineStyle);
+
+	QString imageHtml =
+		QString::fromLatin1("<img src=\"%1\" width=\"%2\" height=\"%3\" "
+							"style=\"%4\" />")
 			.arg(persistentChatThumbnailResourceUrl(previewKey).toString(QUrl::FullyEncoded).toHtmlEscaped())
 			.arg(displaySize.width())
 			.arg(displaySize.height())
 			.arg(enforcedStyle.toHtmlEscaped());
-		if (!anchorHref.isEmpty()) {
-			return QString::fromLatin1(
-					   "<a href=\"%1\" style=\"text-decoration:none; color:inherit; display:block; line-height:0;\">%2</a>")
-				.arg(anchorHref.toHtmlEscaped(), imageHtml);
-		}
-
-		return imageHtml;
-	}
-
-	QString decodedPreviewText(const QString &text) {
-		return QTextDocumentFragment::fromHtml(text).toPlainText().simplified();
-	}
-
-	QString trimmedPreviewText(QString text, int maxLength) {
-		text = decodedPreviewText(text);
-		if (text.size() <= maxLength) {
-			return text;
-		}
-
-		return text.left(std::max(0, maxLength - 1)).trimmed() + QChar(0x2026);
-	}
-
-	QString extractHtmlTitle(const QString &html) {
-		static const QRegularExpression s_titleRegex(QLatin1String("<title[^>]*>(.*?)</title>"),
-													 QRegularExpression::CaseInsensitiveOption
-														 | QRegularExpression::DotMatchesEverythingOption);
-		const QRegularExpressionMatch match = s_titleRegex.match(html);
-		return match.hasMatch() ? decodedPreviewText(match.captured(1)) : QString();
-	}
-
-	QHash< QString, QString > extractMetaTags(const QString &html) {
-		QHash< QString, QString > tags;
-
-		static const QRegularExpression s_metaTagRegex(QLatin1String("<meta\\s+([^>]+)>"),
-													   QRegularExpression::CaseInsensitiveOption);
-		static const QRegularExpression s_attrRegex(
-			QLatin1String("([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*([\"'])(.*?)\\2"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-
-		QRegularExpressionMatchIterator metaTags = s_metaTagRegex.globalMatch(html);
-		while (metaTags.hasNext()) {
-			const QString attrsString = metaTags.next().captured(1);
-			QHash< QString, QString > attrs;
-			QRegularExpressionMatchIterator attrsIt = s_attrRegex.globalMatch(attrsString);
-			while (attrsIt.hasNext()) {
-				const QRegularExpressionMatch attrMatch = attrsIt.next();
-				attrs.insert(attrMatch.captured(1).toLower(), attrMatch.captured(3));
-			}
-
-			const QString key = attrs.value(QLatin1String("property"), attrs.value(QLatin1String("name"))).toLower();
-			const QString content = attrs.value(QLatin1String("content"));
-			if (!key.isEmpty() && !content.isEmpty() && !tags.contains(key)) {
-				tags.insert(key, decodedPreviewText(content));
-			}
-		}
-
-		return tags;
-	}
-
-	QList< QUrl > extractPreviewableUrls(const QString &messageHtml) {
-		QList< QUrl > urls;
-		QSet< QString > seen;
-
-		auto addUrlCandidate = [&](QString candidate) {
-			candidate = trimTrailingUrlPunctuation(candidate.trimmed());
-			if (candidate.isEmpty()) {
-				return;
-			}
-
-			const QUrl url = QUrl::fromUserInput(candidate);
-			if (!url.isValid()) {
-				return;
-			}
-			const QString scheme = url.scheme().toLower();
-			if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
-				return;
-			}
-
-			const QString normalized = url.toString(QUrl::FullyEncoded);
-			if (seen.contains(normalized)) {
-				return;
-			}
-
-			seen.insert(normalized);
-			urls << url;
-		};
-
-		static const QRegularExpression s_hrefRegex(
-			QLatin1String("<a\\s[^>]*href\\s*=\\s*[\"']([^\"']+)[\"']"),
-			QRegularExpression::CaseInsensitiveOption);
-		QRegularExpressionMatchIterator hrefMatches = s_hrefRegex.globalMatch(messageHtml);
-		while (hrefMatches.hasNext()) {
-			addUrlCandidate(hrefMatches.next().captured(1));
-		}
-
-		const QString plainText = QTextDocumentFragment::fromHtml(messageHtml).toPlainText();
-		static const QRegularExpression s_urlRegex(QLatin1String("(https?://[^\\s<>\"]+)"),
-												   QRegularExpression::CaseInsensitiveOption);
-		QRegularExpressionMatchIterator urlMatches = s_urlRegex.globalMatch(plainText);
-		while (urlMatches.hasNext()) {
-			addUrlCandidate(urlMatches.next().captured(1));
-		}
-
-		return urls;
-	}
-
-	bool persistentChatSourceTextIsSinglePreviewableUrl(const QString &sourceText) {
-		static const QRegularExpression s_singleUrlPattern(
-			QLatin1String("^\\s*https?://[^\\s<>\"']+\\s*$"), QRegularExpression::CaseInsensitiveOption);
-		return s_singleUrlPattern.match(normalizedPersistentChatText(sourceText)).hasMatch();
-	}
-
-	QString persistentChatPreviewUrlDisplayHtml(const QString &urlText) {
-		QString displayHtml;
-		displayHtml.reserve(urlText.size() * 2);
-
-		int consecutiveTokenChars = 0;
-		const auto appendBreakOpportunity = [&displayHtml, &consecutiveTokenChars]() {
-			displayHtml += QLatin1String("<wbr/>");
-			consecutiveTokenChars = 0;
-		};
-
-		for (const QChar character : urlText) {
-			displayHtml += QString(character).toHtmlEscaped();
-			switch (character.unicode()) {
-				case '/':
-				case '?':
-				case '&':
-				case '=':
-				case '#':
-				case '%':
-				case '-':
-				case '_':
-				case '.':
-					appendBreakOpportunity();
-					break;
-				default:
-					++consecutiveTokenChars;
-					if (consecutiveTokenChars >= 14) {
-						appendBreakOpportunity();
-					}
-					break;
-			}
-		}
-
-		return displayHtml;
-	}
-
-	QString persistentChatPreviewSourceUrlHtml(const QString &sourceText) {
-		const QString normalizedUrl = normalizedPersistentChatText(sourceText).trimmed();
-		if (normalizedUrl.isEmpty()) {
-			return QString();
-		}
-
-		QColor mutedUrlColor = qApp->palette().color(QPalette::Link);
-		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-			mutedUrlColor = mixColors(tokens->subtext0, tokens->accent, 0.22);
-		}
-		mutedUrlColor.setAlphaF(std::clamp(mutedUrlColor.alphaF() * 0.88f, 0.0f, 1.0f));
-
+	if (!anchorHref.isEmpty()) {
 		return QString::fromLatin1(
-				   "<!--mumble-preview-url-->"
-				   "<div style='margin:0; padding:0 0 6px 0; line-height:1.3;'>"
-				   "<a class='mumble-preview-url' href=\"%1\" style=\"font-size:0.82em; color:%3; text-decoration:none;\">%2</a>"
-				   "</div>")
-			.arg(normalizedUrl.toHtmlEscaped(), persistentChatPreviewUrlDisplayHtml(normalizedUrl),
-				 mutedUrlColor.name(QColor::HexArgb));
+				   "<a href=\"%1\" style=\"text-decoration:none; color:inherit; display:block; line-height:0;\">%2</a>")
+			.arg(anchorHref.toHtmlEscaped(), imageHtml);
 	}
 
-	struct PersistentChatReplyReference {
-		unsigned int messageID = 0;
-		QString actor;
-		QString snippet;
+	return imageHtml;
+}
+
+QString decodedPreviewText(const QString &text) {
+	return QTextDocumentFragment::fromHtml(text).toPlainText().simplified();
+}
+
+QString trimmedPreviewText(QString text, int maxLength) {
+	text = decodedPreviewText(text);
+	if (text.size() <= maxLength) {
+		return text;
+	}
+
+	return text.left(std::max(0, maxLength - 1)).trimmed() + QChar(0x2026);
+}
+
+QString extractHtmlTitle(const QString &html) {
+	static const QRegularExpression s_titleRegex(QLatin1String("<title[^>]*>(.*?)</title>"),
+												 QRegularExpression::CaseInsensitiveOption
+													 | QRegularExpression::DotMatchesEverythingOption);
+	const QRegularExpressionMatch match = s_titleRegex.match(html);
+	return match.hasMatch() ? decodedPreviewText(match.captured(1)) : QString();
+}
+
+QHash< QString, QString > extractMetaTags(const QString &html) {
+	QHash< QString, QString > tags;
+
+	static const QRegularExpression s_metaTagRegex(QLatin1String("<meta\\s+([^>]+)>"),
+												   QRegularExpression::CaseInsensitiveOption);
+	static const QRegularExpression s_attrRegex(QLatin1String("([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*([\"'])(.*?)\\2"),
+												QRegularExpression::CaseInsensitiveOption
+													| QRegularExpression::DotMatchesEverythingOption);
+
+	QRegularExpressionMatchIterator metaTags = s_metaTagRegex.globalMatch(html);
+	while (metaTags.hasNext()) {
+		const QString attrsString = metaTags.next().captured(1);
+		QHash< QString, QString > attrs;
+		QRegularExpressionMatchIterator attrsIt = s_attrRegex.globalMatch(attrsString);
+		while (attrsIt.hasNext()) {
+			const QRegularExpressionMatch attrMatch = attrsIt.next();
+			attrs.insert(attrMatch.captured(1).toLower(), attrMatch.captured(3));
+		}
+
+		const QString key     = attrs.value(QLatin1String("property"), attrs.value(QLatin1String("name"))).toLower();
+		const QString content = attrs.value(QLatin1String("content"));
+		if (!key.isEmpty() && !content.isEmpty() && !tags.contains(key)) {
+			tags.insert(key, decodedPreviewText(content));
+		}
+	}
+
+	return tags;
+}
+
+QList< QUrl > extractPreviewableUrls(const QString &messageHtml) {
+	QList< QUrl > urls;
+	QSet< QString > seen;
+
+	auto addUrlCandidate = [&](QString candidate) {
+		candidate = trimTrailingUrlPunctuation(candidate.trimmed());
+		if (candidate.isEmpty()) {
+			return;
+		}
+
+		const QUrl url = QUrl::fromUserInput(candidate);
+		if (!url.isValid()) {
+			return;
+		}
+		const QString scheme = url.scheme().toLower();
+		if (scheme != QLatin1String("http") && scheme != QLatin1String("https")) {
+			return;
+		}
+
+		const QString normalized = url.toString(QUrl::FullyEncoded);
+		if (seen.contains(normalized)) {
+			return;
+		}
+
+		seen.insert(normalized);
+		urls << url;
 	};
 
-	QString persistentChatMessageTextSnippet(const QString &messageHtml, int maxLength = 140) {
-		QString snippet = Qt::mightBeRichText(messageHtml)
-							  ? QTextDocumentFragment::fromHtml(messageHtml).toPlainText().simplified()
-							  : normalizedPersistentChatText(messageHtml).simplified();
-		if (snippet.size() > maxLength) {
-			snippet = snippet.left(std::max(0, maxLength - 1)).trimmed() + QChar(0x2026);
-		}
-		return snippet;
+	static const QRegularExpression s_hrefRegex(QLatin1String("<a\\s[^>]*href\\s*=\\s*[\"']([^\"']+)[\"']"),
+												QRegularExpression::CaseInsensitiveOption);
+	QRegularExpressionMatchIterator hrefMatches = s_hrefRegex.globalMatch(messageHtml);
+	while (hrefMatches.hasNext()) {
+		addUrlCandidate(hrefMatches.next().captured(1));
 	}
 
-	QString buildPersistentChatReplyHtml(const MumbleProto::ChatMessage &replyTarget, const QString &bodyHtml) {
-		QJsonObject metadata;
-		metadata.insert(QStringLiteral("message_id"), static_cast< int >(replyTarget.message_id()));
-		metadata.insert(QStringLiteral("actor"), persistentChatActorLabel(replyTarget));
-		metadata.insert(QStringLiteral("snippet"), persistentChatMessageTextSnippet(persistentChatMessageSourceText(replyTarget)));
-
-		const QString actor = persistentChatActorLabel(replyTarget).toHtmlEscaped();
-		const QString snippet = persistentChatMessageTextSnippet(persistentChatMessageSourceText(replyTarget)).toHtmlEscaped();
-		const QString metadataJson = QString::fromUtf8(QJsonDocument(metadata).toJson(QJsonDocument::Compact));
-		return QString::fromLatin1(
-				   "<!--mumble-reply:%1--><blockquote data-mumble-reply-quote=\"1\"><strong>%2</strong><br/>%3</blockquote>%4")
-			.arg(metadataJson, actor, snippet, bodyHtml);
+	const QString plainText = QTextDocumentFragment::fromHtml(messageHtml).toPlainText();
+	static const QRegularExpression s_urlRegex(QLatin1String("(https?://[^\\s<>\"]+)"),
+											   QRegularExpression::CaseInsensitiveOption);
+	QRegularExpressionMatchIterator urlMatches = s_urlRegex.globalMatch(plainText);
+	while (urlMatches.hasNext()) {
+		addUrlCandidate(urlMatches.next().captured(1));
 	}
 
-	std::optional< PersistentChatReplyReference > extractPersistentChatReplyReference(const QString &messageHtml,
-																							  QString *bodyHtml) {
-		static const QRegularExpression s_replyRegex(
-			QLatin1String(
-				"^\\s*<!--mumble-reply:([^>]*)-->\\s*(?:<blockquote\\s+data-mumble-reply-quote=\"1\"[^>]*>.*?</blockquote>)?"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-		const QRegularExpressionMatch match = s_replyRegex.match(messageHtml);
-		if (!match.hasMatch()) {
-			if (bodyHtml) {
-				*bodyHtml = messageHtml;
-			}
-			return std::nullopt;
-		}
+	return urls;
+}
 
-		PersistentChatReplyReference reference;
-		QJsonParseError error;
-		const QByteArray metadataJson = match.captured(1).toUtf8();
-		const QJsonDocument metadata = QJsonDocument::fromJson(metadataJson, &error);
-		if (error.error == QJsonParseError::NoError && metadata.isObject()) {
-			const QJsonObject object = metadata.object();
-			reference.messageID      = static_cast< unsigned int >(object.value(QStringLiteral("message_id")).toInt());
-			reference.actor          = object.value(QStringLiteral("actor")).toString().trimmed();
-			reference.snippet        = object.value(QStringLiteral("snippet")).toString().trimmed();
-		}
+bool persistentChatSourceTextIsSinglePreviewableUrl(const QString &sourceText) {
+	static const QRegularExpression s_singleUrlPattern(QLatin1String("^\\s*https?://[^\\s<>\"']+\\s*$"),
+													   QRegularExpression::CaseInsensitiveOption);
+	return s_singleUrlPattern.match(normalizedPersistentChatText(sourceText)).hasMatch();
+}
 
+QString persistentChatPreviewUrlDisplayHtml(const QString &urlText) {
+	QString displayHtml;
+	displayHtml.reserve(urlText.size() * 2);
+
+	int consecutiveTokenChars         = 0;
+	const auto appendBreakOpportunity = [&displayHtml, &consecutiveTokenChars]() {
+		displayHtml += QLatin1String("<wbr/>");
+		consecutiveTokenChars = 0;
+	};
+
+	for (const QChar character : urlText) {
+		displayHtml += QString(character).toHtmlEscaped();
+		switch (character.unicode()) {
+			case '/':
+			case '?':
+			case '&':
+			case '=':
+			case '#':
+			case '%':
+			case '-':
+			case '_':
+			case '.':
+				appendBreakOpportunity();
+				break;
+			default:
+				++consecutiveTokenChars;
+				if (consecutiveTokenChars >= 14) {
+					appendBreakOpportunity();
+				}
+				break;
+		}
+	}
+
+	return displayHtml;
+}
+
+QString persistentChatPreviewSourceUrlHtml(const QString &sourceText) {
+	const QString normalizedUrl = normalizedPersistentChatText(sourceText).trimmed();
+	if (normalizedUrl.isEmpty()) {
+		return QString();
+	}
+
+	QColor mutedUrlColor = qApp->palette().color(QPalette::Link);
+	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
+		mutedUrlColor = mixColors(tokens->subtext0, tokens->accent, 0.22);
+	}
+	mutedUrlColor.setAlphaF(std::clamp(mutedUrlColor.alphaF() * 0.88f, 0.0f, 1.0f));
+
+	return QString::fromLatin1("<!--mumble-preview-url-->"
+							   "<div style='margin:0; padding:0 0 6px 0; line-height:1.3;'>"
+							   "<a class='mumble-preview-url' href=\"%1\" style=\"font-size:0.82em; color:%3; "
+							   "text-decoration:none;\">%2</a>"
+							   "</div>")
+		.arg(normalizedUrl.toHtmlEscaped(), persistentChatPreviewUrlDisplayHtml(normalizedUrl),
+			 mutedUrlColor.name(QColor::HexArgb));
+}
+
+struct PersistentChatReplyReference {
+	unsigned int messageID = 0;
+	QString actor;
+	QString snippet;
+};
+
+QString persistentChatMessageTextSnippet(const QString &messageHtml, int maxLength = 140) {
+	QString snippet = Qt::mightBeRichText(messageHtml)
+						  ? QTextDocumentFragment::fromHtml(messageHtml).toPlainText().simplified()
+						  : normalizedPersistentChatText(messageHtml).simplified();
+	if (snippet.size() > maxLength) {
+		snippet = snippet.left(std::max(0, maxLength - 1)).trimmed() + QChar(0x2026);
+	}
+	return snippet;
+}
+
+QString buildPersistentChatReplyHtml(const MumbleProto::ChatMessage &replyTarget, const QString &bodyHtml) {
+	QJsonObject metadata;
+	metadata.insert(QStringLiteral("message_id"), static_cast< int >(replyTarget.message_id()));
+	metadata.insert(QStringLiteral("actor"), persistentChatActorLabel(replyTarget));
+	metadata.insert(QStringLiteral("snippet"),
+					persistentChatMessageTextSnippet(persistentChatMessageSourceText(replyTarget)));
+
+	const QString actor = persistentChatActorLabel(replyTarget).toHtmlEscaped();
+	const QString snippet =
+		persistentChatMessageTextSnippet(persistentChatMessageSourceText(replyTarget)).toHtmlEscaped();
+	const QString metadataJson = QString::fromUtf8(QJsonDocument(metadata).toJson(QJsonDocument::Compact));
+	return QString::fromLatin1("<!--mumble-reply:%1--><blockquote "
+							   "data-mumble-reply-quote=\"1\"><strong>%2</strong><br/>%3</blockquote>%4")
+		.arg(metadataJson, actor, snippet, bodyHtml);
+}
+
+std::optional< PersistentChatReplyReference > extractPersistentChatReplyReference(const QString &messageHtml,
+																				  QString *bodyHtml) {
+	static const QRegularExpression s_replyRegex(QLatin1String("^\\s*<!--mumble-reply:([^>]*)-->\\s*(?:<blockquote\\s+"
+															   "data-mumble-reply-quote=\"1\"[^>]*>.*?</blockquote>)?"),
+												 QRegularExpression::CaseInsensitiveOption
+													 | QRegularExpression::DotMatchesEverythingOption);
+	const QRegularExpressionMatch match = s_replyRegex.match(messageHtml);
+	if (!match.hasMatch()) {
 		if (bodyHtml) {
-			*bodyHtml = messageHtml.mid(match.capturedLength(0)).trimmed();
+			*bodyHtml = messageHtml;
 		}
+		return std::nullopt;
+	}
 
-		if (reference.actor.isEmpty() && reference.snippet.isEmpty() && reference.messageID == 0) {
-			return std::nullopt;
+	PersistentChatReplyReference reference;
+	QJsonParseError error;
+	const QByteArray metadataJson = match.captured(1).toUtf8();
+	const QJsonDocument metadata  = QJsonDocument::fromJson(metadataJson, &error);
+	if (error.error == QJsonParseError::NoError && metadata.isObject()) {
+		const QJsonObject object = metadata.object();
+		reference.messageID      = static_cast< unsigned int >(object.value(QStringLiteral("message_id")).toInt());
+		reference.actor          = object.value(QStringLiteral("actor")).toString().trimmed();
+		reference.snippet        = object.value(QStringLiteral("snippet")).toString().trimmed();
+	}
+
+	if (bodyHtml) {
+		*bodyHtml = messageHtml.mid(match.capturedLength(0)).trimmed();
+	}
+
+	if (reference.actor.isEmpty() && reference.snippet.isEmpty() && reference.messageID == 0) {
+		return std::nullopt;
+	}
+
+	return reference;
+}
+
+const MumbleProto::ChatMessage *findPersistentChatMessageByID(const std::vector< MumbleProto::ChatMessage > &messages,
+															  unsigned int messageID) {
+	for (const MumbleProto::ChatMessage &message : messages) {
+		if (message.message_id() == messageID) {
+			return &message;
 		}
+	}
 
+	return nullptr;
+}
+
+const MumbleProto::ChatMessage *findPersistentChatMessage(const std::vector< MumbleProto::ChatMessage > &messages,
+														  unsigned int threadID, unsigned int messageID) {
+	for (const MumbleProto::ChatMessage &message : messages) {
+		if (message.thread_id() == threadID && message.message_id() == messageID) {
+			return &message;
+		}
+	}
+
+	return nullptr;
+}
+
+MumbleProto::ChatMessage *findPersistentChatMessage(std::vector< MumbleProto::ChatMessage > &messages,
+													unsigned int threadID, unsigned int messageID) {
+	for (MumbleProto::ChatMessage &message : messages) {
+		if (message.thread_id() == threadID && message.message_id() == messageID) {
+			return &message;
+		}
+	}
+
+	return nullptr;
+}
+
+std::optional< PersistentChatReplyReference >
+	resolvedPersistentChatReplyReference(const std::vector< MumbleProto::ChatMessage > &messages,
+										 const MumbleProto::ChatMessage &message) {
+	if (!message.has_reply_to_message_id()) {
+		return std::nullopt;
+	}
+
+	if (const MumbleProto::ChatMessage *replyTarget =
+			findPersistentChatMessageByID(messages, message.reply_to_message_id())) {
+		if (!(replyTarget->has_deleted_at() && replyTarget->deleted_at() > 0)) {
+			PersistentChatReplyReference reference;
+			reference.messageID = replyTarget->message_id();
+			reference.actor     = persistentChatActorLabel(*replyTarget);
+			reference.snippet   = persistentChatMessageTextSnippet(persistentChatMessageSourceText(*replyTarget));
+			return reference;
+		}
+	}
+
+	if (message.has_reply_actor_name() || message.has_reply_snippet()) {
+		PersistentChatReplyReference reference;
+		reference.messageID = message.reply_to_message_id();
+		reference.actor     = message.has_reply_actor_name() ? u8(message.reply_actor_name()) : QObject::tr("Reply");
+		reference.snippet   = message.has_reply_snippet() ? u8(message.reply_snippet()) : QString();
 		return reference;
 	}
 
-	const MumbleProto::ChatMessage *findPersistentChatMessageByID(const std::vector< MumbleProto::ChatMessage > &messages,
-																 unsigned int messageID) {
-		for (const MumbleProto::ChatMessage &message : messages) {
-			if (message.message_id() == messageID) {
-				return &message;
-			}
-		}
-
-		return nullptr;
-	}
-
-	const MumbleProto::ChatMessage *findPersistentChatMessage(const std::vector< MumbleProto::ChatMessage > &messages,
-															  unsigned int threadID, unsigned int messageID) {
-		for (const MumbleProto::ChatMessage &message : messages) {
-			if (message.thread_id() == threadID && message.message_id() == messageID) {
-				return &message;
-			}
-		}
-
-		return nullptr;
-	}
-
-	MumbleProto::ChatMessage *findPersistentChatMessage(std::vector< MumbleProto::ChatMessage > &messages,
-														unsigned int threadID, unsigned int messageID) {
-		for (MumbleProto::ChatMessage &message : messages) {
-			if (message.thread_id() == threadID && message.message_id() == messageID) {
-				return &message;
-			}
-		}
-
-		return nullptr;
-	}
-
-	std::optional< PersistentChatReplyReference >
-		resolvedPersistentChatReplyReference(const std::vector< MumbleProto::ChatMessage > &messages,
-											 const MumbleProto::ChatMessage &message) {
-		if (!message.has_reply_to_message_id()) {
-			return std::nullopt;
-		}
-
-		if (const MumbleProto::ChatMessage *replyTarget =
-				findPersistentChatMessageByID(messages, message.reply_to_message_id())) {
-			if (!(replyTarget->has_deleted_at() && replyTarget->deleted_at() > 0)) {
-				PersistentChatReplyReference reference;
-				reference.messageID = replyTarget->message_id();
-				reference.actor     = persistentChatActorLabel(*replyTarget);
-				reference.snippet   =
-					persistentChatMessageTextSnippet(persistentChatMessageSourceText(*replyTarget));
-				return reference;
-			}
-		}
-
-		if (message.has_reply_actor_name() || message.has_reply_snippet()) {
-			PersistentChatReplyReference reference;
-			reference.messageID = message.reply_to_message_id();
-			reference.actor =
-				message.has_reply_actor_name() ? u8(message.reply_actor_name()) : QObject::tr("Reply");
-			reference.snippet = message.has_reply_snippet() ? u8(message.reply_snippet()) : QString();
-			return reference;
-		}
-
-		PersistentChatReplyReference unavailableReference;
-		unavailableReference.messageID = message.reply_to_message_id();
-		unavailableReference.actor     = QObject::tr("Reply");
-		unavailableReference.snippet   = QObject::tr("Original message unavailable");
-		return unavailableReference;
-	}
+	PersistentChatReplyReference unavailableReference;
+	unavailableReference.messageID = message.reply_to_message_id();
+	unavailableReference.actor     = QObject::tr("Reply");
+	unavailableReference.snippet   = QObject::tr("Original message unavailable");
+	return unavailableReference;
+}
 } // namespace
 
 MessageBoxEvent::MessageBoxEvent(QString m) : QEvent(static_cast< QEvent::Type >(MB_QEVENT)) {
@@ -3520,16 +3462,15 @@ MainWindow::MainWindow(QWidget *p)
 	qaUserRemoteSpeechCleanup->setWhatsThis(
 		tr("Enable or disable receive-side speech cleanup for this user on this client only."));
 	connect(qaUserRemoteSpeechCleanup, &QAction::triggered, this, &MainWindow::triggerUserRemoteSpeechCleanup);
-	qaChannelScreenShareStart = new QAction(tr("Start Screen Share"), this);
-	qaChannelScreenShareStop = new QAction(tr("Stop Screen Share"), this);
-	qaChannelScreenShareWatch = new QAction(tr("Watch Screen Share"), this);
+	qaChannelScreenShareStart        = new QAction(tr("Start Screen Share"), this);
+	qaChannelScreenShareStop         = new QAction(tr("Stop Screen Share"), this);
+	qaChannelScreenShareWatch        = new QAction(tr("Watch Screen Share"), this);
 	qaChannelScreenShareStopWatching = new QAction(tr("Stop Watching Screen Share"), this);
-	qaChannelScreenShareOpenWindow = new QAction(tr("Open Screen Share Window"), this);
+	qaChannelScreenShareOpenWindow   = new QAction(tr("Open Screen Share Window"), this);
 	connect(qaChannelScreenShareStart, &QAction::triggered, this, &MainWindow::startChannelScreenShare);
 	connect(qaChannelScreenShareStop, &QAction::triggered, this, &MainWindow::stopChannelScreenShare);
 	connect(qaChannelScreenShareWatch, &QAction::triggered, this, &MainWindow::watchChannelScreenShare);
-	connect(qaChannelScreenShareStopWatching, &QAction::triggered, this,
-			&MainWindow::stopWatchingChannelScreenShare);
+	connect(qaChannelScreenShareStopWatching, &QAction::triggered, this, &MainWindow::stopWatchingChannelScreenShare);
 	connect(qaChannelScreenShareOpenWindow, &QAction::triggered, this, &MainWindow::openChannelScreenShareWindow);
 	setupGui();
 	connect(qmUser, SIGNAL(aboutToShow()), this, SLOT(qmUser_aboutToShow()));
@@ -3599,32 +3540,33 @@ constexpr int MainWindow::stateVersion(const bool modernShell) {
 
 Settings::WindowLayout MainWindow::effectiveWindowLayout() const {
 	const Settings::WindowLayout storedLayout = Global::get().s.wlWindowLayout;
+	const Settings::WindowLayout legacyLayout =
+		storedLayout == Settings::LayoutModern ? Settings::LayoutHybrid : storedLayout;
 #if !defined(MUMBLE_HAS_MODERN_LAYOUT)
-	if (storedLayout == Settings::LayoutModern) {
-		return Settings::LayoutHybrid;
-	}
-	return storedLayout;
+	return legacyLayout;
 #else
 	if (m_modernShellRuntimeDisabled) {
-		if (storedLayout == Settings::LayoutModern) {
-			return Settings::LayoutHybrid;
-		}
-		if (storedLayout == Settings::LayoutHybrid && Global::get().s.bAutoSwitchModernOnCompatibleServers
+		if (legacyLayout == Settings::LayoutHybrid && Global::get().s.bAutoSwitchModernOnCompatibleServers
 			&& m_modernLayoutCompatibleServer) {
 			return Settings::LayoutHybrid;
 		}
+		return legacyLayout;
+	}
+
+	if (Global::get().s.modernLayoutPolicy == Settings::ModernLayoutForced) {
+		return Settings::LayoutModern;
 	}
 
 	if (storedLayout == Settings::LayoutModern) {
 		return Settings::LayoutModern;
 	}
 
-	if (storedLayout == Settings::LayoutHybrid && Global::get().s.bAutoSwitchModernOnCompatibleServers
+	if (legacyLayout == Settings::LayoutHybrid && Global::get().s.bAutoSwitchModernOnCompatibleServers
 		&& m_modernLayoutCompatibleServer) {
 		return Settings::LayoutModern;
 	}
 
-	return storedLayout;
+	return legacyLayout;
 #endif
 }
 
@@ -3633,11 +3575,12 @@ bool MainWindow::usesModernShell() const {
 }
 
 void MainWindow::refreshShellLayout() {
-	appendModernShellConnectTrace(QStringLiteral("refreshShellLayout enter shellInitialized=%1 active=%2 effective=%3 minimal=%4")
-									  .arg(m_shellLayoutInitialized ? 1 : 0)
-									  .arg(static_cast< int >(m_activeShellLayout))
-									  .arg(static_cast< int >(effectiveWindowLayout()))
-									  .arg((modernShellMinimalSnapshotEnabled() && usesModernShell()) ? 1 : 0));
+	appendModernShellConnectTrace(
+		QStringLiteral("refreshShellLayout enter shellInitialized=%1 active=%2 effective=%3 minimal=%4")
+			.arg(m_shellLayoutInitialized ? 1 : 0)
+			.arg(static_cast< int >(m_activeShellLayout))
+			.arg(static_cast< int >(effectiveWindowLayout()))
+			.arg((modernShellMinimalSnapshotEnabled() && usesModernShell()) ? 1 : 0));
 	if (m_shellLayoutInitialized) {
 		const bool currentModernShell = m_activeShellLayout == Settings::LayoutModern;
 		if (Global::get().s.bMinimalView) {
@@ -3662,8 +3605,9 @@ void MainWindow::refreshShellLayout() {
 	applyShellLayout();
 	appendModernShellConnectTrace(QStringLiteral("refreshShellLayout post-apply active=%1 centralWidget=%2")
 									  .arg(static_cast< int >(m_activeShellLayout))
-									  .arg(centralWidget() ? QString::fromLatin1(centralWidget()->metaObject()->className())
-														 : QStringLiteral("null")));
+									  .arg(centralWidget()
+											   ? QString::fromLatin1(centralWidget()->metaObject()->className())
+											   : QStringLiteral("null")));
 	if (m_userPresenceRefreshTimer) {
 		const bool hiddenLegacyUserModelSafeMode = modernShellMinimalSnapshotEnabled() && usesModernShell();
 		if (hiddenLegacyUserModelSafeMode) {
@@ -3671,8 +3615,8 @@ void MainWindow::refreshShellLayout() {
 		} else if (!m_userPresenceRefreshTimer->isActive()) {
 			m_userPresenceRefreshTimer->start();
 		}
-		appendModernShellConnectTrace(
-			QStringLiteral("refreshShellLayout presence-timer active=%1").arg(m_userPresenceRefreshTimer->isActive() ? 1 : 0));
+		appendModernShellConnectTrace(QStringLiteral("refreshShellLayout presence-timer active=%1")
+										  .arg(m_userPresenceRefreshTimer->isActive() ? 1 : 0));
 	}
 	setupView(false);
 	appendModernShellConnectTrace(QStringLiteral("refreshShellLayout post-setupView"));
@@ -3706,7 +3650,7 @@ void MainWindow::applyShellLayout() {
 		activateLegacyShell();
 	}
 
-	m_activeShellLayout = targetLayout;
+	m_activeShellLayout      = targetLayout;
 	m_shellLayoutInitialized = true;
 }
 
@@ -4011,9 +3955,8 @@ void MainWindow::setupGui() {
 		rootFrameFormat.setPadding(0);
 		rootFrame->setFrameFormat(rootFrameFormat);
 	}
-	connect(qteLog, &LogTextBrowser::imageActivated, this, [this](const QTextCursor &cursor) {
-		openImageDialog(qteLog, cursor);
-	});
+	connect(qteLog, &LogTextBrowser::imageActivated, this,
+			[this](const QTextCursor &cursor) { openImageDialog(qteLog, cursor); });
 
 	qteLog->document()->setMaximumBlockCount(Global::get().s.iMaxLogBlocks);
 	connect(qteLog->document(), &QTextDocument::contentsChanged, this, [this]() {
@@ -4376,7 +4319,7 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorFooterAvatar->setAlignment(Qt::AlignCenter);
 	m_serverNavigatorFooterAvatar->setFixedSize(22, 22);
 
-	QWidget *footerInfo = new QWidget(m_serverNavigatorFooterPresenceButton);
+	QWidget *footerInfo           = new QWidget(m_serverNavigatorFooterPresenceButton);
 	QVBoxLayout *footerInfoLayout = new QVBoxLayout(footerInfo);
 	footerInfoLayout->setContentsMargins(0, 0, 0, 0);
 	footerInfoLayout->setSpacing(0);
@@ -4417,9 +4360,8 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorFooterFrame->hide();
 	contentLayout->addWidget(m_serverNavigatorFooterFrame);
 
-	connect(m_serverNavigatorFooterPresenceButton, &QPushButton::clicked, this, [this]() {
-		toggleServerNavigatorUserMenu();
-	});
+	connect(m_serverNavigatorFooterPresenceButton, &QPushButton::clicked, this,
+			[this]() { toggleServerNavigatorUserMenu(); });
 	connect(m_serverNavigatorTextChannelsMotdToggleButton, &QToolButton::clicked, this, [this]() {
 		m_persistentChatMotdExpanded = !m_persistentChatMotdExpanded;
 		refreshServerNavigatorSectionHeights();
@@ -4451,12 +4393,10 @@ void MainWindow::setupServerNavigator() {
 					scheduleVoiceTreeHeightRefresh();
 				});
 	}
-	connect(qtvUsers, &QTreeView::expanded, this, [scheduleVoiceTreeHeightRefresh](const QModelIndex &) {
-		scheduleVoiceTreeHeightRefresh();
-	});
-	connect(qtvUsers, &QTreeView::collapsed, this, [scheduleVoiceTreeHeightRefresh](const QModelIndex &) {
-		scheduleVoiceTreeHeightRefresh();
-	});
+	connect(qtvUsers, &QTreeView::expanded, this,
+			[scheduleVoiceTreeHeightRefresh](const QModelIndex &) { scheduleVoiceTreeHeightRefresh(); });
+	connect(qtvUsers, &QTreeView::collapsed, this,
+			[scheduleVoiceTreeHeightRefresh](const QModelIndex &) { scheduleVoiceTreeHeightRefresh(); });
 	connect(qtvUsers, &QTreeView::collapsed, this, [this](const QModelIndex &index) {
 		if (!pmModel) {
 			return;
@@ -4498,7 +4438,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatContainer = new QWidget(qdwChat);
 	m_persistentChatContainer->setObjectName(QLatin1String("qwPersistentChat"));
 	m_persistentChatContainer->setAttribute(Qt::WA_StyledBackground, true);
-	QVBoxLayout *layout       = new QVBoxLayout(m_persistentChatContainer);
+	QVBoxLayout *layout = new QVBoxLayout(m_persistentChatContainer);
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->setSpacing(2);
 
@@ -4539,9 +4479,7 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHeaderContext->setAlignment(Qt::AlignCenter);
 	m_persistentChatHeaderContext->hide();
 
-	m_persistentChatHeaderSubtitle =
-		new QLabel(tr("Catch up, then reply."),
-				   m_persistentChatHeaderFrame);
+	m_persistentChatHeaderSubtitle = new QLabel(tr("Catch up, then reply."), m_persistentChatHeaderFrame);
 	m_persistentChatHeaderSubtitle->setObjectName(QLatin1String("qlPersistentChatHeaderSubtitle"));
 	m_persistentChatHeaderSubtitle->setTextFormat(Qt::PlainText);
 	m_persistentChatHeaderSubtitle->setWordWrap(true);
@@ -4571,10 +4509,10 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatHistory->setResizeMode(QListView::Adjust);
 	m_persistentChatHistory->setSpacing(0);
 	m_persistentChatHistory->setContextMenuPolicy(Qt::CustomContextMenu);
-	m_persistentChatGateway = new PersistentChatGateway(this);
+	m_persistentChatGateway    = new PersistentChatGateway(this);
 	m_persistentChatController = new PersistentChatController(this);
 	m_persistentChatController->setGateway(m_persistentChatGateway);
-	m_persistentChatHistoryModel = new PersistentChatHistoryModel(this);
+	m_persistentChatHistoryModel    = new PersistentChatHistoryModel(this);
 	m_persistentChatHistoryDelegate = new PersistentChatHistoryDelegate(this);
 	m_persistentChatHistory->setModel(m_persistentChatHistoryModel);
 	m_persistentChatHistory->setItemDelegate(m_persistentChatHistoryDelegate);
@@ -4658,9 +4596,9 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatAttachButton->setObjectName(QLatin1String("qtbPersistentChatAttach"));
 	m_persistentChatAttachButton->setAutoRaise(true);
 	m_persistentChatAttachButton->setToolTip(tr("Attach image"));
-	m_persistentChatAttachButton->setIcon(persistentChatComposerGlyphIcon(
-		PersistentChatComposerGlyph::Attach, composerIconSize, composerIconColor, composerIconHoverColor,
-		composerIconDisabledColor));
+	m_persistentChatAttachButton->setIcon(
+		persistentChatComposerGlyphIcon(PersistentChatComposerGlyph::Attach, composerIconSize, composerIconColor,
+										composerIconHoverColor, composerIconDisabledColor));
 	m_persistentChatAttachButton->setIconSize(composerIconSize);
 	m_persistentChatAttachButton->setFixedSize(22, 22);
 	m_persistentChatAttachButton->setCursor(Qt::PointingHandCursor);
@@ -4671,9 +4609,9 @@ void MainWindow::setupPersistentChatDock() {
 	m_persistentChatSendButton->setObjectName(QLatin1String("qtbPersistentChatSend"));
 	m_persistentChatSendButton->setAutoRaise(true);
 	m_persistentChatSendButton->setToolTip(tr("Send message"));
-	m_persistentChatSendButton->setIcon(persistentChatComposerGlyphIcon(
-		PersistentChatComposerGlyph::Send, composerIconSize, composerIconColor, composerIconHoverColor,
-		composerIconDisabledColor));
+	m_persistentChatSendButton->setIcon(
+		persistentChatComposerGlyphIcon(PersistentChatComposerGlyph::Send, composerIconSize, composerIconColor,
+										composerIconHoverColor, composerIconDisabledColor));
 	m_persistentChatSendButton->setIconSize(composerIconSize);
 	m_persistentChatSendButton->setFixedSize(22, 22);
 	m_persistentChatSendButton->setCursor(Qt::PointingHandCursor);
@@ -4754,7 +4692,7 @@ void MainWindow::setupPersistentChatDock() {
 	};
 
 	auto activatePersistentChatChannelItem = [this, schedulePersistentChatScopeRefresh](QListWidgetItem *item,
-																						  bool forceReload) {
+																						bool forceReload) {
 		if (!item || !m_persistentChatChannelList) {
 			return;
 		}
@@ -4769,7 +4707,8 @@ void MainWindow::setupPersistentChatDock() {
 
 	connect(m_persistentChatChannelList, &QListWidget::currentItemChanged, this,
 			[this](QListWidgetItem *current, QListWidgetItem *) { cachePersistentChatChannelSelection(current); });
-	connect(m_persistentChatChannelList, SIGNAL(currentRowChanged(int)), this, SLOT(on_persistentChatScopeChanged(int)));
+	connect(m_persistentChatChannelList, SIGNAL(currentRowChanged(int)), this,
+			SLOT(on_persistentChatScopeChanged(int)));
 	connect(m_persistentChatChannelList, &QListWidget::itemSelectionChanged, this, [this]() {
 		if (!m_persistentChatChannelList) {
 			return;
@@ -4791,11 +4730,10 @@ void MainWindow::setupPersistentChatDock() {
 				}
 
 				setPersistentChatTargetUsesVoiceTree(false);
-				const int clickedScopeValue = item->data(PersistentChatScopeRole).toInt();
+				const int clickedScopeValue       = item->data(PersistentChatScopeRole).toInt();
 				const unsigned int clickedScopeID = item->data(PersistentChatScopeIDRole).toUInt();
 				const bool clickedVisibleScope =
-					m_visiblePersistentChatScope
-					&& clickedScopeValue != LocalServerLogScope
+					m_visiblePersistentChatScope && clickedScopeValue != LocalServerLogScope
 					&& static_cast< int >(*m_visiblePersistentChatScope) == clickedScopeValue
 					&& m_visiblePersistentChatScopeID == clickedScopeID;
 				activatePersistentChatChannelItem(item, clickedVisibleScope);
@@ -4814,13 +4752,12 @@ void MainWindow::setupPersistentChatDock() {
 			m_persistentChatLogStickToBottom = m_persistentChatLogView->isScrolledToBottom();
 		}
 	});
-	connect(m_persistentChatLogView->verticalScrollBar(), &QScrollBar::rangeChanged, this,
-			[this](int, int maximum) {
-				if (m_persistentChatLogStickToBottom && m_persistentChatLogPanel && m_persistentChatLogPanel->isVisible()
-					&& m_persistentChatLogView) {
-					m_persistentChatLogView->verticalScrollBar()->setValue(maximum);
-				}
-			});
+	connect(m_persistentChatLogView->verticalScrollBar(), &QScrollBar::rangeChanged, this, [this](int, int maximum) {
+		if (m_persistentChatLogStickToBottom && m_persistentChatLogPanel && m_persistentChatLogPanel->isVisible()
+			&& m_persistentChatLogView) {
+			m_persistentChatLogView->verticalScrollBar()->setValue(maximum);
+		}
+	});
 	connect(m_persistentChatReplyCancelButton, &QToolButton::clicked, this,
 			[this]() { setPersistentChatReplyTarget(std::nullopt); });
 	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::loadOlderRequested, this,
@@ -4829,12 +4766,14 @@ void MainWindow::setupPersistentChatDock() {
 			[this](const QString &previewKey) { ensurePersistentChatPreview(previewKey); });
 	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::replyRequested, this,
 			[this](unsigned int messageID) {
-				if (const MumbleProto::ChatMessage *message = findPersistentChatMessageByID(m_persistentChatMessages, messageID)) {
+				if (const MumbleProto::ChatMessage *message =
+						findPersistentChatMessageByID(m_persistentChatMessages, messageID)) {
 					setPersistentChatReplyTarget(*message);
 				}
 			});
-	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::scopeJumpRequested, this,
-			[this](MumbleProto::ChatScope scope, unsigned int scopeID) { navigateToPersistentChatScope(scope, scopeID); });
+	connect(
+		m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::scopeJumpRequested, this,
+		[this](MumbleProto::ChatScope scope, unsigned int scopeID) { navigateToPersistentChatScope(scope, scopeID); });
 	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::logContextMenuRequested, this,
 			[this](LogTextBrowser *browser, const QPoint &position) { showLogContextMenu(browser, position); });
 	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::logImageActivated, this,
@@ -4845,9 +4784,10 @@ void MainWindow::setupPersistentChatDock() {
 			QOverload< const QUrl & >::of(&MainWindow::on_qteLog_highlighted));
 	connect(m_persistentChatController, &PersistentChatController::activeSnapshotChanged, this, [this]() {
 		const std::optional< MumbleProto::ChatScope > previousScope = m_visiblePersistentChatScope;
-		const unsigned int previousScopeID                         = m_visiblePersistentChatScopeID;
-		const PersistentChatScopeStateSnapshot snapshot =
-			m_persistentChatController ? m_persistentChatController->activeSnapshot() : PersistentChatScopeStateSnapshot();
+		const unsigned int previousScopeID                          = m_visiblePersistentChatScopeID;
+		const PersistentChatScopeStateSnapshot snapshot             = m_persistentChatController
+															  ? m_persistentChatController->activeSnapshot()
+															  : PersistentChatScopeStateSnapshot();
 		const bool switchingScope =
 			previousScope.has_value() != snapshot.key.valid
 			|| (previousScope.has_value()
@@ -4865,8 +4805,7 @@ void MainWindow::setupPersistentChatDock() {
 		m_visiblePersistentChatOldestMessageID   = snapshot.oldestLoadedMessageId;
 		m_visiblePersistentChatHasMore           = snapshot.hasOlder;
 		m_persistentChatLoadingOlder             = snapshot.loadingState == PersistentChatLoadingState::Older;
-		const bool preserveScrollPosition =
-			m_persistentChatRestoreAnchorPending || (!switchingScope && !wasAtBottom);
+		const bool preserveScrollPosition = m_persistentChatRestoreAnchorPending || (!switchingScope && !wasAtBottom);
 		const bool scrollToBottom =
 			switchingScope || wasAtBottom || snapshot.loadingState == PersistentChatLoadingState::Initial;
 		renderPersistentChatView(QString(), scrollToBottom, preserveScrollPosition);
@@ -4948,12 +4887,11 @@ void MainWindow::setupPersistentChatDock() {
 		m_pendingPersistentChatViewportWidth = width;
 		m_persistentChatResizeRenderTimer->start();
 	});
-	connect(m_persistentChatHistory->verticalScrollBar(), &QScrollBar::valueChanged, this,
-			[this](int) {
-				if (m_persistentChatScrollIdleTimer) {
-					m_persistentChatScrollIdleTimer->start();
-				}
-			});
+	connect(m_persistentChatHistory->verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int) {
+		if (m_persistentChatScrollIdleTimer) {
+			m_persistentChatScrollIdleTimer->start();
+		}
+	});
 	connect(m_persistentChatScrollIdleTimer, &QTimer::timeout, this, [this]() {
 		if (!m_persistentChatPreviewRefreshPending || !m_persistentChatHistory) {
 			markPersistentChatRead(false);
@@ -4961,7 +4899,7 @@ void MainWindow::setupPersistentChatDock() {
 		}
 
 		m_persistentChatPreviewRefreshPending = false;
-		const bool wasAtBottom = m_persistentChatHistory->isScrolledToBottom();
+		const bool wasAtBottom                = m_persistentChatHistory->isScrolledToBottom();
 		renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
 		markPersistentChatRead(false);
 	});
@@ -5043,7 +4981,8 @@ void MainWindow::activateModernShell() {
 				[this]() { on_qaServerConnect_triggered(false); });
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::disconnectRequested, this,
 				&MainWindow::on_qaServerDisconnect_triggered);
-		connect(m_modernShellHost->bridge(), &ModernShellBridge::settingsRequested, this, &MainWindow::openConfigDialog);
+		connect(m_modernShellHost->bridge(), &ModernShellBridge::settingsRequested, this,
+				&MainWindow::openConfigDialog);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::clipboardImageAttachmentRequested, this,
 				[this]() { attachPersistentChatClipboardImage(); });
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::imagePickerRequested, this,
@@ -5135,7 +5074,8 @@ void MainWindow::activateModernShell() {
 			currentChatWidget->setParent(nullptr);
 		}
 		if (m_persistentChatComposerInputRow) {
-			if (QHBoxLayout *composerInputLayout = qobject_cast< QHBoxLayout * >(m_persistentChatComposerInputRow->layout())) {
+			if (QHBoxLayout *composerInputLayout =
+					qobject_cast< QHBoxLayout * >(m_persistentChatComposerInputRow->layout())) {
 				if (composerInputLayout->indexOf(qteChat) < 0) {
 					composerInputLayout->addWidget(qteChat, 1);
 				}
@@ -5291,9 +5231,8 @@ void MainWindow::queueModernShellSnapshotSync() {
 	}
 
 	if (m_modernShellSyncTimer->isActive()) {
-		appendModernShellConnectTrace(
-			QStringLiteral("queueModernShellSnapshotSync coalesced remaining=%1")
-				.arg(m_modernShellSyncTimer->remainingTime()));
+		appendModernShellConnectTrace(QStringLiteral("queueModernShellSnapshotSync coalesced remaining=%1")
+										  .arg(m_modernShellSyncTimer->remainingTime()));
 		return;
 	}
 
@@ -5313,10 +5252,10 @@ void MainWindow::syncModernShellSnapshot() {
 	}
 
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot enter"));
-	const QVariantMap snapshot = buildModernShellSnapshot();
-	const QVariantList textRooms = snapshot.value(QStringLiteral("textRooms")).toList();
+	const QVariantMap snapshot    = buildModernShellSnapshot();
+	const QVariantList textRooms  = snapshot.value(QStringLiteral("textRooms")).toList();
 	const QVariantList voiceRooms = snapshot.value(QStringLiteral("voiceRooms")).toList();
-	const QVariantList messages = snapshot.value(QStringLiteral("messages")).toList();
+	const QVariantList messages   = snapshot.value(QStringLiteral("messages")).toList();
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot built text=%1 voice=%2 messages=%3")
 									  .arg(textRooms.size())
 									  .arg(voiceRooms.size())
@@ -5338,8 +5277,8 @@ QVariantList MainWindow::serializeModernShellMenu(QMenu *menu, const ModernShell
 		registry);
 }
 
-ModernShellMenuSerializer::ActionDefinition MainWindow::modernShellActionDefinition(
-	const ModernShellMenuContext context, QAction *action) const {
+ModernShellMenuSerializer::ActionDefinition
+	MainWindow::modernShellActionDefinition(const ModernShellMenuContext context, QAction *action) const {
 	ModernShellMenuSerializer::ActionDefinition definition;
 	if (!action || action->menu()) {
 		return definition;
@@ -5559,8 +5498,8 @@ ModernShellMenuSerializer::ActionDefinition MainWindow::modernShellActionDefinit
 }
 
 bool MainWindow::triggerModernShellSerializedAction(const ModernShellMenuSerializer::ActionRegistry &registry,
-													 const QString &actionId, ClientUser *contextUser,
-													 Channel *contextChannel) {
+													const QString &actionId, ClientUser *contextUser,
+													Channel *contextChannel) {
 	const QString normalizedActionID = actionId.trimmed();
 	if (normalizedActionID.isEmpty()) {
 		return false;
@@ -5596,10 +5535,10 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 
 	const Settings::WindowLayout storedLayout    = Global::get().s.wlWindowLayout;
 	const Settings::WindowLayout effectiveLayout = effectiveWindowLayout();
-	const bool connected =
-		Global::get().uiSession != 0 && Global::get().sh && Global::get().sh->isRunning();
+	const bool forcedModernLayout                = Global::get().s.modernLayoutPolicy == Settings::ModernLayoutForced;
+	const bool connected = Global::get().uiSession != 0 && Global::get().sh && Global::get().sh->isRunning();
 	const bool autoSwitchedModern =
-		effectiveLayout == Settings::LayoutModern && storedLayout != Settings::LayoutModern
+		!forcedModernLayout && effectiveLayout == Settings::LayoutModern && storedLayout != Settings::LayoutModern
 		&& Global::get().s.bAutoSwitchModernOnCompatibleServers && m_modernLayoutCompatibleServer;
 
 	QString host;
@@ -5610,48 +5549,49 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		Global::get().sh->getConnectionInfo(host, port, username, password);
 	}
 
-	const QString serverLabel = host.trimmed().isEmpty()
-								 ? tr("Mumble")
+	const QString serverLabel =
+		host.trimmed().isEmpty() ? tr("Mumble")
 								 : (port == 0 || port == DEFAULT_MUMBLE_PORT ? host : tr("%1:%2").arg(host).arg(port));
-	const Channel *joinedVoiceChannel = currentVoiceChannel();
-	const Channel *selfVoiceChannel   = currentVoiceChannel();
-	const ClientUser *selfUser        = ClientUser::get(Global::get().uiSession);
+	const Channel *joinedVoiceChannel   = currentVoiceChannel();
+	const Channel *selfVoiceChannel     = currentVoiceChannel();
+	const ClientUser *selfUser          = ClientUser::get(Global::get().uiSession);
 	const bool canUsePersistedReactions = selfUser && selfUser->iId >= 0;
 	appState.insert(QStringLiteral("serverEyebrow"), connected ? tr("Connected server") : tr("Mumble"));
 	appState.insert(QStringLiteral("serverTitle"), connected ? serverLabel : tr("Modern Layout"));
 	appState.insert(QStringLiteral("serverSubtitle"),
-					connected
-						? (username.trimmed().isEmpty()
-							   ? tr("Room-first shell with persistent chat history")
-							   : tr("Room-first shell with persistent chat history as %1").arg(username))
-						: tr("Connect to a server to populate rooms, activity, and history."));
+					connected ? (username.trimmed().isEmpty()
+									 ? tr("Room-first shell with persistent chat history")
+									 : tr("Room-first shell with persistent chat history as %1").arg(username))
+							  : tr("Connect to a server to populate rooms, activity, and history."));
 	appState.insert(QStringLiteral("motdHtml"), persistentChatContentHtml(m_persistentChatWelcomeText));
 	appState.insert(QStringLiteral("motdSummary"), persistentChatPlainTextSummary(m_persistentChatWelcomeText));
 	appState.insert(QStringLiteral("layoutLabel"), autoSwitchedModern ? tr("Modern (auto)") : tr("Modern"));
 	appState.insert(QStringLiteral("layoutTone"), QStringLiteral("accent"));
-	appState.insert(QStringLiteral("layoutSwitchLabel"), tr("Switch to classic layout"));
+	appState.insert(QStringLiteral("layoutSwitchLabel"), forcedModernLayout
+															 ? tr("Modern layout is required by this build")
+															 : tr("Switch to classic layout"));
 	appState.insert(QStringLiteral("layoutSwitchTargetLabel"), tr("Classic"));
-	appState.insert(QStringLiteral("canToggleLayout"), true);
+	appState.insert(QStringLiteral("canToggleLayout"), !forcedModernLayout);
 	appState.insert(QStringLiteral("connectionLabel"), connected ? tr("Connected") : tr("Disconnected"));
 	appState.insert(QStringLiteral("connectionTone"), connected ? QStringLiteral("success") : QStringLiteral("danger"));
 	appState.insert(QStringLiteral("compatibilityLabel"),
-					!connected ? tr("Waiting for server config")
-							   : (m_modernLayoutCompatibleServer ? tr("Fork features detected")
-																 : tr("Standard server")));
+					!connected
+						? tr("Waiting for server config")
+						: (m_modernLayoutCompatibleServer ? tr("Fork features detected") : tr("Standard server")));
 	appState.insert(QStringLiteral("compatibilityTone"),
-					!connected ? QStringLiteral("warning")
-							   : (m_modernLayoutCompatibleServer ? QStringLiteral("accent")
-																 : QStringLiteral("warning")));
+					!connected
+						? QStringLiteral("warning")
+						: (m_modernLayoutCompatibleServer ? QStringLiteral("accent") : QStringLiteral("warning")));
 	appState.insert(QStringLiteral("canConnect"), !connected);
 	appState.insert(QStringLiteral("canDisconnect"), connected);
 	appState.insert(QStringLiteral("selfMuted"), Global::get().s.bMute);
 	appState.insert(QStringLiteral("selfDeafened"), Global::get().s.bDeaf);
 	appState.insert(QStringLiteral("selfName"),
 					selfUser ? selfUser->qsName : (!username.trimmed().isEmpty() ? username : tr("You")));
-	appState.insert(QStringLiteral("selfStatusLabel"),
-					!connected ? tr("Offline")
-							   : (Global::get().s.bDeaf ? tr("Deafened")
-														: (Global::get().s.bMute ? tr("Muted") : tr("Online"))));
+	appState.insert(
+		QStringLiteral("selfStatusLabel"),
+		!connected ? tr("Offline")
+				   : (Global::get().s.bDeaf ? tr("Deafened") : (Global::get().s.bMute ? tr("Muted") : tr("Online"))));
 	appState.insert(QStringLiteral("selfStatusTone"),
 					!connected ? QStringLiteral("muted")
 							   : (Global::get().s.bDeaf ? QStringLiteral("danger")
@@ -5690,8 +5630,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 
 		QVariantList menuItems = menuEntry.value(QStringLiteral("items")).toList();
 		menuItems.push_back(ModernShellMenuSerializer::separatorItem());
-		menuItems.push_back(ModernShellMenuSerializer::actionItem(
-			QStringLiteral("configure.screenShare"), tr("Screen sharing settings"), true, false));
+		menuItems.push_back(ModernShellMenuSerializer::actionItem(QStringLiteral("configure.screenShare"),
+																  tr("Screen sharing settings"), true, false));
 		menuEntry.insert(QStringLiteral("items"), ModernShellMenuSerializer::normalize(menuItems));
 		menuEntryVariant = menuEntry;
 	}
@@ -5699,63 +5639,60 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 
 	const bool selfIdle = connected && selfUser && isUserIdle(selfUser->uiSession);
 	const ServerNavigatorPresenceState selfPresenceState =
-		!connected ? ServerNavigatorPresenceState::Online
-				   : (Global::get().s.bDeaf ? ServerNavigatorPresenceState::Deafened
-											: (Global::get().s.bMute ? ServerNavigatorPresenceState::Muted
-																	 : (selfIdle ? ServerNavigatorPresenceState::Away
-																				 : ServerNavigatorPresenceState::Online)));
+		!connected
+			? ServerNavigatorPresenceState::Online
+			: (Global::get().s.bDeaf ? ServerNavigatorPresenceState::Deafened
+									 : (Global::get().s.bMute ? ServerNavigatorPresenceState::Muted
+															  : (selfIdle ? ServerNavigatorPresenceState::Away
+																		  : ServerNavigatorPresenceState::Online)));
 	QVariantMap selfMenu;
 	selfMenu.insert(QStringLiteral("name"), appState.value(QStringLiteral("selfName")));
 	selfMenu.insert(QStringLiteral("statusLabel"), appState.value(QStringLiteral("selfStatusLabel")));
 	selfMenu.insert(QStringLiteral("statusTone"), appState.value(QStringLiteral("selfStatusTone")));
 	QVariantList selfPresenceItems;
-	const auto appendSelfPresenceItem =
-		[&selfPresenceItems, connected, selfPresenceState](const QString &id, ServerNavigatorPresenceState state,
-														   const QString &tone, const QString &hint = QString(),
-														   bool enabled = true) {
-			QVariantMap item;
-			item.insert(QStringLiteral("kind"), QStringLiteral("action"));
-			item.insert(QStringLiteral("id"), id);
-			item.insert(QStringLiteral("label"), serverNavigatorPresenceStateLabel(state));
-			item.insert(QStringLiteral("enabled"), connected && enabled);
-			item.insert(QStringLiteral("checked"), connected && selfPresenceState == state);
-			if (!tone.isEmpty()) {
-				item.insert(QStringLiteral("tone"), tone);
-			}
-			if (!hint.isEmpty()) {
-				item.insert(QStringLiteral("hint"), hint);
-			}
-			selfPresenceItems.push_back(item);
-		};
+	const auto appendSelfPresenceItem = [&selfPresenceItems, connected, selfPresenceState](
+											const QString &id, ServerNavigatorPresenceState state, const QString &tone,
+											const QString &hint = QString(), bool enabled = true) {
+		QVariantMap item;
+		item.insert(QStringLiteral("kind"), QStringLiteral("action"));
+		item.insert(QStringLiteral("id"), id);
+		item.insert(QStringLiteral("label"), serverNavigatorPresenceStateLabel(state));
+		item.insert(QStringLiteral("enabled"), connected && enabled);
+		item.insert(QStringLiteral("checked"), connected && selfPresenceState == state);
+		if (!tone.isEmpty()) {
+			item.insert(QStringLiteral("tone"), tone);
+		}
+		if (!hint.isEmpty()) {
+			item.insert(QStringLiteral("hint"), hint);
+		}
+		selfPresenceItems.push_back(item);
+	};
 	appendSelfPresenceItem(QStringLiteral("self.presence.online"), ServerNavigatorPresenceState::Online,
-						  QStringLiteral("success"));
+						   QStringLiteral("success"));
 	appendSelfPresenceItem(QStringLiteral("self.presence.away"), ServerNavigatorPresenceState::Away,
-						  QStringLiteral("warning"), tr("Away is shown automatically when you are idle."), false);
+						   QStringLiteral("warning"), tr("Away is shown automatically when you are idle."), false);
 	appendSelfPresenceItem(QStringLiteral("self.presence.muted"), ServerNavigatorPresenceState::Muted,
-						  QStringLiteral("warning"));
+						   QStringLiteral("warning"));
 	appendSelfPresenceItem(QStringLiteral("self.presence.deafened"), ServerNavigatorPresenceState::Deafened,
-						  QStringLiteral("danger"));
+						   QStringLiteral("danger"));
 	selfMenu.insert(QStringLiteral("presence"), selfPresenceItems);
 
 	QVariantList selfMenuActions;
-	selfMenuActions.push_back(
-		ModernShellMenuSerializer::actionItem(QStringLiteral("self.toggleMute"), tr("Self mute"), qaAudioMute->isEnabled(),
-											  qaAudioMute->isCheckable() && qaAudioMute->isChecked()));
-	selfMenuActions.push_back(
-		ModernShellMenuSerializer::actionItem(QStringLiteral("self.toggleDeaf"), tr("Self deafen"),
-											  qaAudioDeaf->isEnabled(),
-											  qaAudioDeaf->isCheckable() && qaAudioDeaf->isChecked()));
+	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+		QStringLiteral("self.toggleMute"), tr("Self mute"), qaAudioMute->isEnabled(),
+		qaAudioMute->isCheckable() && qaAudioMute->isChecked()));
+	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+		QStringLiteral("self.toggleDeaf"), tr("Self deafen"), qaAudioDeaf->isEnabled(),
+		qaAudioDeaf->isCheckable() && qaAudioDeaf->isChecked()));
 	selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
-	selfMenuActions.push_back(
-		ModernShellMenuSerializer::actionItem(QStringLiteral("configure.settings"), tr("Settings"),
-											  qaConfigDialog->isEnabled(), false));
-	selfMenuActions.push_back(
-		ModernShellMenuSerializer::actionItem(QStringLiteral("configure.screenShare"), tr("Screen sharing settings"),
-											  qaConfigDialog->isEnabled(), false));
+	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+		QStringLiteral("configure.settings"), tr("Settings"), qaConfigDialog->isEnabled(), false));
+	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+		QStringLiteral("configure.screenShare"), tr("Screen sharing settings"), qaConfigDialog->isEnabled(), false));
 	selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
-	selfMenuActions.push_back(
-		ModernShellMenuSerializer::actionItem(QStringLiteral("server.disconnect"), tr("Disconnect"),
-											  qaServerDisconnect->isEnabled(), false, QStringLiteral("danger")));
+	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(QStringLiteral("server.disconnect"),
+																	tr("Disconnect"), qaServerDisconnect->isEnabled(),
+																	false, QStringLiteral("danger")));
 	selfMenu.insert(QStringLiteral("actions"), selfMenuActions);
 	appState.insert(QStringLiteral("selfMenu"), selfMenu);
 	snapshot.insert(QStringLiteral("app"), appState);
@@ -5773,8 +5710,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 							   ? tr("Detailed room and history sync is temporarily disabled for this shared-shell run.")
 							   : QString());
 		activeScope.insert(QStringLiteral("scopeToken"),
-						   connected ? QStringLiteral("minimal:connected")
-									 : QStringLiteral("minimal:disconnected"));
+						   connected ? QStringLiteral("minimal:connected") : QStringLiteral("minimal:disconnected"));
 		activeScope.insert(QStringLiteral("meta"), QVariantList());
 		activeScope.insert(QStringLiteral("canSend"), false);
 		activeScope.insert(QStringLiteral("canLoadOlder"), false);
@@ -5806,12 +5742,12 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			return actions;
 		}
 
-		const QPointer< ClientUser > previousUser   = cuContextUser;
-		const QPointer< Channel > previousChannel   = cContextChannel;
-		const QPoint previousContextPosition        = qpContextPosition;
+		const QPointer< ClientUser > previousUser = cuContextUser;
+		const QPointer< Channel > previousChannel = cContextChannel;
+		const QPoint previousContextPosition      = qpContextPosition;
 
-		cuContextUser   = user;
-		cContextChannel = user->cChannel;
+		cuContextUser     = user;
+		cContextChannel   = user->cChannel;
 		qpContextPosition = QPoint();
 		qmUser_aboutToShow();
 		actions = serializeModernShellMenu(qmUser, ModernShellMenuContext::Participant);
@@ -5841,9 +5777,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			QVariantList filteredActions;
 			for (const QVariant &actionVariant : actions) {
 				const QVariantMap action = actionVariant.toMap();
-				const QString actionID = action.value(QStringLiteral("id")).toString();
-				if (actionID == QLatin1String("screenShareStart")
-					|| actionID == QLatin1String("screenShareStop")
+				const QString actionID   = action.value(QStringLiteral("id")).toString();
+				if (actionID == QLatin1String("screenShareStart") || actionID == QLatin1String("screenShareStop")
 					|| actionID == QLatin1String("screenShareWatch")
 					|| actionID == QLatin1String("screenShareStopWatching")
 					|| actionID == QLatin1String("screenShareOpenWindow")) {
@@ -5919,44 +5854,42 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			return lhs->uiSession < rhs->uiSession;
 		});
 	};
-	const auto buildParticipantState =
-		[this, connected, selfUser, selfVoiceChannel, &buildParticipantActions](
-			const ClientUser *user, const Channel *contextChannel, const ClientUser *directMessagePeer, int avatarSize) {
-			QVariantMap participant;
-			if (!user) {
-				return participant;
-			}
-
-			PersistentChatTarget participantTarget;
-			participantTarget.valid         = true;
-			participantTarget.directMessage = true;
-			participantTarget.user          = const_cast< ClientUser * >(user);
-			participantTarget.channel       = user->cChannel;
-
-			participant.insert(QStringLiteral("entryKind"), QStringLiteral("user"));
-			participant.insert(QStringLiteral("participantKey"),
-							   QStringLiteral("user:%1").arg(static_cast< qulonglong >(user->uiSession)));
-			participant.insert(QStringLiteral("session"), static_cast< qulonglong >(user->uiSession));
-			participant.insert(QStringLiteral("label"), user->qsName);
-			participant.insert(QStringLiteral("subtitle"),
-							   modernShellParticipantSubtitle(user, contextChannel, selfUser, directMessagePeer));
-			participant.insert(QStringLiteral("isSelf"), user == selfUser);
-			participant.insert(QStringLiteral("avatarUrl"), modernShellAvatarDataUrl(user, avatarSize));
-			participant.insert(QStringLiteral("badges"), modernShellParticipantBadges(user, selfUser));
-			participant.insert(QStringLiteral("statuses"), modernShellParticipantStatuses(user));
-			participant.insert(
-				QStringLiteral("canMessage"),
-				connected && user != selfUser && canSendToPersistentChatTarget(participantTarget, false));
-			participant.insert(QStringLiteral("canJoin"),
-							   connected && user != selfUser && selfVoiceChannel && user->cChannel
-								   && selfVoiceChannel->iId != user->cChannel->iId);
-			participant.insert(QStringLiteral("actions"),
-							   connected ? buildParticipantActions(const_cast< ClientUser * >(user)) : QVariantList());
+	const auto buildParticipantState = [this, connected, selfUser, selfVoiceChannel,
+										&buildParticipantActions](const ClientUser *user, const Channel *contextChannel,
+																  const ClientUser *directMessagePeer, int avatarSize) {
+		QVariantMap participant;
+		if (!user) {
 			return participant;
-		};
-	const auto buildListenerState = [this, connected, selfUser, &buildListenerActions](const ClientUser *user,
-																					   const Channel *channel,
-																					   int avatarSize) {
+		}
+
+		PersistentChatTarget participantTarget;
+		participantTarget.valid         = true;
+		participantTarget.directMessage = true;
+		participantTarget.user          = const_cast< ClientUser * >(user);
+		participantTarget.channel       = user->cChannel;
+
+		participant.insert(QStringLiteral("entryKind"), QStringLiteral("user"));
+		participant.insert(QStringLiteral("participantKey"),
+						   QStringLiteral("user:%1").arg(static_cast< qulonglong >(user->uiSession)));
+		participant.insert(QStringLiteral("session"), static_cast< qulonglong >(user->uiSession));
+		participant.insert(QStringLiteral("label"), user->qsName);
+		participant.insert(QStringLiteral("subtitle"),
+						   modernShellParticipantSubtitle(user, contextChannel, selfUser, directMessagePeer));
+		participant.insert(QStringLiteral("isSelf"), user == selfUser);
+		participant.insert(QStringLiteral("avatarUrl"), modernShellAvatarDataUrl(user, avatarSize));
+		participant.insert(QStringLiteral("badges"), modernShellParticipantBadges(user, selfUser));
+		participant.insert(QStringLiteral("statuses"), modernShellParticipantStatuses(user));
+		participant.insert(QStringLiteral("canMessage"),
+						   connected && user != selfUser && canSendToPersistentChatTarget(participantTarget, false));
+		participant.insert(QStringLiteral("canJoin"), connected && user != selfUser && selfVoiceChannel
+														  && user->cChannel
+														  && selfVoiceChannel->iId != user->cChannel->iId);
+		participant.insert(QStringLiteral("actions"),
+						   connected ? buildParticipantActions(const_cast< ClientUser * >(user)) : QVariantList());
+		return participant;
+	};
+	const auto buildListenerState = [this, connected, selfUser, &buildListenerActions](
+										const ClientUser *user, const Channel *channel, int avatarSize) {
 		QVariantMap participant;
 		if (!user || !channel) {
 			return participant;
@@ -5966,18 +5899,17 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		badges.push_back(tr("Listener"));
 
 		participant.insert(QStringLiteral("entryKind"), QStringLiteral("listener"));
-		participant.insert(QStringLiteral("participantKey"),
-						   QStringLiteral("listener:%1:%2")
-							   .arg(static_cast< qulonglong >(channel->iId))
-							   .arg(static_cast< qulonglong >(user->uiSession)));
+		participant.insert(QStringLiteral("participantKey"), QStringLiteral("listener:%1:%2")
+																 .arg(static_cast< qulonglong >(channel->iId))
+																 .arg(static_cast< qulonglong >(user->uiSession)));
 		participant.insert(QStringLiteral("session"), static_cast< qulonglong >(user->uiSession));
 		participant.insert(QStringLiteral("ownerSession"), static_cast< qulonglong >(user->uiSession));
 		participant.insert(QStringLiteral("channelId"), static_cast< qulonglong >(channel->iId));
 		participant.insert(QStringLiteral("scopeToken"),
 						   modernShellScopeToken(static_cast< int >(MumbleProto::Channel), channel->iId));
 		participant.insert(QStringLiteral("label"), user->qsName);
-		participant.insert(QStringLiteral("subtitle"), user == selfUser ? tr("You are listening in this room")
-																		 : tr("Listening in this room"));
+		participant.insert(QStringLiteral("subtitle"),
+						   user == selfUser ? tr("You are listening in this room") : tr("Listening in this room"));
 		participant.insert(QStringLiteral("isSelf"), user == selfUser);
 		participant.insert(QStringLiteral("avatarUrl"), modernShellAvatarDataUrl(user, avatarSize));
 		participant.insert(QStringLiteral("badges"), badges);
@@ -5991,48 +5923,47 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		participant.insert(QStringLiteral("statuses"), statuses);
 		participant.insert(QStringLiteral("canMessage"), false);
 		participant.insert(QStringLiteral("canJoin"), false);
-		participant.insert(QStringLiteral("actions"),
-						   connected ? buildListenerActions(const_cast< ClientUser * >(user),
-														  const_cast< Channel * >(channel))
-									 : QVariantList());
+		participant.insert(QStringLiteral("actions"), connected ? buildListenerActions(const_cast< ClientUser * >(user),
+																					   const_cast< Channel * >(channel))
+																: QVariantList());
 		return participant;
 	};
-	const auto buildChannelParticipants =
-		[this, &sortParticipantUsers, &buildParticipantState,
-		 &buildListenerState](const Channel *channel, int avatarSize) {
-			QVariantList roomParticipants;
-			if (!channel) {
-				return roomParticipants;
-			}
-
-			QList< const ClientUser * > listenerUsers;
-			if (Global::get().channelListenerManager) {
-				for (const unsigned int session : Global::get().channelListenerManager->getListenersForChannel(channel->iId)) {
-					const ClientUser *user = ClientUser::get(session);
-					if (user) {
-						listenerUsers.push_back(user);
-					}
-				}
-			}
-
-			QList< const ClientUser * > roomUsers;
-			for (const User *baseUser : channel->qlUsers) {
-				const ClientUser *user = baseUser ? ClientUser::get(baseUser->uiSession) : nullptr;
-				if (user) {
-					roomUsers.push_back(user);
-				}
-			}
-
-			sortParticipantUsers(listenerUsers);
-			sortParticipantUsers(roomUsers);
-			for (const ClientUser *user : listenerUsers) {
-				roomParticipants.push_back(buildListenerState(user, channel, avatarSize));
-			}
-			for (const ClientUser *user : roomUsers) {
-				roomParticipants.push_back(buildParticipantState(user, channel, nullptr, avatarSize));
-			}
+	const auto buildChannelParticipants = [this, &sortParticipantUsers, &buildParticipantState,
+										   &buildListenerState](const Channel *channel, int avatarSize) {
+		QVariantList roomParticipants;
+		if (!channel) {
 			return roomParticipants;
-		};
+		}
+
+		QList< const ClientUser * > listenerUsers;
+		if (Global::get().channelListenerManager) {
+			for (const unsigned int session :
+				 Global::get().channelListenerManager->getListenersForChannel(channel->iId)) {
+				const ClientUser *user = ClientUser::get(session);
+				if (user) {
+					listenerUsers.push_back(user);
+				}
+			}
+		}
+
+		QList< const ClientUser * > roomUsers;
+		for (const User *baseUser : channel->qlUsers) {
+			const ClientUser *user = baseUser ? ClientUser::get(baseUser->uiSession) : nullptr;
+			if (user) {
+				roomUsers.push_back(user);
+			}
+		}
+
+		sortParticipantUsers(listenerUsers);
+		sortParticipantUsers(roomUsers);
+		for (const ClientUser *user : listenerUsers) {
+			roomParticipants.push_back(buildListenerState(user, channel, avatarSize));
+		}
+		for (const ClientUser *user : roomUsers) {
+			roomParticipants.push_back(buildParticipantState(user, channel, nullptr, avatarSize));
+		}
+		return roomParticipants;
+	};
 	const auto buildVoiceRoomScreenShareState = [this, selfUser, joinedVoiceChannel](const Channel *channel) {
 		QVariantMap shareState;
 		shareState.insert(QStringLiteral("visible"), channel != nullptr && m_screenShareManager != nullptr);
@@ -6062,44 +5993,41 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			return shareState;
 		}
 
-		const bool joinedRoom = joinedVoiceChannel && joinedVoiceChannel->iId == channel->iId;
+		const bool joinedRoom  = joinedVoiceChannel && joinedVoiceChannel->iId == channel->iId;
 		const QString streamID = screenShareStreamForChannel(channel);
-		const bool hasShare = !streamID.isEmpty();
+		const bool hasShare    = !streamID.isEmpty();
 		QVariantList overflowActions;
 
-		const auto setPrimaryAction =
-			[&shareState](const QString &id, const QString &actionLabel, const bool enabled, const QString &hint,
-						  const QString &tone = QString()) {
-				shareState.insert(QStringLiteral("primaryActionId"), id);
-				shareState.insert(QStringLiteral("primaryLabel"), actionLabel);
-				shareState.insert(QStringLiteral("primaryEnabled"), enabled);
-				shareState.insert(QStringLiteral("primaryHint"), hint);
-				shareState.insert(QStringLiteral("primaryTone"), tone);
-			};
+		const auto setPrimaryAction = [&shareState](const QString &id, const QString &actionLabel, const bool enabled,
+													const QString &hint, const QString &tone = QString()) {
+			shareState.insert(QStringLiteral("primaryActionId"), id);
+			shareState.insert(QStringLiteral("primaryLabel"), actionLabel);
+			shareState.insert(QStringLiteral("primaryEnabled"), enabled);
+			shareState.insert(QStringLiteral("primaryHint"), hint);
+			shareState.insert(QStringLiteral("primaryTone"), tone);
+		};
 
 		if (!hasShare) {
-			const QString unavailableReason =
-				joinedRoom ? m_screenShareManager->localShareUnavailableReason()
-						   : tr("Join this voice room before starting a share.");
+			const QString unavailableReason = joinedRoom ? m_screenShareManager->localShareUnavailableReason()
+														 : tr("Join this voice room before starting a share.");
 			shareState.insert(QStringLiteral("statusLabel"),
 							  joinedRoom ? tr("Ready to share") : tr("Join this room to share"));
 			shareState.insert(QStringLiteral("statusTone"),
 							  unavailableReason.isEmpty() ? QStringLiteral("success") : QStringLiteral("warning"));
 			setPrimaryAction(QStringLiteral("screenShareStart"), tr("Share screen"), unavailableReason.isEmpty(),
-							 unavailableReason);
+							 unavailableReason,
+							 unavailableReason.isEmpty() ? QStringLiteral("success") : QStringLiteral("warning"));
 			return shareState;
 		}
 
 		const ScreenShareSession session = m_screenShareManager->sessions().value(streamID);
-		const ClientUser *owner = ClientUser::get(session.ownerSession);
-		const QString ownerLabel =
-			owner ? owner->qsName
-				  : tr("session %1").arg(QString::number(session.ownerSession));
-		const bool selfOwned = selfUser && session.ownerSession == selfUser->uiSession;
-		const bool publishing = selfOwned && m_screenShareManager->isPublishingSession(streamID);
-		const bool viewing = !selfOwned && m_screenShareManager->isViewingSession(streamID);
+		const ClientUser *owner          = ClientUser::get(session.ownerSession);
+		const QString ownerLabel = owner ? owner->qsName : tr("session %1").arg(QString::number(session.ownerSession));
+		const bool selfOwned     = selfUser && session.ownerSession == selfUser->uiSession;
+		const bool publishing    = selfOwned && m_screenShareManager->isPublishingSession(streamID);
+		const bool viewing       = !selfOwned && m_screenShareManager->isViewingSession(streamID);
 		const bool detachedWindowOpen = m_screenShareManager->hasDetachedWindow(streamID);
-		const bool usingFallback = m_screenShareManager->isUsingFallbackRuntime(streamID);
+		const bool usingFallback      = m_screenShareManager->isUsingFallbackRuntime(streamID);
 
 		shareState.insert(QStringLiteral("streamId"), streamID);
 		shareState.insert(QStringLiteral("ownerLabel"), ownerLabel);
@@ -6120,8 +6048,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			shareState.insert(QStringLiteral("statusTone"),
 							  usingFallback ? QStringLiteral("warning") : QStringLiteral("success"));
 			setPrimaryAction(QStringLiteral("screenShareOpenWindow"), tr("Open share window"), detachedWindowOpen,
-							 detachedWindowOpen ? QString()
-												: tr("The share window is not available right now."));
+							 detachedWindowOpen ? QString() : tr("The share window is not available right now."),
+							 usingFallback ? QStringLiteral("warning") : QStringLiteral("success"));
 			overflowActions.push_back(ModernShellMenuSerializer::actionItem(
 				QStringLiteral("screenShareStop"), tr("Stop sharing"), true, false, QStringLiteral("danger")));
 		} else if (viewing) {
@@ -6131,10 +6059,10 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			shareState.insert(QStringLiteral("statusTone"),
 							  usingFallback ? QStringLiteral("warning") : QStringLiteral("accent"));
 			setPrimaryAction(QStringLiteral("screenShareOpenWindow"), tr("Open share window"), detachedWindowOpen,
-							 detachedWindowOpen ? QString()
-												: tr("The share window is not available right now."));
-			overflowActions.push_back(ModernShellMenuSerializer::actionItem(
-				QStringLiteral("screenShareStopWatching"), tr("Stop watching"), true, false));
+							 detachedWindowOpen ? QString() : tr("The share window is not available right now."),
+							 usingFallback ? QStringLiteral("warning") : QStringLiteral("accent"));
+			overflowActions.push_back(ModernShellMenuSerializer::actionItem(QStringLiteral("screenShareStopWatching"),
+																			tr("Stop watching"), true, false));
 		} else {
 			const bool canWatch = m_screenShareManager->canViewSession(streamID);
 			const QString unavailableReason =
@@ -6146,7 +6074,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			shareState.insert(QStringLiteral("statusLabel"), tr("%1 is sharing in this room").arg(ownerLabel));
 			shareState.insert(QStringLiteral("statusTone"),
 							  canWatch ? QStringLiteral("accent") : QStringLiteral("warning"));
-			setPrimaryAction(QStringLiteral("screenShareWatch"), tr("Watch share"), canWatch, unavailableReason);
+			setPrimaryAction(QStringLiteral("screenShareWatch"), tr("Watch share"), canWatch, unavailableReason,
+							 canWatch ? QStringLiteral("accent") : QStringLiteral("warning"));
 		}
 
 		shareState.insert(QStringLiteral("overflowActions"), ModernShellMenuSerializer::normalize(overflowActions));
@@ -6160,25 +6089,22 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 				continue;
 			}
 
-			const int scopeValue        = item->data(PersistentChatScopeRole).toInt();
-			const unsigned int scopeID  = item->data(PersistentChatScopeIDRole).toUInt();
-			const QString roomLabel     = item->data(PersistentChatLabelRole).toString();
-			const qulonglong unreadRaw  = item->data(PersistentChatUnreadRole).toULongLong();
-			const QString itemToolTip   = item->toolTip();
-			const bool selectedScope    =
-				(target.serverLog && scopeValue == LocalServerLogScope)
-				|| (!target.serverLog && target.valid && target.scopeID == scopeID
-					&& scopeValue == static_cast< int >(target.scope));
+			const int scopeValue       = item->data(PersistentChatScopeRole).toInt();
+			const unsigned int scopeID = item->data(PersistentChatScopeIDRole).toUInt();
+			const QString roomLabel    = item->data(PersistentChatLabelRole).toString();
+			const qulonglong unreadRaw = item->data(PersistentChatUnreadRole).toULongLong();
+			const QString itemToolTip  = item->toolTip();
+			const bool selectedScope   = (target.serverLog && scopeValue == LocalServerLogScope)
+									   || (!target.serverLog && target.valid && target.scopeID == scopeID
+										   && scopeValue == static_cast< int >(target.scope));
 
 			if (scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::TextChannel)
-				|| scopeValue == static_cast< int >(MumbleProto::ServerGlobal)
-				|| scopeValue == LocalDirectMessageScope
+				|| scopeValue == static_cast< int >(MumbleProto::ServerGlobal) || scopeValue == LocalDirectMessageScope
 				|| scopeValue == static_cast< int >(MumbleProto::Aggregate)) {
 				QVariantMap room;
 				room.insert(QStringLiteral("token"), modernShellScopeToken(scopeValue, scopeID));
 				room.insert(QStringLiteral("label"), roomLabel.isEmpty() ? tr("Room") : roomLabel);
-				room.insert(QStringLiteral("description"),
-							itemToolTip.isEmpty() ? tr("Conversation") : itemToolTip);
+				room.insert(QStringLiteral("description"), itemToolTip.isEmpty() ? tr("Conversation") : itemToolTip);
 				room.insert(QStringLiteral("depth"), 0);
 				room.insert(QStringLiteral("selected"), selectedScope);
 				room.insert(QStringLiteral("joined"), false);
@@ -6188,8 +6114,8 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 								? tr("Activity")
 								: (scopeValue == LocalDirectMessageScope
 									   ? tr("Direct message")
-								: (scopeValue == static_cast< int >(MumbleProto::TextChannel) ? tr("Text room")
-																						  : tr("Legacy"))));
+									   : (scopeValue == static_cast< int >(MumbleProto::TextChannel) ? tr("Text room")
+																									 : tr("Legacy"))));
 				Channel *roomChannel = nullptr;
 				if (scopeValue == static_cast< int >(MumbleProto::TextChannel)) {
 					const auto textChannelIt = m_persistentTextChannels.constFind(scopeID);
@@ -6226,10 +6152,9 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			room.insert(QStringLiteral("token"),
 						modernShellScopeToken(static_cast< int >(MumbleProto::Channel), channel->iId));
 			room.insert(QStringLiteral("label"), channel->qsName);
-			room.insert(QStringLiteral("description"),
-						tr("%1 people in %2")
-							.arg(channel->qlUsers.count())
-							.arg(persistentTextAclChannelLabel(channel)));
+			room.insert(
+				QStringLiteral("description"),
+				tr("%1 people in %2").arg(channel->qlUsers.count()).arg(persistentTextAclChannelLabel(channel)));
 			room.insert(QStringLiteral("pathLabel"), persistentTextAclChannelLabel(channel));
 			room.insert(QStringLiteral("depth"), depth);
 			room.insert(QStringLiteral("memberCount"), channel->qlUsers.count());
@@ -6238,8 +6163,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 						target.valid && target.scope == MumbleProto::Channel && target.scopeID == channel->iId);
 			room.insert(QStringLiteral("joined"), joinedVoiceChannel && joinedVoiceChannel->iId == channel->iId);
 			room.insert(QStringLiteral("unreadCount"),
-						static_cast< qulonglong >(
-							cachedPersistentChatUnreadCount(MumbleProto::Channel, channel->iId)));
+						static_cast< qulonglong >(cachedPersistentChatUnreadCount(MumbleProto::Channel, channel->iId)));
 			room.insert(QStringLiteral("kindLabel"), tr("Voice room"));
 			room.insert(QStringLiteral("actions"), buildChannelActions(const_cast< Channel * >(channel), true));
 			room.insert(QStringLiteral("screenShare"), buildVoiceRoomScreenShareState(channel));
@@ -6320,29 +6244,27 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	activeScope.insert(QStringLiteral("description"), scopeDescription);
 	activeScope.insert(QStringLiteral("banner"), target.statusMessage);
 	activeScope.insert(QStringLiteral("meta"), scopeMeta);
-	activeScope.insert(QStringLiteral("canSend"),
-					   connected && target.valid && !target.readOnly && !target.serverLog
-						   && (!qteChat || qteChat->isEnabled()));
-	activeScope.insert(QStringLiteral("canLoadOlder"),
-					   connected && target.valid && !target.serverLog && !target.directMessage
-						   && !target.legacyTextPath && m_visiblePersistentChatHasMore
-						   && !m_persistentChatLoadingOlder && m_persistentChatGateway);
+	activeScope.insert(QStringLiteral("canSend"), connected && target.valid && !target.readOnly && !target.serverLog
+													  && (!qteChat || qteChat->isEnabled()));
+	activeScope.insert(QStringLiteral("canLoadOlder"), connected && target.valid && !target.serverLog
+														   && !target.directMessage && !target.legacyTextPath
+														   && m_visiblePersistentChatHasMore
+														   && !m_persistentChatLoadingOlder && m_persistentChatGateway);
 	activeScope.insert(QStringLiteral("canMarkRead"), canMarkPersistentChatRead(false));
-	activeScope.insert(QStringLiteral("canReply"),
-					   connected && target.valid && !target.readOnly && !target.serverLog && !target.directMessage
-						   && !target.legacyTextPath && (!qteChat || qteChat->isEnabled()));
-	activeScope.insert(QStringLiteral("canReact"),
-					   connected && target.valid && !target.readOnly && !target.serverLog && !target.directMessage
-						   && !target.legacyTextPath && canUsePersistedReactions);
+	activeScope.insert(QStringLiteral("canReply"), connected && target.valid && !target.readOnly && !target.serverLog
+													   && !target.directMessage && !target.legacyTextPath
+													   && (!qteChat || qteChat->isEnabled()));
+	activeScope.insert(QStringLiteral("canReact"), connected && target.valid && !target.readOnly && !target.serverLog
+													   && !target.directMessage && !target.legacyTextPath
+													   && canUsePersistedReactions);
 	activeScope.insert(QStringLiteral("composerPlaceholder"), composerPlaceholder);
 	activeScope.insert(QStringLiteral("composerHint"), composerHint);
-	activeScope.insert(QStringLiteral("canAttachImages"),
-					   connected && target.valid && !target.readOnly && !target.serverLog && Global::get().bAllowHTML
-						   && (!qteChat || qteChat->isEnabled()));
-	activeScope.insert(
-		QStringLiteral("emptyCopy"),
-		target.readOnly ? tr("This conversation is read-only.")
-						: tr("Messages will appear here once the selected room has activity."));
+	activeScope.insert(QStringLiteral("canAttachImages"), connected && target.valid && !target.readOnly
+															  && !target.serverLog && Global::get().bAllowHTML
+															  && (!qteChat || qteChat->isEnabled()));
+	activeScope.insert(QStringLiteral("emptyCopy"),
+					   target.readOnly ? tr("This conversation is read-only.")
+									   : tr("Messages will appear here once the selected room has activity."));
 	activeScope.insert(QStringLiteral("scrollToBottom"),
 					   !m_persistentChatHistory || m_persistentChatHistory->isScrolledToBottom());
 	activeScope.insert(QStringLiteral("autoMarkRead"), false);
@@ -6351,9 +6273,9 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		activeScope.insert(QStringLiteral("replyMessageId"),
 						   static_cast< qulonglong >(m_pendingPersistentChatReply->message_id()));
 		activeScope.insert(QStringLiteral("replyActor"), persistentChatActorLabel(*m_pendingPersistentChatReply));
-		activeScope.insert(QStringLiteral("replySnippet"),
-						   persistentChatMessageTextSnippet(
-							   persistentChatMessageSourceText(*m_pendingPersistentChatReply)));
+		activeScope.insert(
+			QStringLiteral("replySnippet"),
+			persistentChatMessageTextSnippet(persistentChatMessageSourceText(*m_pendingPersistentChatReply)));
 	}
 	if ((target.serverLog || target.legacyTextPath) && qteLog && qteLog->document()) {
 		activeScope.insert(QStringLiteral("serverLogHtml"), qteLog->document()->toHtml());
@@ -6406,13 +6328,14 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		const std::size_t messageCount = m_persistentChatMessages.size();
 		const std::size_t beginIndex   = messageCount > 200 ? messageCount - 200 : 0;
 		for (std::size_t i = beginIndex; i < messageCount; ++i) {
-			const MumbleProto::ChatMessage &message = m_persistentChatMessages[i];
+			const MumbleProto::ChatMessage &message   = m_persistentChatMessages[i];
 			const std::optional< QString > systemText = persistentChatSystemMessageText(message);
 			const bool systemMessage                  = systemText.has_value();
 			const bool ownMessage =
-				self && ((message.has_actor() && message.actor() == Global::get().uiSession)
-						 || (message.has_actor_user_id() && self->iId >= 0
-							 && message.actor_user_id() == static_cast< decltype(message.actor_user_id()) >(self->iId)));
+				self
+				&& ((message.has_actor() && message.actor() == Global::get().uiSession)
+					|| (message.has_actor_user_id() && self->iId >= 0
+						&& message.actor_user_id() == static_cast< decltype(message.actor_user_id()) >(self->iId)));
 			const ClientUser *messageUser =
 				ownMessage ? self : (message.has_actor() ? ClientUser::get(message.actor()) : nullptr);
 
@@ -6443,16 +6366,15 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			messageState.insert(QStringLiteral("actor"),
 								systemMessage ? tr("System") : persistentChatActorLabel(message));
 			messageState.insert(QStringLiteral("avatarUrl"), modernShellAvatarDataUrl(messageUser, 40));
-			messageState.insert(QStringLiteral("timeLabel"),
-								persistentChatTimestampLabel(
-									QDateTime::fromMSecsSinceEpoch(static_cast< qint64 >(message.created_at()))
-										.toLocalTime()));
+			messageState.insert(
+				QStringLiteral("timeLabel"),
+				persistentChatTimestampLabel(
+					QDateTime::fromMSecsSinceEpoch(static_cast< qint64 >(message.created_at())).toLocalTime()));
 			messageState.insert(QStringLiteral("scopeLabel"),
-								target.scope == MumbleProto::Aggregate
-									? persistentChatScopeLabel(
-										  message.has_scope() ? message.scope() : MumbleProto::Channel,
-										  message.has_scope_id() ? message.scope_id() : 0)
-									: QString());
+								target.scope == MumbleProto::Aggregate ? persistentChatScopeLabel(
+									message.has_scope() ? message.scope() : MumbleProto::Channel,
+									message.has_scope_id() ? message.scope_id() : 0)
+																	   : QString());
 			messageState.insert(QStringLiteral("bodyText"), bodyText);
 			messageState.insert(QStringLiteral("bodyHtml"), bodyHtml);
 			messageState.insert(QStringLiteral("own"), ownMessage);
@@ -6483,9 +6405,9 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 					it != m_persistentChatPreviews.cend()) {
 					const PersistentChatPreview &preview = it.value();
 					QVariantMap previewState;
-					previewState.insert(QStringLiteral("kind"),
-										previewKey->startsWith(QLatin1String("image:")) ? QStringLiteral("image")
-																						 : QStringLiteral("link"));
+					previewState.insert(QStringLiteral("kind"), previewKey->startsWith(QLatin1String("image:"))
+																	? QStringLiteral("image")
+																	: QStringLiteral("link"));
 					previewState.insert(QStringLiteral("url"), preview.canonicalUrl);
 					previewState.insert(QStringLiteral("title"), preview.title);
 					previewState.insert(QStringLiteral("subtitle"), preview.subtitle);
@@ -6607,10 +6529,34 @@ bool MainWindow::handleModernShellScopeAction(const QString &scopeToken, const Q
 	if (normalizedActionID.isEmpty()) {
 		return false;
 	}
-	if (normalizedActionID == QLatin1String("screenShareOpenWindow")) {
+	if (normalizedActionID == QLatin1String("screenShareStart")) {
+		if (!m_screenShareManager) {
+			return false;
+		}
+		m_screenShareManager->requestStartChannelShare(channel->iId);
+		queueModernShellSnapshotSync();
+		return true;
+	}
+	if (normalizedActionID == QLatin1String("screenShareStop")
+		|| normalizedActionID == QLatin1String("screenShareWatch")
+		|| normalizedActionID == QLatin1String("screenShareStopWatching")
+		|| normalizedActionID == QLatin1String("screenShareOpenWindow")) {
 		const QString streamID = screenShareStreamForChannel(channel);
-		const bool handled =
-			!streamID.isEmpty() && m_screenShareManager && m_screenShareManager->focusOrReopenDetachedWindow(streamID);
+		bool handled           = false;
+		if (!streamID.isEmpty() && m_screenShareManager) {
+			if (normalizedActionID == QLatin1String("screenShareStop")) {
+				m_screenShareManager->requestStopShare(streamID);
+				handled = true;
+			} else if (normalizedActionID == QLatin1String("screenShareWatch")) {
+				m_screenShareManager->requestStartViewing(streamID);
+				handled = true;
+			} else if (normalizedActionID == QLatin1String("screenShareStopWatching")) {
+				m_screenShareManager->requestStopViewing(streamID);
+				handled = true;
+			} else {
+				handled = m_screenShareManager->focusOrReopenDetachedWindow(streamID);
+			}
+		}
 		if (handled) {
 			queueModernShellSnapshotSync();
 		}
@@ -6720,7 +6666,8 @@ bool MainWindow::handleModernShellParticipantMessage(const qulonglong session) {
 		return false;
 	}
 
-	if (QListWidgetItem *item = findPersistentChatChannelItem(LocalDirectMessageScope, static_cast< unsigned int >(session))) {
+	if (QListWidgetItem *item =
+			findPersistentChatChannelItem(LocalDirectMessageScope, static_cast< unsigned int >(session))) {
 		setPersistentChatTargetUsesVoiceTree(false);
 		cachePersistentChatChannelSelection(item);
 		m_persistentChatChannelList->setCurrentItem(item);
@@ -6762,10 +6709,10 @@ bool MainWindow::handleModernShellParticipantMove(const qulonglong session, cons
 		return false;
 	}
 
-	Channel *targetChannel           = Channel::get(scopeID);
-	ClientUser *participant          = ClientUser::get(static_cast< unsigned int >(session));
-	ClientUser *self                 = ClientUser::get(Global::get().uiSession);
-	ServerHandlerPtr serverHandler   = Global::get().sh;
+	Channel *targetChannel         = Channel::get(scopeID);
+	ClientUser *participant        = ClientUser::get(static_cast< unsigned int >(session));
+	ClientUser *self               = ClientUser::get(Global::get().uiSession);
+	ServerHandlerPtr serverHandler = Global::get().sh;
 	if (!targetChannel || !participant || !serverHandler) {
 		return false;
 	}
@@ -6784,9 +6731,8 @@ bool MainWindow::handleModernShellParticipantMove(const qulonglong session, cons
 			}
 			break;
 		case Settings::DoNothing:
-			Global::get().l->log(
-				Log::Information,
-				tr("You have User Dragging set to \"Do Nothing\" so the user wasn't moved."));
+			Global::get().l->log(Log::Information,
+								 tr("You have User Dragging set to \"Do Nothing\" so the user wasn't moved."));
 			return false;
 		case Settings::Move:
 			break;
@@ -6818,9 +6764,9 @@ bool MainWindow::handleModernShellChannelMove(const QString &sourceScopeToken, c
 		return false;
 	}
 
-	Channel *sourceChannel          = Channel::get(sourceScopeID);
-	Channel *targetChannel          = Channel::get(targetScopeID);
-	ServerHandlerPtr serverHandler  = Global::get().sh;
+	Channel *sourceChannel         = Channel::get(sourceScopeID);
+	Channel *targetChannel         = Channel::get(targetScopeID);
+	ServerHandlerPtr serverHandler = Global::get().sh;
 	if (!sourceChannel || !targetChannel || !serverHandler || sourceChannel == targetChannel) {
 		return false;
 	}
@@ -6840,9 +6786,8 @@ bool MainWindow::handleModernShellChannelMove(const QString &sourceScopeToken, c
 			}
 			break;
 		case Settings::DoNothing:
-			Global::get().l->log(
-				Log::Information,
-				tr("You have Channel Dragging set to \"Do Nothing\" so the channel wasn't moved."));
+			Global::get().l->log(Log::Information,
+								 tr("You have Channel Dragging set to \"Do Nothing\" so the channel wasn't moved."));
 			return false;
 		case Settings::Move:
 			break;
@@ -6885,10 +6830,26 @@ bool MainWindow::handleModernShellParticipantAction(const qulonglong session, co
 	if (normalizedActionID.isEmpty()) {
 		return false;
 	}
-	if (normalizedActionID == QLatin1String("screenShareOpenWindow")) {
+	if (normalizedActionID == QLatin1String("screenShareStop")
+		|| normalizedActionID == QLatin1String("screenShareWatch")
+		|| normalizedActionID == QLatin1String("screenShareStopWatching")
+		|| normalizedActionID == QLatin1String("screenShareOpenWindow")) {
 		const QString streamID = screenShareStreamForChannel(participant->cChannel);
-		const bool handled =
-			!streamID.isEmpty() && m_screenShareManager && m_screenShareManager->focusOrReopenDetachedWindow(streamID);
+		bool handled           = false;
+		if (!streamID.isEmpty() && m_screenShareManager) {
+			if (normalizedActionID == QLatin1String("screenShareStop")) {
+				m_screenShareManager->requestStopShare(streamID);
+				handled = true;
+			} else if (normalizedActionID == QLatin1String("screenShareWatch")) {
+				m_screenShareManager->requestStartViewing(streamID);
+				handled = true;
+			} else if (normalizedActionID == QLatin1String("screenShareStopWatching")) {
+				m_screenShareManager->requestStopViewing(streamID);
+				handled = true;
+			} else {
+				handled = m_screenShareManager->focusOrReopenDetachedWindow(streamID);
+			}
+		}
 		if (handled) {
 			queueModernShellSnapshotSync();
 		}
@@ -6921,7 +6882,7 @@ bool MainWindow::handleModernShellParticipantAction(const qulonglong session, co
 }
 
 bool MainWindow::handleModernShellParticipantActionValueChanged(const qulonglong session, const QString &actionId,
-																 const int value, const bool final) {
+																const int value, const bool final) {
 	if (actionId.trimmed() != QLatin1String("localVolume")) {
 		return false;
 	}
@@ -7032,10 +6993,9 @@ void MainWindow::triggerContextAction(const QString &actionData, ClientUser *use
 }
 
 void MainWindow::syncPersistentChatGatewayHandler() {
-	appendModernShellConnectTrace(
-		QStringLiteral("syncPersistentChatGatewayHandler gateway=%1 handler=%2")
-			.arg(m_persistentChatGateway ? 1 : 0)
-			.arg(Global::get().sh ? 1 : 0));
+	appendModernShellConnectTrace(QStringLiteral("syncPersistentChatGatewayHandler gateway=%1 handler=%2")
+									  .arg(m_persistentChatGateway ? 1 : 0)
+									  .arg(Global::get().sh ? 1 : 0));
 	if (!m_persistentChatGateway) {
 		return;
 	}
@@ -7096,163 +7056,162 @@ void MainWindow::refreshServerNavigatorStyles() {
 		m_serverNavigatorContainer->setPalette(navContainerPalette);
 
 		const QString serverNavigatorStyle =
-			applyQssArgs(QString::fromLatin1(
-				"QWidget#qwServerNavigator {"
-				" background-color: %1;"
-				" border-left: 1px solid %9;"
-				"}"
-				"QFrame#qfServerNavigatorHeader {"
-				" background-color: transparent;"
-				" border: none;"
-				" margin: 0px;"
-				"}"
-				"QFrame#qfServerNavigatorContent {"
-				" background-color: %1;"
-				" border: none;"
-				" border-radius: 0px;"
-				" margin: 0px;"
-				"}"
-				"QLabel#qlServerNavigatorEyebrow,"
-				"QLabel#qlServerNavigatorVoiceSectionEyebrow,"
-				"QLabel#qlServerNavigatorTextChannelsEyebrow {"
-				" color: %3;"
-				" font-size: 9.5px;"
-				" font-weight: 600;"
-				" letter-spacing: 0.14em;"
-				"}"
-				"QLabel#qlServerNavigatorTitle,"
-				"QLabel#qlServerNavigatorTextChannelsTitle {"
-				" color: %4;"
-				" font-size: 11px;"
-				" font-weight: 600;"
-				"}"
-				"QLabel#qlServerNavigatorSubtitle,"
-				"QLabel#qlServerNavigatorFooter,"
-				"QLabel#qlServerNavigatorVoiceSectionSubtitle,"
-				"QLabel#qlServerNavigatorTextChannelsSubtitle {"
-				" color: %5;"
-				" font-size: 9.5px;"
-				" line-height: 1.18em;"
-				"}"
-				"QFrame#qfServerNavigatorFooterFrame {"
-				" background-color: transparent;"
-				" border-top: 1px solid %2;"
-				" margin-top: 4px;"
-				"}"
-				"QPushButton#qpbServerNavigatorFooterPresence {"
-				" background-color: transparent;"
-				" border: none;"
-				" border-radius: 6px;"
-				" padding: 0px;"
-				" text-align: left;"
-				"}"
-				"QPushButton#qpbServerNavigatorFooterPresence:hover {"
-				" background-color: %6;"
-				"}"
-				"QLabel#qlServerNavigatorFooter {"
-				" color: %5;"
-				" font-size: 9.5px;"
-				" line-height: 1.18em;"
-				" padding: 0px;"
-				"}"
-				"QLabel#qlServerNavigatorFooterName {"
-				" color: %4;"
-				" font-size: 10.8px;"
-				" font-weight: 600;"
-				"}"
-				"QLabel#qlServerNavigatorFooterPresence {"
-				" color: %5;"
-				" font-size: 9.2px;"
-				"}"
-				"QLabel#qlServerNavigatorFooterAvatar {"
-				" padding: 0px;"
-				"}"
-				"QFrame#qfServerNavigatorTextChannels {"
-				" background-color: transparent;"
-				" border: none;"
-				"}"
-				"QFrame#qfServerNavigatorTextChannelsDivider {"
-				" background-color: %2;"
-				" min-height: 0px;"
-				" max-height: 1px;"
-				" margin: 4px 0px 3px 0px;"
-				" border: none;"
-				"}"
-				"QFrame#qfServerNavigatorTextChannelsMotd {"
-				" background-color: %2;"
-				" border: none;"
-				" border-radius: 8px;"
-				"}"
-				"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
-				" color: %5;"
-				" font-size: 10px;"
-				" font-weight: 600;"
-				"}"
-				"QLabel#qlServerNavigatorTextChannelsMotdBody {"
-				" color: %4;"
-				" background: transparent;"
-				" font-size: 9.8px;"
-				" line-height: 1.24em;"
-				"}"
-				"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
-				" border: none;"
-				" background: transparent;"
-				" color: %8;"
-				" padding: 0px;"
-				" font-size: 10px;"
-				" font-weight: 600;"
-				"}"
-				"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
-				" background: transparent;"
-				" color: %8;"
-				"}"
-				"QTreeView#qtvUsers,"
-				"QWidget#qtvUsersViewport,"
-				"QListWidget#qlwPersistentTextChannels {"
-				" border: none;"
-				" border-radius: 0px;"
-				" background-color: transparent;"
-				" alternate-background-color: transparent;"
-				" color: %4;"
-				" padding: 0px;"
-				" outline: none;"
-				"}"
-				"QTreeView#qtvUsers::branch {"
-				" background: transparent;"
-				" image: none;"
-				" border-image: none;"
-				" min-width: 15px;"
-				" min-height: 18px;"
-				"}"
-				"QTreeView#qtvUsers::item,"
-				"QListWidget#qlwPersistentTextChannels::item {"
-				" min-height: 20px;"
-				" padding: 0px;"
-				" border: none;"
-				" background: transparent;"
-				"}"
-				"QTreeView#qtvUsers::item:hover,"
-				"QTreeView#qtvUsers::item:selected,"
-				"QTreeView#qtvUsers::item:selected:active,"
-				"QTreeView#qtvUsers::item:selected:!active,"
-				"QListWidget#qlwPersistentTextChannels::item:hover,"
-				"QListWidget#qlwPersistentTextChannels::item:selected,"
-				"QListWidget#qlwPersistentTextChannels::item:selected:active,"
-				"QListWidget#qlwPersistentTextChannels::item:selected:!active {"
-				" background: transparent;"
-				" color: %4;"
-				"}"),
-				QStringList{
-					qssColor(tokens->mantle),
-					qssColor(tokens->surface1),
-					qssColor(tokens->overlay0),
-					qssColor(tokens->text),
-					qssColor(tokens->subtext0),
-					qssColor(tokens->surface0),
-					qssColor(tokens->accent),
-					qssColor(tokens->accentHover),
-					qssColor(railSeamColor),
-				});
+			applyQssArgs(QString::fromLatin1("QWidget#qwServerNavigator {"
+											 " background-color: %1;"
+											 " border-left: 1px solid %9;"
+											 "}"
+											 "QFrame#qfServerNavigatorHeader {"
+											 " background-color: transparent;"
+											 " border: none;"
+											 " margin: 0px;"
+											 "}"
+											 "QFrame#qfServerNavigatorContent {"
+											 " background-color: %1;"
+											 " border: none;"
+											 " border-radius: 0px;"
+											 " margin: 0px;"
+											 "}"
+											 "QLabel#qlServerNavigatorEyebrow,"
+											 "QLabel#qlServerNavigatorVoiceSectionEyebrow,"
+											 "QLabel#qlServerNavigatorTextChannelsEyebrow {"
+											 " color: %3;"
+											 " font-size: 9.5px;"
+											 " font-weight: 600;"
+											 " letter-spacing: 0.14em;"
+											 "}"
+											 "QLabel#qlServerNavigatorTitle,"
+											 "QLabel#qlServerNavigatorTextChannelsTitle {"
+											 " color: %4;"
+											 " font-size: 11px;"
+											 " font-weight: 600;"
+											 "}"
+											 "QLabel#qlServerNavigatorSubtitle,"
+											 "QLabel#qlServerNavigatorFooter,"
+											 "QLabel#qlServerNavigatorVoiceSectionSubtitle,"
+											 "QLabel#qlServerNavigatorTextChannelsSubtitle {"
+											 " color: %5;"
+											 " font-size: 9.5px;"
+											 " line-height: 1.18em;"
+											 "}"
+											 "QFrame#qfServerNavigatorFooterFrame {"
+											 " background-color: transparent;"
+											 " border-top: 1px solid %2;"
+											 " margin-top: 4px;"
+											 "}"
+											 "QPushButton#qpbServerNavigatorFooterPresence {"
+											 " background-color: transparent;"
+											 " border: none;"
+											 " border-radius: 6px;"
+											 " padding: 0px;"
+											 " text-align: left;"
+											 "}"
+											 "QPushButton#qpbServerNavigatorFooterPresence:hover {"
+											 " background-color: %6;"
+											 "}"
+											 "QLabel#qlServerNavigatorFooter {"
+											 " color: %5;"
+											 " font-size: 9.5px;"
+											 " line-height: 1.18em;"
+											 " padding: 0px;"
+											 "}"
+											 "QLabel#qlServerNavigatorFooterName {"
+											 " color: %4;"
+											 " font-size: 10.8px;"
+											 " font-weight: 600;"
+											 "}"
+											 "QLabel#qlServerNavigatorFooterPresence {"
+											 " color: %5;"
+											 " font-size: 9.2px;"
+											 "}"
+											 "QLabel#qlServerNavigatorFooterAvatar {"
+											 " padding: 0px;"
+											 "}"
+											 "QFrame#qfServerNavigatorTextChannels {"
+											 " background-color: transparent;"
+											 " border: none;"
+											 "}"
+											 "QFrame#qfServerNavigatorTextChannelsDivider {"
+											 " background-color: %2;"
+											 " min-height: 0px;"
+											 " max-height: 1px;"
+											 " margin: 4px 0px 3px 0px;"
+											 " border: none;"
+											 "}"
+											 "QFrame#qfServerNavigatorTextChannelsMotd {"
+											 " background-color: %2;"
+											 " border: none;"
+											 " border-radius: 8px;"
+											 "}"
+											 "QLabel#qlServerNavigatorTextChannelsMotdTitle {"
+											 " color: %5;"
+											 " font-size: 10px;"
+											 " font-weight: 600;"
+											 "}"
+											 "QLabel#qlServerNavigatorTextChannelsMotdBody {"
+											 " color: %4;"
+											 " background: transparent;"
+											 " font-size: 9.8px;"
+											 " line-height: 1.24em;"
+											 "}"
+											 "QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
+											 " border: none;"
+											 " background: transparent;"
+											 " color: %8;"
+											 " padding: 0px;"
+											 " font-size: 10px;"
+											 " font-weight: 600;"
+											 "}"
+											 "QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
+											 " background: transparent;"
+											 " color: %8;"
+											 "}"
+											 "QTreeView#qtvUsers,"
+											 "QWidget#qtvUsersViewport,"
+											 "QListWidget#qlwPersistentTextChannels {"
+											 " border: none;"
+											 " border-radius: 0px;"
+											 " background-color: transparent;"
+											 " alternate-background-color: transparent;"
+											 " color: %4;"
+											 " padding: 0px;"
+											 " outline: none;"
+											 "}"
+											 "QTreeView#qtvUsers::branch {"
+											 " background: transparent;"
+											 " image: none;"
+											 " border-image: none;"
+											 " min-width: 15px;"
+											 " min-height: 18px;"
+											 "}"
+											 "QTreeView#qtvUsers::item,"
+											 "QListWidget#qlwPersistentTextChannels::item {"
+											 " min-height: 20px;"
+											 " padding: 0px;"
+											 " border: none;"
+											 " background: transparent;"
+											 "}"
+											 "QTreeView#qtvUsers::item:hover,"
+											 "QTreeView#qtvUsers::item:selected,"
+											 "QTreeView#qtvUsers::item:selected:active,"
+											 "QTreeView#qtvUsers::item:selected:!active,"
+											 "QListWidget#qlwPersistentTextChannels::item:hover,"
+											 "QListWidget#qlwPersistentTextChannels::item:selected,"
+											 "QListWidget#qlwPersistentTextChannels::item:selected:active,"
+											 "QListWidget#qlwPersistentTextChannels::item:selected:!active {"
+											 " background: transparent;"
+											 " color: %4;"
+											 "}"),
+						 QStringList{
+							 qssColor(tokens->mantle),
+							 qssColor(tokens->surface1),
+							 qssColor(tokens->overlay0),
+							 qssColor(tokens->text),
+							 qssColor(tokens->subtext0),
+							 qssColor(tokens->surface0),
+							 qssColor(tokens->accent),
+							 qssColor(tokens->accentHover),
+							 qssColor(railSeamColor),
+						 });
 		m_serverNavigatorContainer->setStyleSheet(serverNavigatorStyle);
 		refreshServerNavigatorSectionHeights();
 		return;
@@ -7277,9 +7236,9 @@ void MainWindow::refreshServerNavigatorStyles() {
 	}
 
 	QPalette treePalette = qtvUsers->palette();
-		treePalette.setColor(QPalette::Base, chrome.panelColor);
-		treePalette.setColor(QPalette::AlternateBase, chrome.elevatedCardColor);
-		treePalette.setColor(QPalette::Window, chrome.cardColor);
+	treePalette.setColor(QPalette::Base, chrome.panelColor);
+	treePalette.setColor(QPalette::AlternateBase, chrome.elevatedCardColor);
+	treePalette.setColor(QPalette::Window, chrome.cardColor);
 	treePalette.setColor(QPalette::Text, chrome.textColor);
 	treePalette.setColor(QPalette::Highlight, navPalette.color(QPalette::Highlight));
 	treePalette.setColor(QPalette::HighlightedText, navPalette.color(QPalette::HighlightedText));
@@ -7294,223 +7253,223 @@ void MainWindow::refreshServerNavigatorStyles() {
 	QPalette navContainerPalette = m_serverNavigatorContainer->palette();
 	navContainerPalette.setColor(QPalette::Window, chrome.cardColor);
 	m_serverNavigatorContainer->setPalette(navContainerPalette);
-	const QColor railSeamColor = alphaColor(chrome.borderColor, 0.60);
+	const QColor railSeamColor   = alphaColor(chrome.borderColor, 0.60);
 	QString serverNavigatorStyle = QString::fromLatin1(
-			"QWidget#qwServerNavigator {"
-			" background-color: %1;"
-			" border-left: 1px solid %10;"
-			"}"
-			"QFrame#qfServerNavigatorHeader {"
-			" background-color: transparent;"
-			" border: none;"
-			" border-radius: 0px;"
-			" margin: 0px;"
-			"}"
-			"QFrame#qfServerNavigatorContent {"
-			" background-color: %2;"
-			" border: none;"
-			" border-radius: 0px;"
-			" margin: 0px;"
-			"}"
-			"QLabel#qlServerNavigatorEyebrow {"
-			" color: %3;"
-			" font-size: 9.5px;"
-			" font-weight: 600;"
-			" letter-spacing: 0.14em;"
-			"}"
-			"QLabel#qlServerNavigatorTitle {"
-			" color: %4;"
-			" font-size: 11px;"
-			" font-weight: 600;"
-			"}"
-			"QLabel#qlServerNavigatorSubtitle {"
-			" color: %5;"
-			" font-size: 9.5px;"
-			" line-height: 1.18em;"
-			" padding-bottom: 0px;"
-			"}"
-			"QFrame#qfServerNavigatorFooterFrame {"
-			" background-color: transparent;"
-			" border-top: 1px solid %6;"
-			" margin-top: 4px;"
-			"}"
-			"QPushButton#qpbServerNavigatorFooterPresence {"
-			" background-color: transparent;"
-			" border: none;"
-			" border-radius: 6px;"
-			" padding: 0px;"
-			" text-align: left;"
-			"}"
-			"QPushButton#qpbServerNavigatorFooterPresence:hover {"
-			" background-color: %2;"
-			"}"
-			"QLabel#qlServerNavigatorFooter {"
-			" color: %5;"
-			" font-size: 9.5px;"
-			" line-height: 1.2em;"
-			" padding: 0px;"
-			"}"
-			"QLabel#qlServerNavigatorFooterName {"
-			" color: %4;"
-			" font-size: 10.8px;"
-			" font-weight: 600;"
-			"}"
-			"QLabel#qlServerNavigatorFooterPresence {"
-			" color: %5;"
-			" font-size: 9.2px;"
-			"}"
-			"QLabel#qlServerNavigatorFooterAvatar {"
-			" padding: 0px;"
-			"}"
-			"QLabel#qlServerNavigatorVoiceSectionEyebrow, QLabel#qlServerNavigatorTextChannelsEyebrow {"
-			" color: %3;"
-			" font-size: 9.5px;"
-			" font-weight: 600;"
-			" letter-spacing: 0.14em;"
-			"}"
-			"QLabel#qlServerNavigatorVoiceSectionSubtitle, QLabel#qlServerNavigatorTextChannelsSubtitle {"
-			" color: %5;"
-			" font-size: 9.5px;"
-			" line-height: 1.18em;"
-			"}"
-			"QFrame#qfServerNavigatorTextChannels {"
-			" background-color: transparent;"
-			" border: none;"
-			"}"
-			"QFrame#qfServerNavigatorTextChannelsDivider {"
-			" background-color: %6;"
-			" min-height: 0px;"
-			" max-height: 1px;"
-			" margin: 4px 0px 3px 0px;"
-			" border: none;"
-			"}"
-			"QLabel#qlServerNavigatorTextChannelsTitle {"
-			" color: %4;"
-			" font-size: 11px;"
-			" font-weight: 600;"
-			"}"
-			"QFrame#qfServerNavigatorTextChannelsMotd {"
-			" background-color: %8;"
-			" border: none;"
-			" border-radius: 8px;"
-			"}"
-			"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
-			" color: %5;"
-			" font-size: 10px;"
-			" font-weight: 600;"
-			"}"
-			"QLabel#qlServerNavigatorTextChannelsMotdBody {"
-			" color: %5;"
-			" background: transparent;"
-			" font-size: 9.5px;"
-			" line-height: 1.24em;"
-			"}"
-			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
-			" border: none;"
-			" border-radius: 0px;"
-			" background: transparent;"
-			" color: %5;"
-			" padding: 0px;"
-			" font-size: 10px;"
-			" font-weight: 600;"
-			"}"
-			"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
-			" border-color: transparent;"
-			" background-color: transparent;"
-			" color: %4;"
-			"}"
-			"QTreeView#qtvUsers {"
-			" border: none;"
-			" border-radius: 0px;"
-			" background-color: transparent;"
-			" alternate-background-color: transparent;"
-			" color: %4;"
-			" padding: 0px;"
-			" outline: none;"
-			" show-decoration-selected: 0;"
-			"}"
-			"QWidget#qtvUsersViewport {"
-			" background-color: transparent;"
-			"}"
-			"QTreeView#qtvUsers::branch {"
-			" background: transparent;"
-			" image: none;"
-			" border-image: none;"
-			" min-width: 15px;"
-			" min-height: 18px;"
-			"}"
-			"QTreeView#qtvUsers::branch:hover, QTreeView#qtvUsers::branch:selected {"
-			" background: transparent;"
-			" image: none;"
-			" border-image: none;"
-			"}"
-			"QTreeView#qtvUsers::branch:has-siblings:!adjoins-item, "
-			"QTreeView#qtvUsers::branch:has-siblings:adjoins-item, "
-			"QTreeView#qtvUsers::branch:!has-children:has-siblings, "
-			"QTreeView#qtvUsers::branch:!has-children:!has-siblings:adjoins-item, "
-			"QTreeView#qtvUsers::branch:!has-children:!has-siblings, "
-			"QTreeView#qtvUsers::branch:closed:has-children:has-siblings, "
-			"QTreeView#qtvUsers::branch:open:has-children:has-siblings, "
-			"QTreeView#qtvUsers::branch:closed:has-children:!has-siblings, "
-			"QTreeView#qtvUsers::branch:open:has-children:!has-siblings {"
-			" margin: 0px;"
-			" image: none;"
-			" border-image: none;"
-			" }"
-			"QTreeView#qtvUsers::item {"
-			" min-height: 20px;"
-			" padding: 0px 4px;"
-			" border: none;"
-			" border-radius: 0px;"
-			" margin: 0px;"
-			"}"
-			"QTreeView#qtvUsers::item:hover {"
-			" background-color: transparent;"
-			"}"
-			"QTreeView#qtvUsers::item:selected {"
-			" border-radius: 0px;"
-			" background-color: transparent;"
-			" color: %9;"
-			"}"
-			"QTreeView#qtvUsers::item:selected:active {"
-			" background-color: transparent;"
-			" color: %9;"
-			"}"
-			"QTreeView#qtvUsers::item:selected:!active {"
-			" background-color: transparent;"
-			" color: %9;"
-			"}"
-			"QListWidget#qlwPersistentTextChannels {"
-			" border: none;"
-			" border-radius: 0px;"
-			" background-color: transparent;"
-			" alternate-background-color: transparent;"
-			" color: %4;"
-			" padding: 0px;"
-			" outline: none;"
-			"}"
-			"QListWidget#qlwPersistentTextChannels::item {"
-			" min-height: 20px;"
-			" padding: 0px;"
-			" border: none;"
-			" border-radius: 0px;"
-			" margin: 0px;"
-			"}"
-			"QListWidget#qlwPersistentTextChannels::item:hover {"
-			" background-color: transparent;"
-			"}"
-			"QListWidget#qlwPersistentTextChannels::item:selected {"
-			" background-color: transparent;"
-			" color: %4;"
-			"}"
-			"QListWidget#qlwPersistentTextChannels::item:selected:active {"
-			" background-color: transparent;"
-			" color: %4;"
-			"}"
-			"QListWidget#qlwPersistentTextChannels::item:selected:!active {"
-			" background-color: transparent;"
-			" color: %4;"
-			"}");
+		"QWidget#qwServerNavigator {"
+		" background-color: %1;"
+		" border-left: 1px solid %10;"
+		"}"
+		"QFrame#qfServerNavigatorHeader {"
+		" background-color: transparent;"
+		" border: none;"
+		" border-radius: 0px;"
+		" margin: 0px;"
+		"}"
+		"QFrame#qfServerNavigatorContent {"
+		" background-color: %2;"
+		" border: none;"
+		" border-radius: 0px;"
+		" margin: 0px;"
+		"}"
+		"QLabel#qlServerNavigatorEyebrow {"
+		" color: %3;"
+		" font-size: 9.5px;"
+		" font-weight: 600;"
+		" letter-spacing: 0.14em;"
+		"}"
+		"QLabel#qlServerNavigatorTitle {"
+		" color: %4;"
+		" font-size: 11px;"
+		" font-weight: 600;"
+		"}"
+		"QLabel#qlServerNavigatorSubtitle {"
+		" color: %5;"
+		" font-size: 9.5px;"
+		" line-height: 1.18em;"
+		" padding-bottom: 0px;"
+		"}"
+		"QFrame#qfServerNavigatorFooterFrame {"
+		" background-color: transparent;"
+		" border-top: 1px solid %6;"
+		" margin-top: 4px;"
+		"}"
+		"QPushButton#qpbServerNavigatorFooterPresence {"
+		" background-color: transparent;"
+		" border: none;"
+		" border-radius: 6px;"
+		" padding: 0px;"
+		" text-align: left;"
+		"}"
+		"QPushButton#qpbServerNavigatorFooterPresence:hover {"
+		" background-color: %2;"
+		"}"
+		"QLabel#qlServerNavigatorFooter {"
+		" color: %5;"
+		" font-size: 9.5px;"
+		" line-height: 1.2em;"
+		" padding: 0px;"
+		"}"
+		"QLabel#qlServerNavigatorFooterName {"
+		" color: %4;"
+		" font-size: 10.8px;"
+		" font-weight: 600;"
+		"}"
+		"QLabel#qlServerNavigatorFooterPresence {"
+		" color: %5;"
+		" font-size: 9.2px;"
+		"}"
+		"QLabel#qlServerNavigatorFooterAvatar {"
+		" padding: 0px;"
+		"}"
+		"QLabel#qlServerNavigatorVoiceSectionEyebrow, QLabel#qlServerNavigatorTextChannelsEyebrow {"
+		" color: %3;"
+		" font-size: 9.5px;"
+		" font-weight: 600;"
+		" letter-spacing: 0.14em;"
+		"}"
+		"QLabel#qlServerNavigatorVoiceSectionSubtitle, QLabel#qlServerNavigatorTextChannelsSubtitle {"
+		" color: %5;"
+		" font-size: 9.5px;"
+		" line-height: 1.18em;"
+		"}"
+		"QFrame#qfServerNavigatorTextChannels {"
+		" background-color: transparent;"
+		" border: none;"
+		"}"
+		"QFrame#qfServerNavigatorTextChannelsDivider {"
+		" background-color: %6;"
+		" min-height: 0px;"
+		" max-height: 1px;"
+		" margin: 4px 0px 3px 0px;"
+		" border: none;"
+		"}"
+		"QLabel#qlServerNavigatorTextChannelsTitle {"
+		" color: %4;"
+		" font-size: 11px;"
+		" font-weight: 600;"
+		"}"
+		"QFrame#qfServerNavigatorTextChannelsMotd {"
+		" background-color: %8;"
+		" border: none;"
+		" border-radius: 8px;"
+		"}"
+		"QLabel#qlServerNavigatorTextChannelsMotdTitle {"
+		" color: %5;"
+		" font-size: 10px;"
+		" font-weight: 600;"
+		"}"
+		"QLabel#qlServerNavigatorTextChannelsMotdBody {"
+		" color: %5;"
+		" background: transparent;"
+		" font-size: 9.5px;"
+		" line-height: 1.24em;"
+		"}"
+		"QToolButton#qtbServerNavigatorTextChannelsMotdToggle {"
+		" border: none;"
+		" border-radius: 0px;"
+		" background: transparent;"
+		" color: %5;"
+		" padding: 0px;"
+		" font-size: 10px;"
+		" font-weight: 600;"
+		"}"
+		"QToolButton#qtbServerNavigatorTextChannelsMotdToggle:hover {"
+		" border-color: transparent;"
+		" background-color: transparent;"
+		" color: %4;"
+		"}"
+		"QTreeView#qtvUsers {"
+		" border: none;"
+		" border-radius: 0px;"
+		" background-color: transparent;"
+		" alternate-background-color: transparent;"
+		" color: %4;"
+		" padding: 0px;"
+		" outline: none;"
+		" show-decoration-selected: 0;"
+		"}"
+		"QWidget#qtvUsersViewport {"
+		" background-color: transparent;"
+		"}"
+		"QTreeView#qtvUsers::branch {"
+		" background: transparent;"
+		" image: none;"
+		" border-image: none;"
+		" min-width: 15px;"
+		" min-height: 18px;"
+		"}"
+		"QTreeView#qtvUsers::branch:hover, QTreeView#qtvUsers::branch:selected {"
+		" background: transparent;"
+		" image: none;"
+		" border-image: none;"
+		"}"
+		"QTreeView#qtvUsers::branch:has-siblings:!adjoins-item, "
+		"QTreeView#qtvUsers::branch:has-siblings:adjoins-item, "
+		"QTreeView#qtvUsers::branch:!has-children:has-siblings, "
+		"QTreeView#qtvUsers::branch:!has-children:!has-siblings:adjoins-item, "
+		"QTreeView#qtvUsers::branch:!has-children:!has-siblings, "
+		"QTreeView#qtvUsers::branch:closed:has-children:has-siblings, "
+		"QTreeView#qtvUsers::branch:open:has-children:has-siblings, "
+		"QTreeView#qtvUsers::branch:closed:has-children:!has-siblings, "
+		"QTreeView#qtvUsers::branch:open:has-children:!has-siblings {"
+		" margin: 0px;"
+		" image: none;"
+		" border-image: none;"
+		" }"
+		"QTreeView#qtvUsers::item {"
+		" min-height: 20px;"
+		" padding: 0px 4px;"
+		" border: none;"
+		" border-radius: 0px;"
+		" margin: 0px;"
+		"}"
+		"QTreeView#qtvUsers::item:hover {"
+		" background-color: transparent;"
+		"}"
+		"QTreeView#qtvUsers::item:selected {"
+		" border-radius: 0px;"
+		" background-color: transparent;"
+		" color: %9;"
+		"}"
+		"QTreeView#qtvUsers::item:selected:active {"
+		" background-color: transparent;"
+		" color: %9;"
+		"}"
+		"QTreeView#qtvUsers::item:selected:!active {"
+		" background-color: transparent;"
+		" color: %9;"
+		"}"
+		"QListWidget#qlwPersistentTextChannels {"
+		" border: none;"
+		" border-radius: 0px;"
+		" background-color: transparent;"
+		" alternate-background-color: transparent;"
+		" color: %4;"
+		" padding: 0px;"
+		" outline: none;"
+		"}"
+		"QListWidget#qlwPersistentTextChannels::item {"
+		" min-height: 20px;"
+		" padding: 0px;"
+		" border: none;"
+		" border-radius: 0px;"
+		" margin: 0px;"
+		"}"
+		"QListWidget#qlwPersistentTextChannels::item:hover {"
+		" background-color: transparent;"
+		"}"
+		"QListWidget#qlwPersistentTextChannels::item:selected {"
+		" background-color: transparent;"
+		" color: %4;"
+		"}"
+		"QListWidget#qlwPersistentTextChannels::item:selected:active {"
+		" background-color: transparent;"
+		" color: %4;"
+		"}"
+		"QListWidget#qlwPersistentTextChannels::item:selected:!active {"
+		" background-color: transparent;"
+		" color: %4;"
+		"}");
 	serverNavigatorStyle.replace(QStringLiteral("%10"), railSeamColor.name());
 	serverNavigatorStyle.replace(QStringLiteral("%9"), chrome.selectedTextColor.name());
 	serverNavigatorStyle.replace(QStringLiteral("%8"), chrome.hoverColor.name());
@@ -7567,7 +7526,8 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 	int availableWidth = m_serverNavigatorTextChannelsMotdBody->width();
 	if (availableWidth <= 0 && m_serverNavigatorTextChannelsMotdFrame->layout()) {
 		const QMargins margins = m_serverNavigatorTextChannelsMotdFrame->layout()->contentsMargins();
-		availableWidth = m_serverNavigatorTextChannelsMotdFrame->contentsRect().width() - margins.left() - margins.right();
+		availableWidth =
+			m_serverNavigatorTextChannelsMotdFrame->contentsRect().width() - margins.left() - margins.right();
 	}
 	if (availableWidth <= 0 && m_serverNavigatorContentFrame) {
 		availableWidth = m_serverNavigatorContentFrame->contentsRect().width() - 48;
@@ -7585,8 +7545,8 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 	fullDocument.setHtml(fullHtml);
 	fullDocument.setTextWidth(availableWidth);
 
-	const int desiredHeight = std::max(static_cast< int >(std::ceil(fullDocument.size().height())),
-									   minimumExpandedMotdHeight);
+	const int desiredHeight =
+		std::max(static_cast< int >(std::ceil(fullDocument.size().height())), minimumExpandedMotdHeight);
 	int condensedHeightBudget = 0;
 	if (m_serverNavigatorContentFrame) {
 		const int navigatorHeight = m_serverNavigatorContentFrame->contentsRect().height();
@@ -7624,8 +7584,7 @@ void MainWindow::refreshServerNavigatorMotdHeight() {
 		m_serverNavigatorTextChannelsMotdBody->setToolTip(
 			QTextDocumentFragment::fromHtml(fullHtml).toPlainText().simplified());
 		m_serverNavigatorTextChannelsMotdBody->setMinimumHeight(teaserHeight);
-		m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(
-			std::max(teaserHeight, compactNavigator ? 40 : 48));
+		m_serverNavigatorTextChannelsMotdBody->setMaximumHeight(std::max(teaserHeight, compactNavigator ? 40 : 48));
 		m_serverNavigatorTextChannelsMotdToggleButton->setText(tr("More"));
 		m_serverNavigatorTextChannelsMotdToggleButton->setToolTip(tr("Show the full message of the day"));
 		m_serverNavigatorTextChannelsMotdToggleButton->show();
@@ -7650,17 +7609,17 @@ void MainWindow::refreshPersistentChatStyles() {
 	}
 
 	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-		const QColor historyColor           = tokens->base;
-		const QColor railColor              = tokens->mantle;
-		const QColor inputColor             = mixColors(historyColor, tokens->surface0, 0.54);
-		const QColor seamColor              = tokens->surface1;
-		const QColor peerBubbleColor        = mixColors(tokens->surface0, tokens->surface2, 0.62);
-		const QColor selfBubbleColor        = mixColors(tokens->surface0, tokens->accent, 0.36);
-		const QColor bubbleBorderColor      = mixColors(tokens->surface1, tokens->text, 0.16);
+		const QColor historyColor            = tokens->base;
+		const QColor railColor               = tokens->mantle;
+		const QColor inputColor              = mixColors(historyColor, tokens->surface0, 0.54);
+		const QColor seamColor               = tokens->surface1;
+		const QColor peerBubbleColor         = mixColors(tokens->surface0, tokens->surface2, 0.62);
+		const QColor selfBubbleColor         = mixColors(tokens->surface0, tokens->accent, 0.36);
+		const QColor bubbleBorderColor       = mixColors(tokens->surface1, tokens->text, 0.16);
 		const QColor bubbleActiveBorderColor = mixColors(tokens->surface2, tokens->accent, 0.72);
-		QColor selfTintColor                = tokens->accent;
+		QColor selfTintColor                 = tokens->accent;
 		selfTintColor.setAlphaF(0.08f);
-		const QColor pillColor              = mixColors(tokens->surface1, tokens->accent, 0.18);
+		const QColor pillColor = mixColors(tokens->surface1, tokens->accent, 0.18);
 
 		m_persistentChatContainer->setAutoFillBackground(true);
 		QPalette containerPalette = m_persistentChatContainer->palette();
@@ -7672,21 +7631,19 @@ void MainWindow::refreshPersistentChatStyles() {
 		chatDockPalette.setColor(QPalette::Window, historyColor);
 		qdwChat->setPalette(chatDockPalette);
 		qdwChat->setStyleSheet(QString::fromLatin1("QDockWidget#qdwChat { background-color: %1; border: none; }")
-							   .arg(qssColor(historyColor)));
+								   .arg(qssColor(historyColor)));
 
 		qdwLog->setAutoFillBackground(true);
 		QPalette logDockPalette = qdwLog->palette();
 		logDockPalette.setColor(QPalette::Window, railColor);
 		qdwLog->setPalette(logDockPalette);
-		qdwLog->setStyleSheet(
-			QString::fromLatin1(
-				"QDockWidget#qdwLog { background-color: %1; border: none; }"
-				"QWidget#qwLogSurface { background-color: %1; border: none; }")
-				.arg(qssColor(railColor)));
+		qdwLog->setStyleSheet(QString::fromLatin1("QDockWidget#qdwLog { background-color: %1; border: none; }"
+												  "QWidget#qwLogSurface { background-color: %1; border: none; }")
+								  .arg(qssColor(railColor)));
 
-		const QString dockTitleBarStyle = QString::fromLatin1(
-											 "background-color: %1; color: %1; border: none; margin: 0px; padding: 0px;")
-											 .arg(qssColor(railColor));
+		const QString dockTitleBarStyle =
+			QString::fromLatin1("background-color: %1; color: %1; border: none; margin: 0px; padding: 0px;")
+				.arg(qssColor(railColor));
 		if (dtbLogDockTitle) {
 			dtbLogDockTitle->setAttribute(Qt::WA_StyledBackground, true);
 			dtbLogDockTitle->setContentsMargins(0, 0, 0, 0);
@@ -7698,207 +7655,206 @@ void MainWindow::refreshPersistentChatStyles() {
 			dtbChatDockTitle->setStyleSheet(dockTitleBarStyle);
 		}
 		if (menubar) {
-			menubar->setStyleSheet(QString::fromLatin1(
-									  "QMenuBar {"
-									  " background-color: %1;"
-									  " border: none;"
-									  " padding: 0px 3px 0px 0px;"
-									  " color: %2;"
-									  "}"
-									  "QMenuBar::item {"
-									  " background: transparent;"
-									  " border-radius: 3px;"
-									  " font-size: 10px;"
-									  " margin: 0px;"
-									  " padding: 1px 4px;"
-									  " color: %2;"
-									  "}"
-									  "QMenuBar::item:selected {"
-									  " background: %3;"
-									  " color: %2;"
-									  "}"
-									  "QMenuBar::item:pressed {"
-									  " background: %4;"
-									  " color: %5;"
-									  "}"
-									  "QMenu {"
-									  " background-color: %6;"
-									  " border: 1px solid %7;"
-									  " color: %2;"
-									  "}"
-									  "QMenu::item:selected {"
-									  " background: %4;"
-									  " color: %5;"
-									  "}")
-									  .arg(qssColor(tokens->crust), qssColor(tokens->text), qssColor(tokens->surface1),
-										   qssColor(tokens->accentSubtle), qssColor(tokens->accent),
-										   qssColor(tokens->surface0), qssColor(tokens->surface1)));
+			menubar->setStyleSheet(QString::fromLatin1("QMenuBar {"
+													   " background-color: %1;"
+													   " border: none;"
+													   " padding: 0px 3px 0px 0px;"
+													   " color: %2;"
+													   "}"
+													   "QMenuBar::item {"
+													   " background: transparent;"
+													   " border-radius: 3px;"
+													   " font-size: 10px;"
+													   " margin: 0px;"
+													   " padding: 1px 4px;"
+													   " color: %2;"
+													   "}"
+													   "QMenuBar::item:selected {"
+													   " background: %3;"
+													   " color: %2;"
+													   "}"
+													   "QMenuBar::item:pressed {"
+													   " background: %4;"
+													   " color: %5;"
+													   "}"
+													   "QMenu {"
+													   " background-color: %6;"
+													   " border: 1px solid %7;"
+													   " color: %2;"
+													   "}"
+													   "QMenu::item:selected {"
+													   " background: %4;"
+													   " color: %5;"
+													   "}")
+									   .arg(qssColor(tokens->crust), qssColor(tokens->text), qssColor(tokens->surface1),
+											qssColor(tokens->accentSubtle), qssColor(tokens->accent),
+											qssColor(tokens->surface0), qssColor(tokens->surface1)));
 		}
 		if (qtIconToolbar) {
 			qtIconToolbar->setIconSize(QSize(13, 13));
 			qtIconToolbar->setStyleSheet(
-				QString::fromLatin1(
-					"QToolBar {"
-					" background-color: %1;"
-					" border: none;"
-					" spacing: 0px;"
-					" padding: 0px;"
-					"}"
-					"QToolBar::separator { background: %2; width: 1px; margin: 2px 3px; }"
-					"QToolBar QToolButton {"
-					" border: none;"
-					" border-radius: 2px;"
-					" background: transparent;"
-					" padding: 0px;"
-					" margin: 0px;"
-					"}"
-					"QToolBar QToolButton:hover { background: %3; }"
-					"QToolBar QToolButton:pressed { background: %4; }"
-					"QToolBar QToolButton:checked { background: transparent; }"
-					"QToolBar QComboBox {"
-					" background: %3;"
-					" border: 1px solid %2;"
-					" border-radius: 5px;"
-					" color: %5;"
-					" min-height: 16px;"
-					" padding: 0px 5px;"
-					" margin-left: 2px;"
-					"}"
-					"QToolBar QComboBox:hover { border-color: %6; }"
-					"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
+				QString::fromLatin1("QToolBar {"
+									" background-color: %1;"
+									" border: none;"
+									" spacing: 0px;"
+									" padding: 0px;"
+									"}"
+									"QToolBar::separator { background: %2; width: 1px; margin: 2px 3px; }"
+									"QToolBar QToolButton {"
+									" border: none;"
+									" border-radius: 2px;"
+									" background: transparent;"
+									" padding: 0px;"
+									" margin: 0px;"
+									"}"
+									"QToolBar QToolButton:hover { background: %3; }"
+									"QToolBar QToolButton:pressed { background: %4; }"
+									"QToolBar QToolButton:checked { background: transparent; }"
+									"QToolBar QComboBox {"
+									" background: %3;"
+									" border: 1px solid %2;"
+									" border-radius: 5px;"
+									" color: %5;"
+									" min-height: 16px;"
+									" padding: 0px 5px;"
+									" margin-left: 2px;"
+									"}"
+									"QToolBar QComboBox:hover { border-color: %6; }"
+									"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
 					.arg(qssColor(tokens->crust), qssColor(tokens->surface1), qssColor(tokens->surface0),
 						 qssColor(tokens->accentSubtle), qssColor(tokens->text), qssColor(tokens->accent)));
 		}
-		setStyleSheet(QString::fromLatin1(
-						  "QMainWindow::separator:vertical {"
-						  " background: transparent;"
-						  " width: 1px;"
-						  " margin: 8px 0px 4px 0px;"
-						  "}"
-						  "QMainWindow::separator:vertical:hover {"
-						  " background: transparent;"
-						  " margin: 8px 0px 4px 0px;"
-						  "}"
-						  "QMainWindow::separator:horizontal {"
-						  " background: transparent;"
-						  " height: 8px;"
-						  " margin: 0px 8px 4px 8px;"
-						  "}"
-						  "QMainWindow::separator:horizontal:hover {"
-						  " background: %1;"
-						  " border-radius: 4px;"
-						  " margin: 2px 12px 2px 12px;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar:vertical,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar:vertical,"
-						  "ChatbarTextEdit#qteChat QScrollBar:vertical,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar:vertical,"
-						  "QTreeView#qtvUsers QScrollBar:vertical {"
-						  " background: transparent;"
-						  " width: 5px;"
-						  " margin: 2px 0px 2px 0px;"
-						  " border: none;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar::handle:vertical,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical,"
-						  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical,"
-						  "QTreeView#qtvUsers QScrollBar::handle:vertical {"
-						  " background: %2;"
-						  " min-height: 24px;"
-						  " border-radius: 3px;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar:horizontal,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar:horizontal,"
-						  "ChatbarTextEdit#qteChat QScrollBar:horizontal {"
-						  " background: transparent;"
-						  " height: 5px;"
-						  " margin: 0px;"
-						  " border: none;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar::handle:vertical:hover,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:hover,"
-						  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical:hover,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:hover,"
-						  "QTreeView#qtvUsers QScrollBar::handle:vertical:hover,"
-						  "QTextBrowser#qteLog QScrollBar::handle:vertical:pressed,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:pressed,"
-						  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical:pressed,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:pressed,"
-						  "QTreeView#qtvUsers QScrollBar::handle:vertical:pressed {"
-						  " background: %3;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar::handle:horizontal,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal,"
-						  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal {"
-						  " background: %2;"
-						  " min-width: 24px;"
-						  " border-radius: 3px;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar::handle:horizontal:hover,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:hover,"
-						  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:hover,"
-						  "QTextBrowser#qteLog QScrollBar::handle:horizontal:pressed,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:pressed,"
-						  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:pressed {"
-						  " background: %3;"
-						  "}"
-						  "QTextBrowser#qteLog QScrollBar::add-line:vertical,"
-						  "QTextBrowser#qteLog QScrollBar::sub-line:vertical,"
-						  "QTextBrowser#qteLog QScrollBar::add-page:vertical,"
-						  "QTextBrowser#qteLog QScrollBar::sub-page:vertical,"
-						  "QTextBrowser#qteLog QScrollBar::add-line:horizontal,"
-						  "QTextBrowser#qteLog QScrollBar::sub-line:horizontal,"
-						  "QTextBrowser#qteLog QScrollBar::add-page:horizontal,"
-						  "QTextBrowser#qteLog QScrollBar::sub-page:horizontal,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::add-line:vertical,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::sub-line:vertical,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::add-page:vertical,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::sub-page:vertical,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::add-line:horizontal,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::sub-line:horizontal,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::add-page:horizontal,"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::sub-page:horizontal,"
-						  "ChatbarTextEdit#qteChat QScrollBar::add-line:vertical,"
-						  "ChatbarTextEdit#qteChat QScrollBar::sub-line:vertical,"
-						  "ChatbarTextEdit#qteChat QScrollBar::add-page:vertical,"
-						  "ChatbarTextEdit#qteChat QScrollBar::sub-page:vertical,"
-						  "ChatbarTextEdit#qteChat QScrollBar::add-line:horizontal,"
-						  "ChatbarTextEdit#qteChat QScrollBar::sub-line:horizontal,"
-						  "ChatbarTextEdit#qteChat QScrollBar::add-page:horizontal,"
-						  "ChatbarTextEdit#qteChat QScrollBar::sub-page:horizontal,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::add-line:vertical,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::sub-line:vertical,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::add-page:vertical,"
-						  "QListWidget#qlwPersistentTextChannels QScrollBar::sub-page:vertical,"
-						  "QTreeView#qtvUsers QScrollBar::add-line:vertical,"
-						  "QTreeView#qtvUsers QScrollBar::sub-line:vertical,"
-						  "QTreeView#qtvUsers QScrollBar::add-page:vertical,"
-						  "QTreeView#qtvUsers QScrollBar::sub-page:vertical {"
-						  " background: transparent;"
-						  " border: none;"
-						  " height: 0px;"
-						  "}"
-						  "QListWidget#qtePersistentChatHistory QScrollBar:vertical {"
-						  " width: 0px;"
-						  " margin: 0px;"
-						  "}"
-						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar:vertical {"
-						  " width: 5px;"
-						  "}"
-						  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical {"
-						  " background: transparent;"
-						  " border-radius: 3px;"
-						  "}"
-						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical {"
-						  " background: %2;"
-						  "}"
-						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:hover,"
-						  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:pressed {"
-						  " background: %3;"
-						  "}")
-						  .arg(qssColor(seamColor), qssColor(alphaColor(tokens->text, 0.10)),
-							   qssColor(alphaColor(tokens->text, 0.20))));
+		setStyleSheet(
+			QString::fromLatin1(
+				"QMainWindow::separator:vertical {"
+				" background: transparent;"
+				" width: 1px;"
+				" margin: 8px 0px 4px 0px;"
+				"}"
+				"QMainWindow::separator:vertical:hover {"
+				" background: transparent;"
+				" margin: 8px 0px 4px 0px;"
+				"}"
+				"QMainWindow::separator:horizontal {"
+				" background: transparent;"
+				" height: 8px;"
+				" margin: 0px 8px 4px 8px;"
+				"}"
+				"QMainWindow::separator:horizontal:hover {"
+				" background: %1;"
+				" border-radius: 4px;"
+				" margin: 2px 12px 2px 12px;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar:vertical,"
+				"QListWidget#qtePersistentChatHistory QScrollBar:vertical,"
+				"ChatbarTextEdit#qteChat QScrollBar:vertical,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar:vertical,"
+				"QTreeView#qtvUsers QScrollBar:vertical {"
+				" background: transparent;"
+				" width: 5px;"
+				" margin: 2px 0px 2px 0px;"
+				" border: none;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar::handle:vertical,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical,"
+				"ChatbarTextEdit#qteChat QScrollBar::handle:vertical,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical,"
+				"QTreeView#qtvUsers QScrollBar::handle:vertical {"
+				" background: %2;"
+				" min-height: 24px;"
+				" border-radius: 3px;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar:horizontal,"
+				"QListWidget#qtePersistentChatHistory QScrollBar:horizontal,"
+				"ChatbarTextEdit#qteChat QScrollBar:horizontal {"
+				" background: transparent;"
+				" height: 5px;"
+				" margin: 0px;"
+				" border: none;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar::handle:vertical:hover,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:hover,"
+				"ChatbarTextEdit#qteChat QScrollBar::handle:vertical:hover,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:hover,"
+				"QTreeView#qtvUsers QScrollBar::handle:vertical:hover,"
+				"QTextBrowser#qteLog QScrollBar::handle:vertical:pressed,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:pressed,"
+				"ChatbarTextEdit#qteChat QScrollBar::handle:vertical:pressed,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:pressed,"
+				"QTreeView#qtvUsers QScrollBar::handle:vertical:pressed {"
+				" background: %3;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar::handle:horizontal,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal,"
+				"ChatbarTextEdit#qteChat QScrollBar::handle:horizontal {"
+				" background: %2;"
+				" min-width: 24px;"
+				" border-radius: 3px;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar::handle:horizontal:hover,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:hover,"
+				"ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:hover,"
+				"QTextBrowser#qteLog QScrollBar::handle:horizontal:pressed,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:pressed,"
+				"ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:pressed {"
+				" background: %3;"
+				"}"
+				"QTextBrowser#qteLog QScrollBar::add-line:vertical,"
+				"QTextBrowser#qteLog QScrollBar::sub-line:vertical,"
+				"QTextBrowser#qteLog QScrollBar::add-page:vertical,"
+				"QTextBrowser#qteLog QScrollBar::sub-page:vertical,"
+				"QTextBrowser#qteLog QScrollBar::add-line:horizontal,"
+				"QTextBrowser#qteLog QScrollBar::sub-line:horizontal,"
+				"QTextBrowser#qteLog QScrollBar::add-page:horizontal,"
+				"QTextBrowser#qteLog QScrollBar::sub-page:horizontal,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::add-line:vertical,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::sub-line:vertical,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::add-page:vertical,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::sub-page:vertical,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::add-line:horizontal,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::sub-line:horizontal,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::add-page:horizontal,"
+				"QListWidget#qtePersistentChatHistory QScrollBar::sub-page:horizontal,"
+				"ChatbarTextEdit#qteChat QScrollBar::add-line:vertical,"
+				"ChatbarTextEdit#qteChat QScrollBar::sub-line:vertical,"
+				"ChatbarTextEdit#qteChat QScrollBar::add-page:vertical,"
+				"ChatbarTextEdit#qteChat QScrollBar::sub-page:vertical,"
+				"ChatbarTextEdit#qteChat QScrollBar::add-line:horizontal,"
+				"ChatbarTextEdit#qteChat QScrollBar::sub-line:horizontal,"
+				"ChatbarTextEdit#qteChat QScrollBar::add-page:horizontal,"
+				"ChatbarTextEdit#qteChat QScrollBar::sub-page:horizontal,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::add-line:vertical,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::sub-line:vertical,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::add-page:vertical,"
+				"QListWidget#qlwPersistentTextChannels QScrollBar::sub-page:vertical,"
+				"QTreeView#qtvUsers QScrollBar::add-line:vertical,"
+				"QTreeView#qtvUsers QScrollBar::sub-line:vertical,"
+				"QTreeView#qtvUsers QScrollBar::add-page:vertical,"
+				"QTreeView#qtvUsers QScrollBar::sub-page:vertical {"
+				" background: transparent;"
+				" border: none;"
+				" height: 0px;"
+				"}"
+				"QListWidget#qtePersistentChatHistory QScrollBar:vertical {"
+				" width: 0px;"
+				" margin: 0px;"
+				"}"
+				"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar:vertical {"
+				" width: 5px;"
+				"}"
+				"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical {"
+				" background: transparent;"
+				" border-radius: 3px;"
+				"}"
+				"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical {"
+				" background: %2;"
+				"}"
+				"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:hover,"
+				"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:pressed {"
+				" background: %3;"
+				"}")
+				.arg(qssColor(seamColor), qssColor(alphaColor(tokens->text, 0.10)),
+					 qssColor(alphaColor(tokens->text, 0.20))));
 
 		if (m_persistentChatHistory) {
 			QPalette historyPalette = m_persistentChatHistory->palette();
@@ -7928,14 +7884,12 @@ void MainWindow::refreshPersistentChatStyles() {
 			qteLog->setPalette(logPalette);
 			qteLog->viewport()->setAutoFillBackground(true);
 			qteLog->viewport()->setPalette(logPalette);
-			qteLog->setStyleSheet(
-				QString::fromLatin1(
-					"border-style: solid;"
-					"border-color: %1;"
-					"border-width: 1px 0px 1px 1px;"
-					"border-radius: 0px;"
-					"background-color: %2; padding: 0px; outline: none;")
-					.arg(qssColor(tokens->surface1), qssColor(historyColor)));
+			qteLog->setStyleSheet(QString::fromLatin1("border-style: solid;"
+													  "border-color: %1;"
+													  "border-width: 1px 0px 1px 1px;"
+													  "border-radius: 0px;"
+													  "background-color: %2; padding: 0px; outline: none;")
+									  .arg(qssColor(tokens->surface1), qssColor(historyColor)));
 			qteLog->viewport()->setStyleSheet(
 				QString::fromLatin1("background-color: %1; border: none; outline: none;").arg(qssColor(historyColor)));
 		}
@@ -7987,329 +7941,330 @@ void MainWindow::refreshPersistentChatStyles() {
 
 		const QString persistentChatStyle =
 			applyQssArgs(QString::fromLatin1(
-				"QWidget#qwPersistentChat {"
-				" background-color: %1;"
-				"}"
-				"QFrame#qfPersistentChatHeader {"
-				" border: none;"
-				" border-bottom: 1px solid %2;"
-				" border-radius: 0px;"
-				" background-color: %1;"
-				"}"
-				"QWidget#qwPersistentChatSurface,"
-				"QWidget#qwPersistentChatPanel {"
-				" border: none;"
-				" border-radius: 0px;"
-				" background-color: transparent;"
-				"}"
-				"QLabel#qlPersistentChatHeaderEyebrow {"
-				" color: %3;"
-				" font-size: 9px;"
-				" font-weight: 600;"
-				" letter-spacing: 0.12em;"
-				"}"
-				"QLabel#qlPersistentChatHeaderSubtitle {"
-				" color: %4;"
-				" font-size: 10px;"
-				" line-height: 1.2em;"
-				"}"
-				"QLabel#qlPersistentChatHeaderContext {"
-				" color: %4;"
-				" background-color: %12;"
-				" border-radius: 999px;"
-				" padding: 1px 7px;"
-				" font-size: 9px;"
-				"}"
-				"QListWidget#qtePersistentChatHistory {"
-				" border: none;"
-				" border-radius: 0px;"
-				" background-color: %1;"
-				" padding: 0px;"
-				" outline: none;"
-				"}"
-				"QListWidget#qtePersistentChatHistory::item {"
-				" border: none;"
-				" margin: 0px;"
-				" padding: 0px;"
-				"}"
-				"QFrame#qfPersistentChatComposer {"
-				" border: none;"
-				" border-top: none;"
-				" background-color: %1;"
-				"}"
-				"QWidget#qwPersistentChatComposerInputRow {"
-				" background: %6;"
-				" border: 1px solid %2;"
-				" border-radius: 8px;"
-				" padding: 0px;"
-				"}"
-				"QFrame#qfPersistentChatReply {"
-				" border: none;"
-				" border-radius: 8px;"
-				" background-color: %6;"
-				"}"
-				"QLabel#qlPersistentChatReplyLabel {"
-				" color: %7;"
-				" font-weight: 600;"
-				"}"
-				"QLabel#qlPersistentChatReplySnippet {"
-				" color: %4;"
-				"}"
-				"QToolButton#qtbPersistentChatAttach {"
-				" border: none;"
-				" border-radius: 6px;"
-				" background-color: transparent;"
-				" min-width: 22px;"
-				" min-height: 22px;"
-				" max-width: 22px;"
-				" max-height: 22px;"
-				" padding: 0px;"
-				"}"
-				"QToolButton#qtbPersistentChatAttach:hover {"
-				" background-color: %12;"
-				"}"
-				"QToolButton#qtbPersistentChatAttach:disabled {"
-				" background-color: transparent;"
-				"}"
-				"QToolButton#qtbPersistentChatSend {"
-				" border: none;"
-				" border-radius: 6px;"
-				" background-color: transparent;"
-				" min-width: 22px;"
-				" min-height: 22px;"
-				" max-width: 22px;"
-				" max-height: 22px;"
-				" padding: 0px;"
-				"}"
-				"QToolButton#qtbPersistentChatSend:hover {"
-				" background-color: %12;"
-				"}"
-				"QToolButton#qtbPersistentChatSend:disabled {"
-				" background-color: transparent;"
-				"}"
-				"QFrame#qfPersistentChatBanner {"
-				" border: 1px solid %2;"
-				" border-radius: 12px;"
-				" background-color: %6;"
-				"}"
-				"QLabel#qlPersistentChatBannerEyebrow {"
-				" color: %3;"
-				" letter-spacing: 0.12em;"
-				"}"
-				"QLabel#qlPersistentChatBannerTitle {"
-				" color: %7;"
-				" font-weight: 700;"
-				"}"
-				"QLabel#qlPersistentChatBannerBody {"
-				" color: %4;"
-				" line-height: 1.45em;"
-				"}"
-				"QWidget#qwPersistentChatBannerHints {"
-				" background: transparent;"
-				" border: none;"
-				"}"
-				"QLabel#qlPersistentChatBannerHint {"
-				" color: %11;"
-				" background-color: %12;"
-				" border-radius: 999px;"
-				" padding: 4px 10px;"
-				"}"
-				"QLabel#qlPersistentChatStatusPill,"
-				"QLabel#qlPersistentChatLoadingPill,"
-				"QLabel#qlPersistentChatInfoPill,"
-				"QLabel#qlPersistentChatUnreadPill,"
-				"QLabel#qlPersistentChatAggregateNotice,"
-				"QLabel#qlPersistentChatEmptyPill,"
-				"QPushButton#qpbPersistentChatLoadOlder {"
-				" border: none;"
-				" border-radius: 999px;"
-				" background: %12;"
-				" color: %11;"
-				" padding: 5px 12px;"
-				"}"
-				"QPushButton#qpbPersistentChatLoadOlder:hover {"
-				" color: %7;"
-				"}"
-				"QWidget#qwPersistentChatMessageGroup,"
-				"QWidget#qwPersistentChatMessageColumn,"
-				"QWidget#qwPersistentChatGroupHeader,"
-				"QWidget#qwPersistentChatDateDivider,"
-				"QWidget#qwPersistentChatLeadingSpacer {"
-				" background: transparent;"
-				" border: none;"
-				"}"
-				"QWidget#qwPersistentChatMessageGroup[selfAuthored=\"true\"] {"
-				" background-color: transparent;"
-				" border-radius: 0px;"
-				"}"
-				"QWidget#qwPersistentChatMessageGroup[rowActive=\"true\"] {"
-				" background-color: %14;"
-				" border-radius: 10px;"
-				"}"
-				"QWidget#qwPersistentChatMessageGroup[selfAuthored=\"true\"][rowActive=\"true\"] {"
-				" background-color: %14;"
-				" border-radius: 10px;"
-				"}"
-				"QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"],"
-				"QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"][rowActive=\"true\"] {"
-				" background: transparent;"
-				"}"
-				"QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"],"
-				"QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"][rowActive=\"true\"] {"
-				" background: transparent;"
-				" border-radius: 0px;"
-				"}"
-				"QFrame#qfPersistentChatDateDividerLine {"
-				" background-color: %2;"
-				" border: none;"
-				"}"
-				"QFrame#qfPersistentChatDateDividerLine[compactTranscript=\"true\"] {"
-				" background-color: %10;"
-				"}"
-				"QLabel#qlPersistentChatDateDividerText {"
-				" color: %3;"
-				" font-size: 0.72em;"
-				" font-weight: 600;"
-				" letter-spacing: 0.08em;"
-				"}"
-				"QLabel#qlPersistentChatDateDividerText[compactTranscript=\"true\"] {"
-				" color: %11;"
-				" font-size: 0.86em;"
-				" font-weight: 700;"
-				" letter-spacing: 0.14em;"
-				"}"
-				"QFrame#qfPersistentChatAvatarFrame {"
-				" border: 1px solid %10;"
-				" border-radius: 11px;"
-				" background-color: %12;"
-				"}"
-				"QLabel#qlPersistentChatAvatarFallback {"
-				" border: none;"
-				" border-radius: 11px;"
-				" background-color: transparent;"
-				" color: %11;"
-				" font-weight: 700;"
-				"}"
-				"QLabel#qlPersistentChatAvatar {"
-				" background: transparent;"
-				"}"
-				"QLabel#qlPersistentChatGroupActor {"
-				" color: %11;"
-				" font-weight: 600;"
-				" font-size: 0.80em;"
-				"}"
-				"QLabel#qlPersistentChatGroupTime {"
-				" color: %3;"
-				" font-size: 0.66em;"
-				"}"
-				"QToolButton#qtbPersistentChatGroupScope {"
-				" border: none;"
-				" background: transparent;"
-				" color: %4;"
-				" padding: 1px 5px;"
-				"}"
-				"QToolButton#qtbPersistentChatGroupScope:hover {"
-				" color: %11;"
-				"}"
-				"QWidget#qwPersistentChatBubbleActions {"
-				" background: %6;"
-				" border: 1px solid %2;"
-				" border-radius: 3px;"
-				"}"
-				"QToolButton#qtbPersistentChatBubbleAction {"
-				" border: none;"
-				" background: transparent;"
-				" color: %4;"
-				" min-width: 22px;"
-				" min-height: 22px;"
-				" max-width: 22px;"
-				" max-height: 22px;"
-				" padding: 0px;"
-				"}"
-				"QToolButton#qtbPersistentChatBubbleAction:hover {"
-				" background: %2;"
-				" color: %7;"
-				"}"
-				"QFrame#qfPersistentChatBubble {"
-				" border: 1px solid %10;"
-				" border-top-left-radius: 10px;"
-				" border-top-right-radius: 10px;"
-				" border-bottom-left-radius: 10px;"
-				" border-bottom-right-radius: 10px;"
-				" background-color: %8;"
-				"}"
-				"QFrame#qfPersistentChatBubble[selfAuthored=\"true\"] {"
-				" border-color: %11;"
-				" border-top-left-radius: 10px;"
-				" border-top-right-radius: 10px;"
-				" border-bottom-left-radius: 10px;"
-				" border-bottom-right-radius: 10px;"
-				" background-color: %9;"
-				"}"
-				"QFrame#qfPersistentChatBubble[bubbleActive=\"true\"] {"
-				" border-color: %13;"
-				"}"
-				"QFrame#qfPersistentChatBubble[selfAuthored=\"true\"][bubbleActive=\"true\"] {"
-				" border-color: %11;"
-				"}"
-				"QFrame#qfPersistentChatBubble[persistentChatSystem=\"true\"] {"
-				" border: none;"
-				" background: transparent;"
-				"}"
-				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"],"
-				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"],"
-				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][bubbleActive=\"true\"],"
-				"QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"][bubbleActive=\"true\"] {"
-				" border: none;"
-				" border-radius: 0px;"
-				" background: transparent;"
-				"}"
-				"QFrame#qfPersistentChatBubbleQuote {"
-				" border: 1px solid %10;"
-				" border-left: 2px solid %11;"
-				" border-radius: 9px;"
-				" background-color: %6;"
-				"}"
-				"QFrame#qfPersistentChatBubbleQuote[compactTranscript=\"true\"] {"
-				" border: none;"
-				" border-left: 2px solid %11;"
-				" border-radius: 0px;"
-				" background: transparent;"
-				"}"
-				"QLabel#qlPersistentChatBubbleQuoteActor {"
-				" color: %11;"
-				"}"
-				"QLabel#qlPersistentChatBubbleQuoteSnippet {"
-				" color: %4;"
-				"}"
-				"ChatbarTextEdit#qteChat {"
-				" border: none;"
-				" border-radius: 0px;"
-				" background-color: transparent;"
-				" color: %7;"
-				" min-height: 26px;"
-				" max-height: 72px;"
-				" padding: 3px 0px;"
-				"}"
-				"ChatbarTextEdit#qteChat:focus {"
-				" border: none;"
-				"}"
-				"ChatbarTextEdit#qteChat > QWidget {"
-				" border: none;"
-				" border-radius: 0px;"
-				" background-color: transparent;"
-				" color: %7;"
-				"}"
-				"QLabel#qlPersistentChatHeaderTitle {"
-				" color: %7;"
-				" font-size: 12px;"
-				" font-weight: 600;"
-				"}"),
-				QStringList { qssColor(historyColor), qssColor(seamColor), qssColor(tokens->overlay0),
-							  qssColor(tokens->subtext0), qssColor(railColor), qssColor(inputColor),
-							  qssColor(tokens->text), qssColor(peerBubbleColor), qssColor(selfBubbleColor),
-							  qssColor(bubbleBorderColor), qssColor(tokens->accent), qssColor(pillColor),
-							  qssColor(bubbleActiveBorderColor), qssColor(selfTintColor) });
+							 "QWidget#qwPersistentChat {"
+							 " background-color: %1;"
+							 "}"
+							 "QFrame#qfPersistentChatHeader {"
+							 " border: none;"
+							 " border-bottom: 1px solid %2;"
+							 " border-radius: 0px;"
+							 " background-color: %1;"
+							 "}"
+							 "QWidget#qwPersistentChatSurface,"
+							 "QWidget#qwPersistentChatPanel {"
+							 " border: none;"
+							 " border-radius: 0px;"
+							 " background-color: transparent;"
+							 "}"
+							 "QLabel#qlPersistentChatHeaderEyebrow {"
+							 " color: %3;"
+							 " font-size: 9px;"
+							 " font-weight: 600;"
+							 " letter-spacing: 0.12em;"
+							 "}"
+							 "QLabel#qlPersistentChatHeaderSubtitle {"
+							 " color: %4;"
+							 " font-size: 10px;"
+							 " line-height: 1.2em;"
+							 "}"
+							 "QLabel#qlPersistentChatHeaderContext {"
+							 " color: %4;"
+							 " background-color: %12;"
+							 " border-radius: 999px;"
+							 " padding: 1px 7px;"
+							 " font-size: 9px;"
+							 "}"
+							 "QListWidget#qtePersistentChatHistory {"
+							 " border: none;"
+							 " border-radius: 0px;"
+							 " background-color: %1;"
+							 " padding: 0px;"
+							 " outline: none;"
+							 "}"
+							 "QListWidget#qtePersistentChatHistory::item {"
+							 " border: none;"
+							 " margin: 0px;"
+							 " padding: 0px;"
+							 "}"
+							 "QFrame#qfPersistentChatComposer {"
+							 " border: none;"
+							 " border-top: none;"
+							 " background-color: %1;"
+							 "}"
+							 "QWidget#qwPersistentChatComposerInputRow {"
+							 " background: %6;"
+							 " border: 1px solid %2;"
+							 " border-radius: 8px;"
+							 " padding: 0px;"
+							 "}"
+							 "QFrame#qfPersistentChatReply {"
+							 " border: none;"
+							 " border-radius: 8px;"
+							 " background-color: %6;"
+							 "}"
+							 "QLabel#qlPersistentChatReplyLabel {"
+							 " color: %7;"
+							 " font-weight: 600;"
+							 "}"
+							 "QLabel#qlPersistentChatReplySnippet {"
+							 " color: %4;"
+							 "}"
+							 "QToolButton#qtbPersistentChatAttach {"
+							 " border: none;"
+							 " border-radius: 6px;"
+							 " background-color: transparent;"
+							 " min-width: 22px;"
+							 " min-height: 22px;"
+							 " max-width: 22px;"
+							 " max-height: 22px;"
+							 " padding: 0px;"
+							 "}"
+							 "QToolButton#qtbPersistentChatAttach:hover {"
+							 " background-color: %12;"
+							 "}"
+							 "QToolButton#qtbPersistentChatAttach:disabled {"
+							 " background-color: transparent;"
+							 "}"
+							 "QToolButton#qtbPersistentChatSend {"
+							 " border: none;"
+							 " border-radius: 6px;"
+							 " background-color: transparent;"
+							 " min-width: 22px;"
+							 " min-height: 22px;"
+							 " max-width: 22px;"
+							 " max-height: 22px;"
+							 " padding: 0px;"
+							 "}"
+							 "QToolButton#qtbPersistentChatSend:hover {"
+							 " background-color: %12;"
+							 "}"
+							 "QToolButton#qtbPersistentChatSend:disabled {"
+							 " background-color: transparent;"
+							 "}"
+							 "QFrame#qfPersistentChatBanner {"
+							 " border: 1px solid %2;"
+							 " border-radius: 12px;"
+							 " background-color: %6;"
+							 "}"
+							 "QLabel#qlPersistentChatBannerEyebrow {"
+							 " color: %3;"
+							 " letter-spacing: 0.12em;"
+							 "}"
+							 "QLabel#qlPersistentChatBannerTitle {"
+							 " color: %7;"
+							 " font-weight: 700;"
+							 "}"
+							 "QLabel#qlPersistentChatBannerBody {"
+							 " color: %4;"
+							 " line-height: 1.45em;"
+							 "}"
+							 "QWidget#qwPersistentChatBannerHints {"
+							 " background: transparent;"
+							 " border: none;"
+							 "}"
+							 "QLabel#qlPersistentChatBannerHint {"
+							 " color: %11;"
+							 " background-color: %12;"
+							 " border-radius: 999px;"
+							 " padding: 4px 10px;"
+							 "}"
+							 "QLabel#qlPersistentChatStatusPill,"
+							 "QLabel#qlPersistentChatLoadingPill,"
+							 "QLabel#qlPersistentChatInfoPill,"
+							 "QLabel#qlPersistentChatUnreadPill,"
+							 "QLabel#qlPersistentChatAggregateNotice,"
+							 "QLabel#qlPersistentChatEmptyPill,"
+							 "QPushButton#qpbPersistentChatLoadOlder {"
+							 " border: none;"
+							 " border-radius: 999px;"
+							 " background: %12;"
+							 " color: %11;"
+							 " padding: 5px 12px;"
+							 "}"
+							 "QPushButton#qpbPersistentChatLoadOlder:hover {"
+							 " color: %7;"
+							 "}"
+							 "QWidget#qwPersistentChatMessageGroup,"
+							 "QWidget#qwPersistentChatMessageColumn,"
+							 "QWidget#qwPersistentChatGroupHeader,"
+							 "QWidget#qwPersistentChatDateDivider,"
+							 "QWidget#qwPersistentChatLeadingSpacer {"
+							 " background: transparent;"
+							 " border: none;"
+							 "}"
+							 "QWidget#qwPersistentChatMessageGroup[selfAuthored=\"true\"] {"
+							 " background-color: transparent;"
+							 " border-radius: 0px;"
+							 "}"
+							 "QWidget#qwPersistentChatMessageGroup[rowActive=\"true\"] {"
+							 " background-color: %14;"
+							 " border-radius: 10px;"
+							 "}"
+							 "QWidget#qwPersistentChatMessageGroup[selfAuthored=\"true\"][rowActive=\"true\"] {"
+							 " background-color: %14;"
+							 " border-radius: 10px;"
+							 "}"
+							 "QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"],"
+							 "QWidget#qwPersistentChatMessageGroup[persistentChatSystem=\"true\"][rowActive=\"true\"] {"
+							 " background: transparent;"
+							 "}"
+							 "QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"],"
+							 "QWidget#qwPersistentChatMessageGroup[compactTranscript=\"true\"][rowActive=\"true\"] {"
+							 " background: transparent;"
+							 " border-radius: 0px;"
+							 "}"
+							 "QFrame#qfPersistentChatDateDividerLine {"
+							 " background-color: %2;"
+							 " border: none;"
+							 "}"
+							 "QFrame#qfPersistentChatDateDividerLine[compactTranscript=\"true\"] {"
+							 " background-color: %10;"
+							 "}"
+							 "QLabel#qlPersistentChatDateDividerText {"
+							 " color: %3;"
+							 " font-size: 0.72em;"
+							 " font-weight: 600;"
+							 " letter-spacing: 0.08em;"
+							 "}"
+							 "QLabel#qlPersistentChatDateDividerText[compactTranscript=\"true\"] {"
+							 " color: %11;"
+							 " font-size: 0.86em;"
+							 " font-weight: 700;"
+							 " letter-spacing: 0.14em;"
+							 "}"
+							 "QFrame#qfPersistentChatAvatarFrame {"
+							 " border: 1px solid %10;"
+							 " border-radius: 11px;"
+							 " background-color: %12;"
+							 "}"
+							 "QLabel#qlPersistentChatAvatarFallback {"
+							 " border: none;"
+							 " border-radius: 11px;"
+							 " background-color: transparent;"
+							 " color: %11;"
+							 " font-weight: 700;"
+							 "}"
+							 "QLabel#qlPersistentChatAvatar {"
+							 " background: transparent;"
+							 "}"
+							 "QLabel#qlPersistentChatGroupActor {"
+							 " color: %11;"
+							 " font-weight: 600;"
+							 " font-size: 0.80em;"
+							 "}"
+							 "QLabel#qlPersistentChatGroupTime {"
+							 " color: %3;"
+							 " font-size: 0.66em;"
+							 "}"
+							 "QToolButton#qtbPersistentChatGroupScope {"
+							 " border: none;"
+							 " background: transparent;"
+							 " color: %4;"
+							 " padding: 1px 5px;"
+							 "}"
+							 "QToolButton#qtbPersistentChatGroupScope:hover {"
+							 " color: %11;"
+							 "}"
+							 "QWidget#qwPersistentChatBubbleActions {"
+							 " background: %6;"
+							 " border: 1px solid %2;"
+							 " border-radius: 3px;"
+							 "}"
+							 "QToolButton#qtbPersistentChatBubbleAction {"
+							 " border: none;"
+							 " background: transparent;"
+							 " color: %4;"
+							 " min-width: 22px;"
+							 " min-height: 22px;"
+							 " max-width: 22px;"
+							 " max-height: 22px;"
+							 " padding: 0px;"
+							 "}"
+							 "QToolButton#qtbPersistentChatBubbleAction:hover {"
+							 " background: %2;"
+							 " color: %7;"
+							 "}"
+							 "QFrame#qfPersistentChatBubble {"
+							 " border: 1px solid %10;"
+							 " border-top-left-radius: 10px;"
+							 " border-top-right-radius: 10px;"
+							 " border-bottom-left-radius: 10px;"
+							 " border-bottom-right-radius: 10px;"
+							 " background-color: %8;"
+							 "}"
+							 "QFrame#qfPersistentChatBubble[selfAuthored=\"true\"] {"
+							 " border-color: %11;"
+							 " border-top-left-radius: 10px;"
+							 " border-top-right-radius: 10px;"
+							 " border-bottom-left-radius: 10px;"
+							 " border-bottom-right-radius: 10px;"
+							 " background-color: %9;"
+							 "}"
+							 "QFrame#qfPersistentChatBubble[bubbleActive=\"true\"] {"
+							 " border-color: %13;"
+							 "}"
+							 "QFrame#qfPersistentChatBubble[selfAuthored=\"true\"][bubbleActive=\"true\"] {"
+							 " border-color: %11;"
+							 "}"
+							 "QFrame#qfPersistentChatBubble[persistentChatSystem=\"true\"] {"
+							 " border: none;"
+							 " background: transparent;"
+							 "}"
+							 "QFrame#qfPersistentChatBubble[compactTranscript=\"true\"],"
+							 "QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"],"
+							 "QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][bubbleActive=\"true\"],"
+							 "QFrame#qfPersistentChatBubble[compactTranscript=\"true\"][selfAuthored=\"true\"]["
+							 "bubbleActive=\"true\"] {"
+							 " border: none;"
+							 " border-radius: 0px;"
+							 " background: transparent;"
+							 "}"
+							 "QFrame#qfPersistentChatBubbleQuote {"
+							 " border: 1px solid %10;"
+							 " border-left: 2px solid %11;"
+							 " border-radius: 9px;"
+							 " background-color: %6;"
+							 "}"
+							 "QFrame#qfPersistentChatBubbleQuote[compactTranscript=\"true\"] {"
+							 " border: none;"
+							 " border-left: 2px solid %11;"
+							 " border-radius: 0px;"
+							 " background: transparent;"
+							 "}"
+							 "QLabel#qlPersistentChatBubbleQuoteActor {"
+							 " color: %11;"
+							 "}"
+							 "QLabel#qlPersistentChatBubbleQuoteSnippet {"
+							 " color: %4;"
+							 "}"
+							 "ChatbarTextEdit#qteChat {"
+							 " border: none;"
+							 " border-radius: 0px;"
+							 " background-color: transparent;"
+							 " color: %7;"
+							 " min-height: 26px;"
+							 " max-height: 72px;"
+							 " padding: 3px 0px;"
+							 "}"
+							 "ChatbarTextEdit#qteChat:focus {"
+							 " border: none;"
+							 "}"
+							 "ChatbarTextEdit#qteChat > QWidget {"
+							 " border: none;"
+							 " border-radius: 0px;"
+							 " background-color: transparent;"
+							 " color: %7;"
+							 "}"
+							 "QLabel#qlPersistentChatHeaderTitle {"
+							 " color: %7;"
+							 " font-size: 12px;"
+							 " font-weight: 600;"
+							 "}"),
+						 QStringList{ qssColor(historyColor), qssColor(seamColor), qssColor(tokens->overlay0),
+									  qssColor(tokens->subtext0), qssColor(railColor), qssColor(inputColor),
+									  qssColor(tokens->text), qssColor(peerBubbleColor), qssColor(selfBubbleColor),
+									  qssColor(bubbleBorderColor), qssColor(tokens->accent), qssColor(pillColor),
+									  qssColor(bubbleActiveBorderColor), qssColor(selfTintColor) });
 		m_persistentChatContainer->setStyleSheet(persistentChatStyle);
 		if (m_persistentChatHistory) {
 			m_persistentChatHistory->setStyleSheet(persistentChatStyle);
@@ -8324,28 +8279,23 @@ void MainWindow::refreshPersistentChatStyles() {
 		return;
 	}
 
-	const QPalette chatPalette = m_persistentChatContainer->palette();
+	const QPalette chatPalette       = m_persistentChatContainer->palette();
 	const ChromePaletteColors chrome = buildChromePalette(chatPalette);
 	const QColor historyColor        = chrome.cardColor;
-	const QColor headerSurfaceColor  =
-		mixColors(historyColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.78 : 0.20);
-	const QColor inputColor          =
-		mixColors(historyColor, chrome.inputColor, chrome.darkTheme ? 0.56 : 0.72);
-	const QColor seamColor           = chrome.dividerColor;
-	const QColor peerBubbleColor     =
+	const QColor headerSurfaceColor = mixColors(historyColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.78 : 0.20);
+	const QColor inputColor         = mixColors(historyColor, chrome.inputColor, chrome.darkTheme ? 0.56 : 0.72);
+	const QColor seamColor          = chrome.dividerColor;
+	const QColor peerBubbleColor =
 		mixColors(chrome.cardColor, chrome.elevatedCardColor, chrome.darkTheme ? 0.88 : 0.22);
-	const QColor selfBubbleColor     =
+	const QColor selfBubbleColor =
 		mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.38 : 0.24);
-	const QColor bubbleBorderColor   =
-		mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.07);
+	const QColor bubbleBorderColor = mixColors(chrome.borderColor, chrome.textColor, chrome.darkTheme ? 0.16 : 0.07);
 	const QColor bubbleActiveBorderColor =
 		mixColors(bubbleBorderColor, chrome.selectedColor, chrome.darkTheme ? 0.62 : 0.34);
-	QColor selfTintColor             = chrome.selectedColor;
+	QColor selfTintColor = chrome.selectedColor;
 	selfTintColor.setAlphaF(0.08f);
-	const QColor quoteColor =
-		mixColors(peerBubbleColor, chrome.panelColor, chrome.darkTheme ? 0.42 : 0.20);
-	const QColor pillColor =
-		mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.16 : 0.08);
+	const QColor quoteColor = mixColors(peerBubbleColor, chrome.panelColor, chrome.darkTheme ? 0.42 : 0.20);
+	const QColor pillColor  = mixColors(chrome.elevatedCardColor, chrome.selectedColor, chrome.darkTheme ? 0.16 : 0.08);
 	const QColor avatarBadgeColor =
 		mixColors(chrome.elevatedCardColor, chrome.textColor, chrome.darkTheme ? 0.20 : 0.08);
 
@@ -8358,20 +8308,18 @@ void MainWindow::refreshPersistentChatStyles() {
 	QPalette chatDockPalette = qdwChat->palette();
 	chatDockPalette.setColor(QPalette::Window, historyColor);
 	qdwChat->setPalette(chatDockPalette);
-	qdwChat->setStyleSheet(QString::fromLatin1("QDockWidget#qdwChat { background-color: %1; border: none; }")
-						   .arg(historyColor.name()));
+	qdwChat->setStyleSheet(
+		QString::fromLatin1("QDockWidget#qdwChat { background-color: %1; border: none; }").arg(historyColor.name()));
 	qdwLog->setAutoFillBackground(true);
 	QPalette logDockPalette = qdwLog->palette();
 	logDockPalette.setColor(QPalette::Window, chrome.railColor);
 	qdwLog->setPalette(logDockPalette);
-	qdwLog->setStyleSheet(
-		QString::fromLatin1(
-			"QDockWidget#qdwLog { background-color: %1; border: none; }"
-			"QWidget#qwLogSurface { background-color: %2; border: none; }")
-			.arg(chrome.railColor.name(), chrome.railColor.name()));
-	const QString dockTitleBarStyle = QString::fromLatin1(
-										 "background-color: %1; color: %1; border: none; margin: 0px; padding: 0px;")
-										 .arg(chrome.railColor.name());
+	qdwLog->setStyleSheet(QString::fromLatin1("QDockWidget#qdwLog { background-color: %1; border: none; }"
+											  "QWidget#qwLogSurface { background-color: %2; border: none; }")
+							  .arg(chrome.railColor.name(), chrome.railColor.name()));
+	const QString dockTitleBarStyle =
+		QString::fromLatin1("background-color: %1; color: %1; border: none; margin: 0px; padding: 0px;")
+			.arg(chrome.railColor.name());
 	if (dtbLogDockTitle) {
 		dtbLogDockTitle->setAttribute(Qt::WA_StyledBackground, true);
 		dtbLogDockTitle->setContentsMargins(0, 0, 0, 0);
@@ -8383,190 +8331,189 @@ void MainWindow::refreshPersistentChatStyles() {
 		dtbChatDockTitle->setStyleSheet(dockTitleBarStyle);
 	}
 	if (menubar) {
-		menubar->setStyleSheet(QString::fromLatin1(
-								  "QMenuBar {"
-								  " background-color: %1;"
-								  " border: none;"
-								  " padding: 0px 3px 0px 0px;"
-								  "}"
-								  "QMenuBar::item {"
-								  " background: transparent;"
-								  " border-radius: 3px;"
-								  " font-size: 10px;"
-								  " margin: 0px;"
-								  " padding: 1px 4px;"
-								  "}"
-								  "QMenuBar::item:selected {"
-								  " background: %2;"
-								  " color: %4;"
-								  "}"
-								  "QMenuBar::item:pressed {"
-								  " background: %3;"
-								  " color: %4;"
-								  "}")
-								  .arg(chrome.railColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name(),
-									   chrome.selectedTextColor.name()));
+		menubar->setStyleSheet(QString::fromLatin1("QMenuBar {"
+												   " background-color: %1;"
+												   " border: none;"
+												   " padding: 0px 3px 0px 0px;"
+												   "}"
+												   "QMenuBar::item {"
+												   " background: transparent;"
+												   " border-radius: 3px;"
+												   " font-size: 10px;"
+												   " margin: 0px;"
+												   " padding: 1px 4px;"
+												   "}"
+												   "QMenuBar::item:selected {"
+												   " background: %2;"
+												   " color: %4;"
+												   "}"
+												   "QMenuBar::item:pressed {"
+												   " background: %3;"
+												   " color: %4;"
+												   "}")
+								   .arg(chrome.railColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name(),
+										chrome.selectedTextColor.name()));
 	}
 	if (qtIconToolbar) {
 		qtIconToolbar->setIconSize(QSize(13, 13));
 		qtIconToolbar->setStyleSheet(
-			QString::fromLatin1(
-				"QToolBar { background-color: %1; border: none; spacing: 0px; padding: 0px; }"
-				"QToolBar::separator { background: transparent; width: 1px; margin: 2px 3px; }"
-				"QToolBar QToolButton {"
-				" border: none;"
-				" border-radius: 2px;"
-				" background: transparent;"
-				" padding: 0px;"
-				" margin: 0px;"
-				"}"
-				"QToolBar QToolButton:hover { background: %2; }"
-				"QToolBar QToolButton:pressed, QToolBar QToolButton:checked { background: %3; }"
-				"QToolBar QComboBox {"
-				" background: %4;"
-				" border: 1px solid %5;"
-				" border-radius: 8px;"
-				" color: %6;"
-				" min-height: 16px;"
-				" padding: 0px 5px;"
-				" margin-left: 2px;"
-				"}"
-				"QToolBar QComboBox:hover { border-color: %2; }"
-				"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
+			QString::fromLatin1("QToolBar { background-color: %1; border: none; spacing: 0px; padding: 0px; }"
+								"QToolBar::separator { background: transparent; width: 1px; margin: 2px 3px; }"
+								"QToolBar QToolButton {"
+								" border: none;"
+								" border-radius: 2px;"
+								" background: transparent;"
+								" padding: 0px;"
+								" margin: 0px;"
+								"}"
+								"QToolBar QToolButton:hover { background: %2; }"
+								"QToolBar QToolButton:pressed, QToolBar QToolButton:checked { background: %3; }"
+								"QToolBar QComboBox {"
+								" background: %4;"
+								" border: 1px solid %5;"
+								" border-radius: 8px;"
+								" color: %6;"
+								" min-height: 16px;"
+								" padding: 0px 5px;"
+								" margin-left: 2px;"
+								"}"
+								"QToolBar QComboBox:hover { border-color: %2; }"
+								"QToolBar QComboBox::drop-down { border: none; width: 18px; }")
 				.arg(chrome.cardColor.name(), chrome.hoverColor.name(), chrome.selectedColor.name(),
 					 chrome.elevatedCardColor.name(), chrome.dividerColor.name(), chrome.textColor.name()));
 	}
-	setStyleSheet(QString::fromLatin1(
-					  "QMainWindow::separator:vertical {"
-					  " background: transparent;"
-					  " width: 1px;"
-					  " margin: 8px 0px 4px 0px;"
-					  "}"
-					  "QMainWindow::separator:vertical:hover {"
-					  " background: transparent;"
-					  " border-radius: 0px;"
-					  " margin: 8px 0px 4px 0px;"
-					  "}"
-					  "QMainWindow::separator:horizontal {"
-					  " background: transparent;"
-					  " height: 8px;"
-					  " margin: 0px 8px 4px 8px;"
-					  "}"
-					  "QMainWindow::separator:horizontal:hover {"
-					  " background: %1;"
-					  " border-radius: 4px;"
-					  " margin: 2px 12px 2px 12px;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar:vertical,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar:vertical,"
-					  "ChatbarTextEdit#qteChat QScrollBar:vertical,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar:vertical,"
-					  "QTreeView#qtvUsers QScrollBar:vertical {"
-					  " background: transparent;"
-					  " width: 5px;"
-					  " margin: 2px 0px 2px 0px;"
-					  " border: none;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar::handle:vertical,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical,"
-					  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical,"
-					  "QTreeView#qtvUsers QScrollBar::handle:vertical {"
-					  " background: %2;"
-					  " min-height: 24px;"
-					  " border-radius: 3px;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar:horizontal,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar:horizontal,"
-					  "ChatbarTextEdit#qteChat QScrollBar:horizontal {"
-					  " background: transparent;"
-					  " height: 5px;"
-					  " margin: 0px;"
-					  " border: none;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar::handle:vertical:hover,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:hover,"
-					  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical:hover,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:hover,"
-					  "QTreeView#qtvUsers QScrollBar::handle:vertical:hover,"
-					  "QTextBrowser#qteLog QScrollBar::handle:vertical:pressed,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:pressed,"
-					  "ChatbarTextEdit#qteChat QScrollBar::handle:vertical:pressed,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:pressed,"
-					  "QTreeView#qtvUsers QScrollBar::handle:vertical:pressed {"
-					  " background: %3;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar::handle:horizontal,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal,"
-					  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal {"
-					  " background: %2;"
-					  " min-width: 24px;"
-					  " border-radius: 3px;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar::handle:horizontal:hover,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:hover,"
-					  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:hover,"
-					  "QTextBrowser#qteLog QScrollBar::handle:horizontal:pressed,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:pressed,"
-					  "ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:pressed {"
-					  " background: %3;"
-					  "}"
-					  "QTextBrowser#qteLog QScrollBar::add-line:vertical,"
-					  "QTextBrowser#qteLog QScrollBar::sub-line:vertical,"
-					  "QTextBrowser#qteLog QScrollBar::add-page:vertical,"
-					  "QTextBrowser#qteLog QScrollBar::sub-page:vertical,"
-					  "QTextBrowser#qteLog QScrollBar::add-line:horizontal,"
-					  "QTextBrowser#qteLog QScrollBar::sub-line:horizontal,"
-					  "QTextBrowser#qteLog QScrollBar::add-page:horizontal,"
-					  "QTextBrowser#qteLog QScrollBar::sub-page:horizontal,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::add-line:vertical,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::sub-line:vertical,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::add-page:vertical,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::sub-page:vertical,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::add-line:horizontal,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::sub-line:horizontal,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::add-page:horizontal,"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::sub-page:horizontal,"
-					  "ChatbarTextEdit#qteChat QScrollBar::add-line:vertical,"
-					  "ChatbarTextEdit#qteChat QScrollBar::sub-line:vertical,"
-					  "ChatbarTextEdit#qteChat QScrollBar::add-page:vertical,"
-					  "ChatbarTextEdit#qteChat QScrollBar::sub-page:vertical,"
-					  "ChatbarTextEdit#qteChat QScrollBar::add-line:horizontal,"
-					  "ChatbarTextEdit#qteChat QScrollBar::sub-line:horizontal,"
-					  "ChatbarTextEdit#qteChat QScrollBar::add-page:horizontal,"
-					  "ChatbarTextEdit#qteChat QScrollBar::sub-page:horizontal,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::add-line:vertical,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::sub-line:vertical,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::add-page:vertical,"
-					  "QListWidget#qlwPersistentTextChannels QScrollBar::sub-page:vertical,"
-					  "QTreeView#qtvUsers QScrollBar::add-line:vertical,"
-					  "QTreeView#qtvUsers QScrollBar::sub-line:vertical,"
-					  "QTreeView#qtvUsers QScrollBar::add-page:vertical,"
-					  "QTreeView#qtvUsers QScrollBar::sub-page:vertical {"
-					  " background: transparent;"
-					  " border: none;"
-					  " height: 0px;"
-					  "}"
-					  "QListWidget#qtePersistentChatHistory QScrollBar:vertical {"
-					  " width: 0px;"
-					  " margin: 0px;"
-					  "}"
-					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar:vertical {"
-					  " width: 5px;"
-					  "}"
-					  "QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical {"
-					  " background: transparent;"
-					  " border-radius: 3px;"
-					  "}"
-					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical {"
-					  " background: %2;"
-					  "}"
-					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:hover,"
-					  "QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:pressed {"
-					  " background: %3;"
-					  "}")
-					  .arg(chrome.dividerColor.name(), qssColor(alphaColor(chrome.textColor, 0.10)),
-						   qssColor(alphaColor(chrome.textColor, 0.20))));
+	setStyleSheet(
+		QString::fromLatin1(
+			"QMainWindow::separator:vertical {"
+			" background: transparent;"
+			" width: 1px;"
+			" margin: 8px 0px 4px 0px;"
+			"}"
+			"QMainWindow::separator:vertical:hover {"
+			" background: transparent;"
+			" border-radius: 0px;"
+			" margin: 8px 0px 4px 0px;"
+			"}"
+			"QMainWindow::separator:horizontal {"
+			" background: transparent;"
+			" height: 8px;"
+			" margin: 0px 8px 4px 8px;"
+			"}"
+			"QMainWindow::separator:horizontal:hover {"
+			" background: %1;"
+			" border-radius: 4px;"
+			" margin: 2px 12px 2px 12px;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar:vertical,"
+			"QListWidget#qtePersistentChatHistory QScrollBar:vertical,"
+			"ChatbarTextEdit#qteChat QScrollBar:vertical,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar:vertical,"
+			"QTreeView#qtvUsers QScrollBar:vertical {"
+			" background: transparent;"
+			" width: 5px;"
+			" margin: 2px 0px 2px 0px;"
+			" border: none;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar::handle:vertical,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical,"
+			"ChatbarTextEdit#qteChat QScrollBar::handle:vertical,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical,"
+			"QTreeView#qtvUsers QScrollBar::handle:vertical {"
+			" background: %2;"
+			" min-height: 24px;"
+			" border-radius: 3px;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar:horizontal,"
+			"QListWidget#qtePersistentChatHistory QScrollBar:horizontal,"
+			"ChatbarTextEdit#qteChat QScrollBar:horizontal {"
+			" background: transparent;"
+			" height: 5px;"
+			" margin: 0px;"
+			" border: none;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar::handle:vertical:hover,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:hover,"
+			"ChatbarTextEdit#qteChat QScrollBar::handle:vertical:hover,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:hover,"
+			"QTreeView#qtvUsers QScrollBar::handle:vertical:hover,"
+			"QTextBrowser#qteLog QScrollBar::handle:vertical:pressed,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical:pressed,"
+			"ChatbarTextEdit#qteChat QScrollBar::handle:vertical:pressed,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::handle:vertical:pressed,"
+			"QTreeView#qtvUsers QScrollBar::handle:vertical:pressed {"
+			" background: %3;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar::handle:horizontal,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal,"
+			"ChatbarTextEdit#qteChat QScrollBar::handle:horizontal {"
+			" background: %2;"
+			" min-width: 24px;"
+			" border-radius: 3px;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar::handle:horizontal:hover,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:hover,"
+			"ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:hover,"
+			"QTextBrowser#qteLog QScrollBar::handle:horizontal:pressed,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:horizontal:pressed,"
+			"ChatbarTextEdit#qteChat QScrollBar::handle:horizontal:pressed {"
+			" background: %3;"
+			"}"
+			"QTextBrowser#qteLog QScrollBar::add-line:vertical,"
+			"QTextBrowser#qteLog QScrollBar::sub-line:vertical,"
+			"QTextBrowser#qteLog QScrollBar::add-page:vertical,"
+			"QTextBrowser#qteLog QScrollBar::sub-page:vertical,"
+			"QTextBrowser#qteLog QScrollBar::add-line:horizontal,"
+			"QTextBrowser#qteLog QScrollBar::sub-line:horizontal,"
+			"QTextBrowser#qteLog QScrollBar::add-page:horizontal,"
+			"QTextBrowser#qteLog QScrollBar::sub-page:horizontal,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::add-line:vertical,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::sub-line:vertical,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::add-page:vertical,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::sub-page:vertical,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::add-line:horizontal,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::sub-line:horizontal,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::add-page:horizontal,"
+			"QListWidget#qtePersistentChatHistory QScrollBar::sub-page:horizontal,"
+			"ChatbarTextEdit#qteChat QScrollBar::add-line:vertical,"
+			"ChatbarTextEdit#qteChat QScrollBar::sub-line:vertical,"
+			"ChatbarTextEdit#qteChat QScrollBar::add-page:vertical,"
+			"ChatbarTextEdit#qteChat QScrollBar::sub-page:vertical,"
+			"ChatbarTextEdit#qteChat QScrollBar::add-line:horizontal,"
+			"ChatbarTextEdit#qteChat QScrollBar::sub-line:horizontal,"
+			"ChatbarTextEdit#qteChat QScrollBar::add-page:horizontal,"
+			"ChatbarTextEdit#qteChat QScrollBar::sub-page:horizontal,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::add-line:vertical,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::sub-line:vertical,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::add-page:vertical,"
+			"QListWidget#qlwPersistentTextChannels QScrollBar::sub-page:vertical,"
+			"QTreeView#qtvUsers QScrollBar::add-line:vertical,"
+			"QTreeView#qtvUsers QScrollBar::sub-line:vertical,"
+			"QTreeView#qtvUsers QScrollBar::add-page:vertical,"
+			"QTreeView#qtvUsers QScrollBar::sub-page:vertical {"
+			" background: transparent;"
+			" border: none;"
+			" height: 0px;"
+			"}"
+			"QListWidget#qtePersistentChatHistory QScrollBar:vertical {"
+			" width: 0px;"
+			" margin: 0px;"
+			"}"
+			"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar:vertical {"
+			" width: 5px;"
+			"}"
+			"QListWidget#qtePersistentChatHistory QScrollBar::handle:vertical {"
+			" background: transparent;"
+			" border-radius: 3px;"
+			"}"
+			"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical {"
+			" background: %2;"
+			"}"
+			"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:hover,"
+			"QListWidget#qtePersistentChatHistory[scrollbarVisible=\"true\"] QScrollBar::handle:vertical:pressed {"
+			" background: %3;"
+			"}")
+			.arg(chrome.dividerColor.name(), qssColor(alphaColor(chrome.textColor, 0.10)),
+				 qssColor(alphaColor(chrome.textColor, 0.20))));
 
 	if (m_persistentChatHistory) {
 		QPalette historyPalette = m_persistentChatHistory->palette();
@@ -8596,17 +8543,15 @@ void MainWindow::refreshPersistentChatStyles() {
 		qteLog->setPalette(logPalette);
 		qteLog->viewport()->setAutoFillBackground(true);
 		qteLog->viewport()->setPalette(logPalette);
-		qteLog->setStyleSheet(
-			QString::fromLatin1(
-				"border-style: solid;"
-				"border-color: %1;"
-				"border-width: 1px 0px 1px 1px;"
-				"border-top-left-radius: 12px;"
-				"border-bottom-left-radius: 12px;"
-				"border-top-right-radius: 0px;"
-				"border-bottom-right-radius: 0px;"
-				"background-color: %2; padding: 0px; outline: none;")
-				.arg(chrome.borderColor.name(), historyColor.name()));
+		qteLog->setStyleSheet(QString::fromLatin1("border-style: solid;"
+												  "border-color: %1;"
+												  "border-width: 1px 0px 1px 1px;"
+												  "border-top-left-radius: 12px;"
+												  "border-bottom-left-radius: 12px;"
+												  "border-top-right-radius: 0px;"
+												  "border-bottom-right-radius: 0px;"
+												  "background-color: %2; padding: 0px; outline: none;")
+								  .arg(chrome.borderColor.name(), historyColor.name()));
 		qteLog->viewport()->setStyleSheet(
 			QString::fromLatin1("background-color: %1; border: none; outline: none;").arg(historyColor.name()));
 	}
@@ -8634,9 +8579,8 @@ void MainWindow::refreshPersistentChatStyles() {
 		logSurfacePalette.setColor(QPalette::Window, chrome.railColor);
 		logSurface->setAutoFillBackground(true);
 		logSurface->setPalette(logSurfacePalette);
-		logSurface->setStyleSheet(
-			QString::fromLatin1("QWidget#qwLogSurface { background-color: %1; border: none; }")
-				.arg(chrome.railColor.name()));
+		logSurface->setStyleSheet(QString::fromLatin1("QWidget#qwLogSurface { background-color: %1; border: none; }")
+									  .arg(chrome.railColor.name()));
 	}
 
 	if (qteChat) {
@@ -8656,8 +8600,8 @@ void MainWindow::refreshPersistentChatStyles() {
 		qteChat->viewport()->setStyleSheet(QString());
 	}
 
-	const QString persistentChatStyle =
-		applyQssArgs(QString::fromLatin1(
+	const QString persistentChatStyle = applyQssArgs(
+		QString::fromLatin1(
 			"QWidget#qwPersistentChat {"
 			" background-color: %2;"
 			"}"
@@ -8985,11 +8929,11 @@ void MainWindow::refreshPersistentChatStyles() {
 			" font-size: 12px;"
 			" font-weight: 600;"
 			"}"),
-			QStringList { qssColor(chrome.borderColor), qssColor(historyColor), qssColor(chrome.mutedTextColor),
-						  qssColor(inputColor), qssColor(chrome.eyebrowColor), qssColor(chrome.textColor),
-						  qssColor(peerBubbleColor), qssColor(headerSurfaceColor), qssColor(selfBubbleColor),
-						  qssColor(quoteColor), qssColor(bubbleActiveBorderColor), qssColor(pillColor),
-						  qssColor(avatarBadgeColor), qssColor(bubbleBorderColor), qssColor(selfTintColor) });
+		QStringList{ qssColor(chrome.borderColor), qssColor(historyColor), qssColor(chrome.mutedTextColor),
+					 qssColor(inputColor), qssColor(chrome.eyebrowColor), qssColor(chrome.textColor),
+					 qssColor(peerBubbleColor), qssColor(headerSurfaceColor), qssColor(selfBubbleColor),
+					 qssColor(quoteColor), qssColor(bubbleActiveBorderColor), qssColor(pillColor),
+					 qssColor(avatarBadgeColor), qssColor(bubbleBorderColor), qssColor(selfTintColor) });
 	m_persistentChatContainer->setStyleSheet(persistentChatStyle);
 	if (m_persistentChatHistory) {
 		m_persistentChatHistory->setStyleSheet(persistentChatStyle);
@@ -9122,11 +9066,11 @@ void MainWindow::rebuildPersistentChatChannelList() {
 		return;
 	}
 
-	int previousScopeValue      = static_cast< int >(MumbleProto::TextChannel);
+	int previousScopeValue       = static_cast< int >(MumbleProto::TextChannel);
 	unsigned int previousScopeID = m_defaultPersistentTextChannelID;
 	if (const QListWidgetItem *currentItem = persistentChatChannelListCurrentItem(); currentItem) {
 		previousScopeValue = currentItem->data(PersistentChatScopeRole).toInt();
-		previousScopeID = currentItem->data(PersistentChatScopeIDRole).toUInt();
+		previousScopeID    = currentItem->data(PersistentChatScopeIDRole).toUInt();
 	}
 
 	const bool oldSignalState = m_persistentChatChannelList->blockSignals(true);
@@ -9182,8 +9126,7 @@ void MainWindow::rebuildPersistentChatChannelList() {
 		QListWidgetItem *item = new QListWidgetItem(m_persistentChatChannelList);
 		item->setData(PersistentChatScopeRole, static_cast< int >(MumbleProto::TextChannel));
 		item->setData(PersistentChatScopeIDRole, textChannel.textChannelID);
-		item->setToolTip(textChannel.description.isEmpty() ? tr("Persistent text channel")
-														 : textChannel.description);
+		item->setToolTip(textChannel.description.isEmpty() ? tr("Persistent text channel") : textChannel.description);
 	}
 
 	for (const unsigned int session : sortedDirectMessageSessions()) {
@@ -9206,7 +9149,7 @@ void MainWindow::rebuildPersistentChatChannelList() {
 			continue;
 		}
 
-		const int candidateScopeValue = candidate->data(PersistentChatScopeRole).toInt();
+		const int candidateScopeValue       = candidate->data(PersistentChatScopeRole).toInt();
 		const unsigned int candidateScopeID = candidate->data(PersistentChatScopeIDRole).toUInt();
 		if (candidateScopeValue == previousScopeValue && candidateScopeID == previousScopeID) {
 			selectionItem = candidate;
@@ -9284,7 +9227,7 @@ void MainWindow::rebuildPersistentChatChannelList() {
 
 void MainWindow::handlePersistentTextChannelSync(const MumbleProto::TextChannelSync &msg) {
 	const bool hiddenLegacyPersistentChatSafeMode = modernShellMinimalSnapshotEnabled() && usesModernShell();
-	const bool hadExistingTextChannels = !m_persistentTextChannels.isEmpty();
+	const bool hadExistingTextChannels            = !m_persistentTextChannels.isEmpty();
 	m_persistentTextChannels.clear();
 	m_defaultPersistentTextChannelID = msg.has_default_text_channel_id() ? msg.default_text_channel_id() : 0;
 
@@ -9493,7 +9436,7 @@ void MainWindow::updateServerNavigatorVoiceTreeHeight() {
 	}
 
 	const int visibleRowsBeforeScroll = std::min(visibleRows, isServerNavigatorCompactHeight() ? 3 : 4);
-	const int minimumHeight = (visibleRowsBeforeScroll * rowHeight) + (qtvUsers->frameWidth() * 2);
+	const int minimumHeight           = (visibleRowsBeforeScroll * rowHeight) + (qtvUsers->frameWidth() * 2);
 
 	qtvUsers->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 	qtvUsers->setMinimumHeight(minimumHeight);
@@ -9526,7 +9469,7 @@ void MainWindow::updatePersistentChatChannelListHeight() {
 							  + std::max(0, itemCount - 1) * m_persistentChatChannelList->spacing()
 							  + (m_persistentChatChannelList->frameWidth() * 2);
 	const int visibleItemsBeforeScroll = std::min(itemCount, isServerNavigatorCompactHeight() ? 2 : 3);
-	const int minimumHeight = (visibleItemsBeforeScroll * rowHeight)
+	const int minimumHeight            = (visibleItemsBeforeScroll * rowHeight)
 							  + std::max(0, visibleItemsBeforeScroll - 1) * m_persistentChatChannelList->spacing()
 							  + (m_persistentChatChannelList->frameWidth() * 2);
 
@@ -9552,7 +9495,7 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 			continue;
 		}
 
-		const int scopeValue = item->data(PersistentChatScopeRole).toInt();
+		const int scopeValue       = item->data(PersistentChatScopeRole).toInt();
 		const unsigned int scopeID = item->data(PersistentChatScopeIDRole).toUInt();
 
 		QString scopeLabel;
@@ -9576,8 +9519,8 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 					break;
 				case MumbleProto::TextChannel: {
 					const auto it = m_persistentTextChannels.constFind(scopeID);
-					scopeLabel    = it == m_persistentTextChannels.cend() ? tr("#text-%1").arg(scopeID)
-																		  : tr("#%1").arg(it->name);
+					scopeLabel =
+						it == m_persistentTextChannels.cend() ? tr("#text-%1").arg(scopeID) : tr("#%1").arg(it->name);
 					break;
 				}
 				case MumbleProto::Channel: {
@@ -9625,7 +9568,7 @@ bool MainWindow::promptForPersistentTextChannel(PersistentTextChannel &textChann
 	QDialog dialog(this);
 	dialog.setWindowTitle(isNew ? tr("Create text room") : tr("Edit text room"));
 
-	QVBoxLayout *layout = new QVBoxLayout(&dialog);
+	QVBoxLayout *layout     = new QVBoxLayout(&dialog);
 	QFormLayout *formLayout = new QFormLayout();
 	layout->addLayout(formLayout);
 
@@ -9637,7 +9580,7 @@ bool MainWindow::promptForPersistentTextChannel(PersistentTextChannel &textChann
 	descriptionEdit->setPlaceholderText(tr("What this room is for"));
 	formLayout->addRow(tr("Description"), descriptionEdit);
 
-	QComboBox *aclChannelCombo = new QComboBox(&dialog);
+	QComboBox *aclChannelCombo  = new QComboBox(&dialog);
 	QList< Channel * > channels = Channel::c_qhChannels.values();
 	std::sort(channels.begin(), channels.end(), [](const Channel *lhs, const Channel *rhs) {
 		if (lhs == rhs) {
@@ -9689,10 +9632,10 @@ bool MainWindow::promptForPersistentTextChannel(PersistentTextChannel &textChann
 		return false;
 	}
 
-	textChannel.name          = name;
-	textChannel.description   = descriptionEdit->text().trimmed();
-	textChannel.aclChannelID  = aclChannelCombo->currentData().toUInt();
-	textChannel.position      = static_cast< unsigned int >(positionSpin->value());
+	textChannel.name         = name;
+	textChannel.description  = descriptionEdit->text().trimmed();
+	textChannel.aclChannelID = aclChannelCombo->currentData().toUInt();
+	textChannel.position     = static_cast< unsigned int >(positionSpin->value());
 	return true;
 }
 
@@ -9709,7 +9652,7 @@ void MainWindow::createPersistentTextChannel() {
 	}
 
 	Global::get().sh->upsertTextChannel(0, textChannel.name, textChannel.description, textChannel.aclChannelID,
-										 textChannel.position, true);
+										textChannel.position, true);
 }
 
 void MainWindow::editPersistentTextChannel() {
@@ -9728,7 +9671,7 @@ void MainWindow::editPersistentTextChannel() {
 	}
 
 	Global::get().sh->upsertTextChannel(updated.textChannelID, updated.name, updated.description, updated.aclChannelID,
-										 updated.position, false);
+										updated.position, false);
 }
 
 void MainWindow::removePersistentTextChannel() {
@@ -9775,7 +9718,8 @@ void MainWindow::setDefaultPersistentTextChannel() {
 	}
 
 	std::optional< PersistentTextChannel > textChannel = selectedPersistentTextChannel();
-	if (!textChannel || textChannel->textChannelID == 0 || textChannel->textChannelID == m_defaultPersistentTextChannelID) {
+	if (!textChannel || textChannel->textChannelID == 0
+		|| textChannel->textChannelID == m_defaultPersistentTextChannelID) {
 		return;
 	}
 
@@ -9793,7 +9737,7 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 		m_persistentChatChannelList->setCurrentItem(menuItem);
 	}
 
-	const bool canManage = canManagePersistentTextChannels();
+	const bool canManage        = canManagePersistentTextChannels();
 	const QPoint globalPosition = m_persistentChatChannelList->viewport()->mapToGlobal(position);
 
 	auto selectVoiceTreeChannel = [this](Channel *channel) {
@@ -9839,9 +9783,9 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 			return;
 		}
 
-		Channel *linkedChannel = Channel::get(textChannelIt->aclChannelID);
-		QAction *openAction = menu.addAction(tr("Open"));
-		QAction *createAction = nullptr;
+		Channel *linkedChannel    = Channel::get(textChannelIt->aclChannelID);
+		QAction *openAction       = menu.addAction(tr("Open"));
+		QAction *createAction     = nullptr;
 		QAction *setDefaultAction = nullptr;
 		if (canManage) {
 			createAction     = menu.addAction(tr("Create text room"));
@@ -9850,9 +9794,9 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 		}
 		QAction *goToVoiceRoomAction = menu.addAction(tr("Go to linked voice room"));
 		goToVoiceRoomAction->setEnabled(linkedChannel != nullptr);
-		QAction *editAction = nullptr;
+		QAction *editAction    = nullptr;
 		QAction *editAclAction = nullptr;
-		QAction *deleteAction = nullptr;
+		QAction *deleteAction  = nullptr;
 		if (canManage) {
 			editAction    = menu.addAction(tr("Edit text room"));
 			editAclAction = menu.addAction(tr("Edit ACL source"));
@@ -9882,8 +9826,8 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 		return;
 	}
 
-	Channel *voiceChannel = Channel::get(scopeID);
-	QAction *openAction = menu.addAction(tr("Open room chat"));
+	Channel *voiceChannel        = Channel::get(scopeID);
+	QAction *openAction          = menu.addAction(tr("Open room chat"));
 	QAction *goToVoiceRoomAction = menu.addAction(tr("Go to voice room"));
 	goToVoiceRoomAction->setEnabled(voiceChannel != nullptr);
 
@@ -9964,7 +9908,7 @@ MainWindow::PersistentChatTarget MainWindow::legacyChatTarget() const {
 		return target;
 	}
 
-	const ClientUser *self = ClientUser::get(Global::get().uiSession);
+	const ClientUser *self   = ClientUser::get(Global::get().uiSession);
 	ClientUser *selectedUser = pmModel ? pmModel->getSelectedUser() : nullptr;
 	if (selectedUser && selectedUser->uiSession != Global::get().uiSession) {
 		target.valid          = true;
@@ -10076,8 +10020,8 @@ MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const
 			target.readOnly      = true;
 			target.statusMessage = tr("This direct conversation is no longer available.");
 		} else {
-			target.statusMessage =
-				tr("Direct messages still use the classic text-message transport and do not have persistent history yet.");
+			target.statusMessage = tr(
+				"Direct messages still use the classic text-message transport and do not have persistent history yet.");
 		}
 		return target;
 	}
@@ -10088,7 +10032,7 @@ MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const
 	}
 
 	const MumbleProto::ChatScope scope = static_cast< MumbleProto::ChatScope >(scopeValue);
-	const unsigned int scopeID = currentItem->data(PersistentChatScopeIDRole).toUInt();
+	const unsigned int scopeID         = currentItem->data(PersistentChatScopeIDRole).toUInt();
 
 	switch (scope) {
 		case MumbleProto::TextChannel: {
@@ -10126,21 +10070,21 @@ MainWindow::PersistentChatTarget MainWindow::currentPersistentChatTarget() const
 			return target;
 		}
 		case MumbleProto::Aggregate:
-			target.valid    = true;
-			target.readOnly = true;
-			target.scope    = MumbleProto::Aggregate;
-			target.scopeID  = 0;
-			target.label    = tr("Combined activity");
-			target.description = tr("This legacy conversation is no longer shown in the text room list.");
+			target.valid         = true;
+			target.readOnly      = true;
+			target.scope         = MumbleProto::Aggregate;
+			target.scopeID       = 0;
+			target.label         = tr("Combined activity");
+			target.description   = tr("This legacy conversation is no longer shown in the text room list.");
 			target.statusMessage = target.description;
 			return target;
 		case MumbleProto::ServerGlobal:
-			target.valid    = true;
-			target.readOnly = true;
-			target.scope    = MumbleProto::ServerGlobal;
-			target.scopeID  = 0;
-			target.label    = tr("Server-wide chat");
-			target.description = tr("This legacy conversation is no longer shown in the text room list.");
+			target.valid         = true;
+			target.readOnly      = true;
+			target.scope         = MumbleProto::ServerGlobal;
+			target.scopeID       = 0;
+			target.label         = tr("Server-wide chat");
+			target.description   = tr("This legacy conversation is no longer shown in the text room list.");
 			target.statusMessage = target.description;
 			if (!Global::get().bPersistentGlobalChatEnabled) {
 				target.statusMessage = tr("Legacy server-wide chat is disabled by this server.");
@@ -10163,10 +10107,11 @@ void MainWindow::setPersistentChatContentMode(bool showServerLog, bool preserveS
 		return;
 	}
 	if (modernShellMinimalSnapshotEnabled()) {
-		appendModernShellConnectTrace(QStringLiteral("UI setPersistentChatContentMode minimal-skip serverLog=%1 preserve=%2 composer=%3")
-										  .arg(showServerLog ? 1 : 0)
-										  .arg(preserveScrollPosition ? 1 : 0)
-										  .arg(showComposer ? 1 : 0));
+		appendModernShellConnectTrace(
+			QStringLiteral("UI setPersistentChatContentMode minimal-skip serverLog=%1 preserve=%2 composer=%3")
+				.arg(showServerLog ? 1 : 0)
+				.arg(preserveScrollPosition ? 1 : 0)
+				.arg(showComposer ? 1 : 0));
 		return;
 	}
 
@@ -10193,8 +10138,7 @@ void MainWindow::setPersistentChatContentMode(bool showServerLog, bool preserveS
 		return;
 	}
 
-	const bool shouldSnapToBottom =
-		!preserveScrollPosition || !wasShowingServerLog || m_persistentChatLogStickToBottom;
+	const bool shouldSnapToBottom = !preserveScrollPosition || !wasShowingServerLog || m_persistentChatLogStickToBottom;
 	if (shouldSnapToBottom) {
 		m_persistentChatLogStickToBottom = true;
 		scrollBar->setValue(scrollBar->maximum());
@@ -10269,11 +10213,11 @@ void MainWindow::clearPersistentChatView(const QString &message, const QString &
 	m_persistentChatInlineDataImageSources.clear();
 	m_pendingPersistentChatRender.reset();
 	m_visiblePersistentChatScope.reset();
-	m_visiblePersistentChatScopeID         = 0;
+	m_visiblePersistentChatScopeID           = 0;
 	m_visiblePersistentChatLastReadMessageID = 0;
-	m_visiblePersistentChatHasMore         = false;
-	m_persistentChatLoadingOlder           = false;
-	m_persistentChatPreviewRefreshPending  = false;
+	m_visiblePersistentChatHasMore           = false;
+	m_persistentChatLoadingOlder             = false;
+	m_persistentChatPreviewRefreshPending    = false;
 	if (m_persistentChatScrollIdleTimer) {
 		m_persistentChatScrollIdleTimer->stop();
 	}
@@ -10288,15 +10232,15 @@ void MainWindow::clearPersistentChatView(const QString &message, const QString &
 	row.kind      = PersistentChatHistoryRowKind::State;
 	row.rowId     = QString::fromLatin1("state:%1:%2").arg(resolvedEyebrow, resolvedTitle);
 	row.signature = QString::number(qHash(resolvedEyebrow + QLatin1Char('|') + resolvedTitle + QLatin1Char('|')
-										   + resolvedBody + resolvedHints.join(QLatin1Char('|'))));
+										  + resolvedBody + resolvedHints.join(QLatin1Char('|'))));
 	PersistentChatStateRowSpec stateSpec;
-	stateSpec.eyebrow      = resolvedEyebrow;
-	stateSpec.title        = resolvedTitle;
-	stateSpec.body         = resolvedBody;
-	stateSpec.hints        = resolvedHints;
+	stateSpec.eyebrow = resolvedEyebrow;
+	stateSpec.title   = resolvedTitle;
+	stateSpec.body    = resolvedBody;
+	stateSpec.hints   = resolvedHints;
 	stateSpec.minimumHeight =
 		m_persistentChatHistory ? std::max(220, m_persistentChatHistory->viewport()->height() - 4) : 220;
-	row.state              = stateSpec;
+	row.state                            = stateSpec;
 	m_persistentChatRestoreAnchorPending = false;
 	m_persistentChatPendingAnchorRowId.clear();
 	m_persistentChatPendingAnchorOffset = 0;
@@ -10322,7 +10266,7 @@ std::optional< QString > MainWindow::persistentChatPreviewKey(const MumbleProto:
 	if (!message.has_body_text()) {
 		extractPersistentChatReplyReference(messageContent, &messageContent);
 	}
-	const QList< QUrl > urls  = extractPreviewableUrls(messageContent);
+	const QList< QUrl > urls = extractPreviewableUrls(messageContent);
 	for (const QUrl &url : urls) {
 		if (const std::optional< QString > videoId = extractYouTubeVideoId(url); videoId) {
 			return QString::fromLatin1("youtube:%1").arg(*videoId);
@@ -10343,7 +10287,8 @@ std::optional< QString > MainWindow::persistentChatPreviewKey(const MumbleProto:
 	return std::nullopt;
 }
 
-std::optional< MumbleProto::ChatEmbedRef > MainWindow::persistentChatPrimaryEmbed(const MumbleProto::ChatMessage &message) const {
+std::optional< MumbleProto::ChatEmbedRef >
+	MainWindow::persistentChatPrimaryEmbed(const MumbleProto::ChatMessage &message) const {
 	for (int i = 0; i < message.embeds_size(); ++i) {
 		const MumbleProto::ChatEmbedRef &embed = message.embeds(i);
 		if (embed.has_canonical_url() && !u8(embed.canonical_url()).trimmed().isEmpty()) {
@@ -10413,27 +10358,23 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		const MumbleProto::ChatEmbedStatus status =
 			resolvedEmbed.has_status() ? resolvedEmbed.status() : MumbleProto::ChatEmbedStatusPending;
 		preview.canonicalUrl = canonicalUrl;
-		preview.title =
-			resolvedEmbed.has_title() && !u8(resolvedEmbed.title()).trimmed().isEmpty()
-				? u8(resolvedEmbed.title())
-				: (provider ? provider->fallbackTitle : previewDisplayHost(previewUrl));
-		preview.subtitle =
-			resolvedEmbed.has_site_name() && !u8(resolvedEmbed.site_name()).trimmed().isEmpty()
-				? u8(resolvedEmbed.site_name())
-				: (provider ? provider->siteLabel : previewDisplayHost(previewUrl));
-		preview.description =
-			resolvedEmbed.has_description() ? u8(resolvedEmbed.description()) : QString();
+		preview.title        = resolvedEmbed.has_title() && !u8(resolvedEmbed.title()).trimmed().isEmpty()
+							? u8(resolvedEmbed.title())
+							: (provider ? provider->fallbackTitle : previewDisplayHost(previewUrl));
+		preview.subtitle = resolvedEmbed.has_site_name() && !u8(resolvedEmbed.site_name()).trimmed().isEmpty()
+							   ? u8(resolvedEmbed.site_name())
+							   : (provider ? provider->siteLabel : previewDisplayHost(previewUrl));
+		preview.description = resolvedEmbed.has_description() ? u8(resolvedEmbed.description()) : QString();
 		if (provider) {
 			preview.openLabel = provider->openLabel;
 		}
-		preview.previewAssetID = resolvedEmbed.has_preview_asset_id() ? resolvedEmbed.preview_asset_id() : 0;
-		preview.metadataFinished = status != MumbleProto::ChatEmbedStatusPending;
+		preview.previewAssetID    = resolvedEmbed.has_preview_asset_id() ? resolvedEmbed.preview_asset_id() : 0;
+		preview.metadataFinished  = status != MumbleProto::ChatEmbedStatusPending;
 		preview.thumbnailFinished = preview.previewAssetID == 0;
 		preview.failed = status == MumbleProto::ChatEmbedStatusBlocked || status == MumbleProto::ChatEmbedStatusFailed;
 
 		if (status == MumbleProto::ChatEmbedStatusBlocked && preview.description.isEmpty()) {
-			preview.description =
-				tr("Automatic previews are disabled for localhost and private-network targets.");
+			preview.description = tr("Automatic previews are disabled for localhost and private-network targets.");
 		} else if (status == MumbleProto::ChatEmbedStatusFailed && preview.description.isEmpty()) {
 			preview.description = tr("Preview unavailable");
 		}
@@ -10487,8 +10428,8 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 					const QJsonObject object = document.object();
 					const QString title      = object.value(QLatin1String("title")).toString().trimmed();
 					const QString author     = object.value(QLatin1String("author_name")).toString().trimmed();
-					it->title = title.isEmpty() ? tr("YouTube video") : title;
-					it->subtitle = author.isEmpty() ? tr("YouTube") : tr("YouTube by %1").arg(author);
+					it->title                = title.isEmpty() ? tr("YouTube video") : title;
+					it->subtitle             = author.isEmpty() ? tr("YouTube") : tr("YouTube by %1").arg(author);
 					renderIfVisible();
 					return;
 				}
@@ -10512,40 +10453,39 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		preparePreviewRequest(thumbnailRequest);
 		QNetworkReply *thumbnailReply = Global::get().nam->get(thumbnailRequest);
 		applyPreviewReplyGuards(thumbnailReply, PREVIEW_MAX_IMAGE_BYTES);
-		connect(thumbnailReply, &QNetworkReply::finished, this,
-				[this, thumbnailReply, previewKey, renderIfVisible]() {
-					const QByteArray data = thumbnailReply->readAll();
-					const bool success    = thumbnailReply->error() == QNetworkReply::NoError;
-					const QString failureText = previewFailureText(thumbnailReply);
-					thumbnailReply->deleteLater();
+		connect(thumbnailReply, &QNetworkReply::finished, this, [this, thumbnailReply, previewKey, renderIfVisible]() {
+			const QByteArray data     = thumbnailReply->readAll();
+			const bool success        = thumbnailReply->error() == QNetworkReply::NoError;
+			const QString failureText = previewFailureText(thumbnailReply);
+			thumbnailReply->deleteLater();
 
-					auto it = m_persistentChatPreviews.find(previewKey);
-					if (it == m_persistentChatPreviews.end()) {
-						return;
-					}
+			auto it = m_persistentChatPreviews.find(previewKey);
+			if (it == m_persistentChatPreviews.end()) {
+				return;
+			}
 
-					it->thumbnailFinished = true;
+			it->thumbnailFinished = true;
 
-					if (success) {
-						const QImage image = decodePersistentChatThumbnailImage(data);
-						if (!image.isNull()) {
-							it->thumbnailImage = persistentChatThumbnailImage(image);
-							renderIfVisible();
-							return;
-						}
-					}
-
-					if (it->metadataFinished && it->title == tr("Loading YouTube preview...")) {
-						it->title = tr("YouTube video");
-					}
-					if (it->metadataFinished && it->subtitle.isEmpty()) {
-						it->subtitle = failureText;
-					}
-					if (it->metadataFinished && it->thumbnailImage.isNull()) {
-						it->failed = true;
-					}
+			if (success) {
+				const QImage image = decodePersistentChatThumbnailImage(data);
+				if (!image.isNull()) {
+					it->thumbnailImage = persistentChatThumbnailImage(image);
 					renderIfVisible();
-				});
+					return;
+				}
+			}
+
+			if (it->metadataFinished && it->title == tr("Loading YouTube preview...")) {
+				it->title = tr("YouTube video");
+			}
+			if (it->metadataFinished && it->subtitle.isEmpty()) {
+				it->subtitle = failureText;
+			}
+			if (it->metadataFinished && it->thumbnailImage.isNull()) {
+				it->failed = true;
+			}
+			renderIfVisible();
+		});
 		return;
 	}
 
@@ -10563,9 +10503,9 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	preview.openLabel    = isImagePreview ? tr("Open image") : (provider ? provider->openLabel : tr("Open link"));
 
 	if (!isSafePreviewTarget(previewUrl)) {
-		preview.title            = isImagePreview ? tr("Image preview blocked") : tr("Link preview blocked");
-		preview.description      = tr("Automatic previews are disabled for localhost and private-network targets.");
-		preview.metadataFinished = true;
+		preview.title             = isImagePreview ? tr("Image preview blocked") : tr("Link preview blocked");
+		preview.description       = tr("Automatic previews are disabled for localhost and private-network targets.");
+		preview.metadataFinished  = true;
 		preview.thumbnailFinished = true;
 		m_persistentChatPreviews.insert(previewKey, preview);
 		renderIfVisible();
@@ -10574,10 +10514,8 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 
 	if (isImagePreview) {
 		const QString fileName = QFileInfo(previewUrl.path()).fileName();
-		preview.title          = fileName.isEmpty()
-									 ? (provider ? provider->fallbackTitle : tr("Image preview"))
-									 : fileName;
-		preview.description    = tr("Direct image preview");
+		preview.title = fileName.isEmpty() ? (provider ? provider->fallbackTitle : tr("Image preview")) : fileName;
+		preview.description = tr("Direct image preview");
 		m_persistentChatPreviews.insert(previewKey, preview);
 
 		QNetworkRequest imageRequest(previewUrl);
@@ -10585,8 +10523,8 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 		QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
 		applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
 		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
-			const QByteArray data = imageReply->readAll();
-			const bool success    = imageReply->error() == QNetworkReply::NoError;
+			const QByteArray data     = imageReply->readAll();
+			const bool success        = imageReply->error() == QNetworkReply::NoError;
 			const QString failureText = previewFailureText(imageReply);
 			imageReply->deleteLater();
 
@@ -10607,7 +10545,7 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 				}
 			}
 
-			it->failed = true;
+			it->failed      = true;
 			it->description = failureText;
 			renderIfVisible();
 		});
@@ -10622,104 +10560,105 @@ void MainWindow::ensurePersistentChatPreview(const QString &previewKey) {
 	preparePreviewRequest(pageRequest);
 	QNetworkReply *pageReply = Global::get().nam->get(pageRequest);
 	applyPreviewReplyGuards(pageReply, PREVIEW_MAX_PAGE_BYTES, false);
-	connect(pageReply, &QNetworkReply::finished, this,
-			[this, pageReply, previewKey, previewUrl, provider, renderIfVisible]() {
-		const QByteArray data = pageReply->readAll();
-		const bool success    = pageReply->error() == QNetworkReply::NoError;
-		const QString contentType = pageReply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
-		const QString failureText = previewFailureText(pageReply);
-		const bool allowPartialHtml =
-			previewAbortReason(pageReply) == QLatin1String("too_large") && !data.isEmpty()
-			&& previewContentTypeLooksHtml(contentType);
-		pageReply->deleteLater();
-
-		auto it = m_persistentChatPreviews.find(previewKey);
-		if (it == m_persistentChatPreviews.end()) {
-			return;
-		}
-
-		it->metadataFinished = true;
-
-		if ((!success && !allowPartialHtml) || !previewContentTypeLooksHtml(contentType)) {
-			it->thumbnailFinished = true;
-			if (it->title == tr("Loading link preview...") || (provider && it->title == provider->fallbackTitle)) {
-				it->title = provider ? provider->fallbackTitle : previewDisplayHost(previewUrl);
-			}
-			it->description = (success || allowPartialHtml) ? tr("Preview unavailable") : failureText;
-			it->failed      = !allowPartialHtml && !success;
-			ensurePersistentChatPreviewSiteSnapshot(previewKey);
-			renderIfVisible();
-			return;
-		}
-
-		// Modern SPA pages often advertise a very large Content-Length even though the useful
-		// preview metadata is available near the start of <head>. Parse the prefix we did receive
-		// instead of failing the entire preview outright.
-		const QByteArray htmlBytes = data.size() > PREVIEW_MAX_PAGE_BYTES ? data.left(PREVIEW_MAX_PAGE_BYTES) : data;
-		const QString html = QString::fromUtf8(htmlBytes);
-		const QHash< QString, QString > metaTags = extractMetaTags(html);
-		const QString title = metaTags.value(QLatin1String("og:title"),
-											 metaTags.value(QLatin1String("twitter:title"), extractHtmlTitle(html)));
-		const QString description =
-			metaTags.value(QLatin1String("og:description"),
-						   metaTags.value(QLatin1String("twitter:description"),
-										  metaTags.value(QLatin1String("description"))));
-		const QString siteName = metaTags.value(QLatin1String("og:site_name"),
-											 provider ? provider->siteLabel : previewDisplayHost(previewUrl));
-		const QString imageUrlString = previewImageMetaTag(metaTags);
-
-		it->title = title.isEmpty() ? (provider ? provider->fallbackTitle : previewDisplayHost(previewUrl)) : title;
-		it->subtitle = siteName.isEmpty() ? (provider ? provider->siteLabel : previewDisplayHost(previewUrl)) : siteName;
-		it->description = description;
-
-		if (imageUrlString.isEmpty()) {
-			it->thumbnailFinished = true;
-			ensurePersistentChatPreviewSiteSnapshot(previewKey);
-			renderIfVisible();
-			return;
-		}
-
-		const QUrl imageUrl = previewUrl.resolved(QUrl(imageUrlString));
-		if (!isSafePreviewTarget(imageUrl)) {
-			it->thumbnailFinished = true;
-			ensurePersistentChatPreviewSiteSnapshot(previewKey);
-			renderIfVisible();
-			return;
-		}
-
-		QNetworkRequest imageRequest(imageUrl);
-		preparePreviewRequest(imageRequest);
-		QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
-		applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
-		connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
-			const QByteArray imageData = imageReply->readAll();
-			const bool imageSuccess    = imageReply->error() == QNetworkReply::NoError;
-			const QString failureText = previewFailureText(imageReply);
-			imageReply->deleteLater();
+	connect(
+		pageReply, &QNetworkReply::finished, this,
+		[this, pageReply, previewKey, previewUrl, provider, renderIfVisible]() {
+			const QByteArray data       = pageReply->readAll();
+			const bool success          = pageReply->error() == QNetworkReply::NoError;
+			const QString contentType   = pageReply->header(QNetworkRequest::ContentTypeHeader).toString().toLower();
+			const QString failureText   = previewFailureText(pageReply);
+			const bool allowPartialHtml = previewAbortReason(pageReply) == QLatin1String("too_large") && !data.isEmpty()
+										  && previewContentTypeLooksHtml(contentType);
+			pageReply->deleteLater();
 
 			auto it = m_persistentChatPreviews.find(previewKey);
 			if (it == m_persistentChatPreviews.end()) {
 				return;
 			}
 
-			it->thumbnailFinished = true;
+			it->metadataFinished = true;
 
-			if (imageSuccess) {
-				const QImage image = decodePersistentChatThumbnailImage(imageData);
-				if (!image.isNull()) {
-					it->thumbnailImage = persistentChatThumbnailImage(image);
-					renderIfVisible();
+			if ((!success && !allowPartialHtml) || !previewContentTypeLooksHtml(contentType)) {
+				it->thumbnailFinished = true;
+				if (it->title == tr("Loading link preview...") || (provider && it->title == provider->fallbackTitle)) {
+					it->title = provider ? provider->fallbackTitle : previewDisplayHost(previewUrl);
+				}
+				it->description = (success || allowPartialHtml) ? tr("Preview unavailable") : failureText;
+				it->failed      = !allowPartialHtml && !success;
+				ensurePersistentChatPreviewSiteSnapshot(previewKey);
+				renderIfVisible();
+				return;
+			}
+
+			// Modern SPA pages often advertise a very large Content-Length even though the useful
+			// preview metadata is available near the start of <head>. Parse the prefix we did receive
+			// instead of failing the entire preview outright.
+			const QByteArray htmlBytes =
+				data.size() > PREVIEW_MAX_PAGE_BYTES ? data.left(PREVIEW_MAX_PAGE_BYTES) : data;
+			const QString html                       = QString::fromUtf8(htmlBytes);
+			const QHash< QString, QString > metaTags = extractMetaTags(html);
+			const QString title                      = metaTags.value(
+                QLatin1String("og:title"), metaTags.value(QLatin1String("twitter:title"), extractHtmlTitle(html)));
+			const QString description = metaTags.value(
+				QLatin1String("og:description"),
+				metaTags.value(QLatin1String("twitter:description"), metaTags.value(QLatin1String("description"))));
+			const QString siteName       = metaTags.value(QLatin1String("og:site_name"),
+                                                    provider ? provider->siteLabel : previewDisplayHost(previewUrl));
+			const QString imageUrlString = previewImageMetaTag(metaTags);
+
+			it->title = title.isEmpty() ? (provider ? provider->fallbackTitle : previewDisplayHost(previewUrl)) : title;
+			it->subtitle =
+				siteName.isEmpty() ? (provider ? provider->siteLabel : previewDisplayHost(previewUrl)) : siteName;
+			it->description = description;
+
+			if (imageUrlString.isEmpty()) {
+				it->thumbnailFinished = true;
+				ensurePersistentChatPreviewSiteSnapshot(previewKey);
+				renderIfVisible();
+				return;
+			}
+
+			const QUrl imageUrl = previewUrl.resolved(QUrl(imageUrlString));
+			if (!isSafePreviewTarget(imageUrl)) {
+				it->thumbnailFinished = true;
+				ensurePersistentChatPreviewSiteSnapshot(previewKey);
+				renderIfVisible();
+				return;
+			}
+
+			QNetworkRequest imageRequest(imageUrl);
+			preparePreviewRequest(imageRequest);
+			QNetworkReply *imageReply = Global::get().nam->get(imageRequest);
+			applyPreviewReplyGuards(imageReply, PREVIEW_MAX_IMAGE_BYTES);
+			connect(imageReply, &QNetworkReply::finished, this, [this, imageReply, previewKey, renderIfVisible]() {
+				const QByteArray imageData = imageReply->readAll();
+				const bool imageSuccess    = imageReply->error() == QNetworkReply::NoError;
+				const QString failureText  = previewFailureText(imageReply);
+				imageReply->deleteLater();
+
+				auto it = m_persistentChatPreviews.find(previewKey);
+				if (it == m_persistentChatPreviews.end()) {
 					return;
 				}
-			}
 
-			if (it->description.isEmpty() || it->description == tr("Fetching page metadata")) {
-				it->description = failureText;
-			}
-			ensurePersistentChatPreviewSiteSnapshot(previewKey);
+				it->thumbnailFinished = true;
+
+				if (imageSuccess) {
+					const QImage image = decodePersistentChatThumbnailImage(imageData);
+					if (!image.isNull()) {
+						it->thumbnailImage = persistentChatThumbnailImage(image);
+						renderIfVisible();
+						return;
+					}
+				}
+
+				if (it->description.isEmpty() || it->description == tr("Fetching page metadata")) {
+					it->description = failureText;
+				}
+				ensurePersistentChatPreviewSiteSnapshot(previewKey);
+				renderIfVisible();
+			});
 			renderIfVisible();
-		});
-		renderIfVisible();
 		});
 }
 
@@ -10782,12 +10721,11 @@ void MainWindow::ensurePersistentChatPreviewSiteSnapshot(const QString &previewK
 	PersistentChatPreviewSnapshotRenderer *renderer =
 		static_cast< PersistentChatPreviewSnapshotRenderer * >(m_persistentChatPreviewSnapshotRenderer);
 	if (!renderer) {
-		renderer = new PersistentChatPreviewSnapshotRenderer(this);
+		renderer                                = new PersistentChatPreviewSnapshotRenderer(this);
 		m_persistentChatPreviewSnapshotRenderer = renderer;
-		renderer->setResultCallback(
-			[this](const QString &key, const QImage &image, bool success) {
-				handlePersistentChatPreviewSiteSnapshotResult(key, image, success);
-			});
+		renderer->setResultCallback([this](const QString &key, const QImage &image, bool success) {
+			handlePersistentChatPreviewSiteSnapshotResult(key, image, success);
+		});
 	}
 
 	preview.siteSnapshotRequested = true;
@@ -10823,8 +10761,8 @@ int MainWindow::persistentChatPreviewContentWidth(int leftPadding) const {
 
 	const int viewportWidth     = m_persistentChatHistory->viewport()->width();
 	const int rightSafetyMargin = 18;
-	int availableWidth = viewportWidth - leftPadding - rightSafetyMargin;
-	availableWidth     = std::max(220, std::min(PERSISTENT_CHAT_PREVIEW_CARD_MAX_WIDTH, availableWidth));
+	int availableWidth          = viewportWidth - leftPadding - rightSafetyMargin;
+	availableWidth              = std::max(220, std::min(PERSISTENT_CHAT_PREVIEW_CARD_MAX_WIDTH, availableWidth));
 	if (availableWidth <= 220) {
 		return 220;
 	}
@@ -10841,15 +10779,15 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey, int ava
 	}
 
 	const PersistentChatPreview &preview = it.value();
-	const QString cardUrl = preview.canonicalUrl.toHtmlEscaped();
+	const QString cardUrl                = preview.canonicalUrl.toHtmlEscaped();
 	const QUrl canonicalUrl(preview.canonicalUrl);
 	const QString domainText = previewDisplayHost(canonicalUrl).toHtmlEscaped();
 	const QString titleText =
 		trimmedPreviewText(preview.title.isEmpty() ? tr("Link preview") : preview.title, 90).toHtmlEscaped();
 	const QString descriptionText = trimmedPreviewText(preview.description, 140).toHtmlEscaped();
-	const QString secondaryText = trimmedPreviewText(preview.subtitle, 80).toHtmlEscaped();
-	const bool isImagePreview = previewKey.startsWith(QLatin1String("image:"));
-	const int cardWidth       = std::max(isImagePreview ? 240 : 220, availableWidth);
+	const QString secondaryText   = trimmedPreviewText(preview.subtitle, 80).toHtmlEscaped();
+	const bool isImagePreview     = previewKey.startsWith(QLatin1String("image:"));
+	const int cardWidth           = std::max(isImagePreview ? 240 : 220, availableWidth);
 
 	QColor cardBackground;
 	QColor borderColor;
@@ -10859,55 +10797,52 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey, int ava
 	QColor mutedColor;
 	QColor placeholderColor;
 	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-		cardBackground  = tokens->surface0;
-		borderColor     = tokens->surface1;
-		accentColor     = tokens->accent;
-		titleColor      = tokens->text;
-		bodyColor       = tokens->subtext0;
-		mutedColor      = tokens->overlay0;
+		cardBackground   = tokens->surface0;
+		borderColor      = tokens->surface1;
+		accentColor      = tokens->accent;
+		titleColor       = tokens->text;
+		bodyColor        = tokens->subtext0;
+		mutedColor       = tokens->overlay0;
 		placeholderColor = uiThemeColorWithAlpha(tokens->surface1, 0.7);
 	} else {
-		const ChromePaletteColors chrome = buildChromePalette(m_persistentChatContainer ? m_persistentChatContainer->palette()
-																				  : palette());
-		cardBackground  = chrome.elevatedCardColor;
-		borderColor     = chrome.dividerColor;
-		accentColor     = chrome.accentColor;
-		titleColor      = chrome.textColor;
-		bodyColor       = chrome.mutedTextColor;
-		mutedColor      = chrome.eyebrowColor;
+		const ChromePaletteColors chrome =
+			buildChromePalette(m_persistentChatContainer ? m_persistentChatContainer->palette() : palette());
+		cardBackground   = chrome.elevatedCardColor;
+		borderColor      = chrome.dividerColor;
+		accentColor      = chrome.accentColor;
+		titleColor       = chrome.textColor;
+		bodyColor        = chrome.mutedTextColor;
+		mutedColor       = chrome.eyebrowColor;
 		placeholderColor = chrome.hoverColor;
 	}
 
 	if (isImagePreview && !preview.thumbnailImage.isNull()) {
-		return QString::fromLatin1(
-				   "<table cellspacing='0' cellpadding='0' width='%2' "
-				   "style='border-collapse:collapse; border:none; background:transparent;'>"
-				   "<tr><td style='padding-top:6px;'>%1</td></tr></table>")
-			.arg(persistentChatThumbnailHtml(
-					 previewKey, preview.thumbnailImage, 360, 300, QStringLiteral("border-radius: 6px;"),
-					 persistentChatPreviewImageUrl(previewKey).toString(QUrl::FullyEncoded)))
+		return QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='%2' "
+								   "style='border-collapse:collapse; border:none; background:transparent;'>"
+								   "<tr><td style='padding-top:6px;'>%1</td></tr></table>")
+			.arg(persistentChatThumbnailHtml(previewKey, preview.thumbnailImage, 360, 300,
+											 QStringLiteral("border-radius: 6px;"),
+											 persistentChatPreviewImageUrl(previewKey).toString(QUrl::FullyEncoded)))
 			.arg(std::min(cardWidth, 360));
 	}
 
 	QString detailLine;
 	if (!descriptionText.isEmpty()) {
-		detailLine = QString::fromLatin1(
-						 "<div style='margin-top:3px; color:%1; font-size:0.82em; line-height:1.4;'>%2</div>")
-						 .arg(bodyColor.name(), descriptionText);
+		detailLine =
+			QString::fromLatin1("<div style='margin-top:3px; color:%1; font-size:0.82em; line-height:1.4;'>%2</div>")
+				.arg(bodyColor.name(), descriptionText);
 	} else if (!secondaryText.isEmpty() && secondaryText != domainText) {
-		detailLine = QString::fromLatin1(
-						 "<div style='margin-top:3px; color:%1; font-size:0.78em; line-height:1.35;'>%2</div>")
-						 .arg(bodyColor.name(), secondaryText);
+		detailLine =
+			QString::fromLatin1("<div style='margin-top:3px; color:%1; font-size:0.78em; line-height:1.35;'>%2</div>")
+				.arg(bodyColor.name(), secondaryText);
 	}
 
 	QString statusLine;
 	if (!preview.metadataFinished || !preview.thumbnailFinished) {
-		statusLine = QString::fromLatin1(
-						 "<div style='margin-top:5px; color:%1; font-size:0.76em;'>%2</div>")
+		statusLine = QString::fromLatin1("<div style='margin-top:5px; color:%1; font-size:0.76em;'>%2</div>")
 						 .arg(mutedColor.name(), tr("Loading preview...").toHtmlEscaped());
 	} else if (preview.failed && detailLine.isEmpty()) {
-		statusLine = QString::fromLatin1(
-						 "<div style='margin-top:5px; color:%1; font-size:0.76em;'>%2</div>")
+		statusLine = QString::fromLatin1("<div style='margin-top:5px; color:%1; font-size:0.76em;'>%2</div>")
 						 .arg(mutedColor.name(), tr("Preview unavailable").toHtmlEscaped());
 	}
 
@@ -10915,19 +10850,20 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey, int ava
 	if (!preview.thumbnailImage.isNull()) {
 		mediaColumns = QString::fromLatin1("<td width='120' valign='top'>%1</td><td width='12'></td>")
 						   .arg(persistentChatThumbnailHtml(previewKey, preview.thumbnailImage, 120, 68,
-														   QStringLiteral("border-radius: 3px;")));
+															QStringLiteral("border-radius: 3px;")));
 	} else if (!isImagePreview && (!preview.metadataFinished || !preview.thumbnailFinished)) {
-		mediaColumns = QString::fromLatin1(
-						   "<td width='120' valign='top'>"
-						   "<div style='width:120px; height:68px; border-radius:3px; background:%1;'></div>"
-						   "</td><td width='12'></td>")
-						   .arg(placeholderColor.name(QColor::HexArgb));
+		mediaColumns =
+			QString::fromLatin1("<td width='120' valign='top'>"
+								"<div style='width:120px; height:68px; border-radius:3px; background:%1;'></div>"
+								"</td><td width='12'></td>")
+				.arg(placeholderColor.name(QColor::HexArgb));
 	}
 
 	const QString contentHtml =
 		QString::fromLatin1(
 			"<table cellspacing='0' cellpadding='0' width='%1' "
-			"style='border-collapse:separate; border:none; background:%2; border-left:3px solid %3; border-radius:4px;'>"
+			"style='border-collapse:separate; border:none; background:%2; border-left:3px solid %3; "
+			"border-radius:4px;'>"
 			"<tr><td style='padding:10px;'>"
 			"<table cellspacing='0' cellpadding='0' width='100%%' style='border-collapse:collapse; border:none;'>"
 			"<tr>%4"
@@ -10952,10 +10888,9 @@ QString MainWindow::persistentChatPreviewHtml(const QString &previewKey, int ava
 			.arg(statusLine);
 
 	if (isImagePreview) {
-		return QString::fromLatin1(
-				   "<table cellspacing='0' cellpadding='0' width='%2' "
-				   "style='border-collapse:collapse; border:none; background:transparent;'>"
-				   "<tr><td style='padding-top:6px;'>%1</td></tr></table>")
+		return QString::fromLatin1("<table cellspacing='0' cellpadding='0' width='%2' "
+								   "style='border-collapse:collapse; border:none; background:transparent;'>"
+								   "<tr><td style='padding-top:6px;'>%1</td></tr></table>")
 			.arg(contentHtml)
 			.arg(std::min(cardWidth, PERSISTENT_CHAT_PREVIEW_CARD_MAX_WIDTH));
 	}
@@ -10977,8 +10912,7 @@ PersistentChatPreviewSpec MainWindow::persistentChatPreviewSpec(const QString &p
 	const PersistentChatPreview &preview = it.value();
 	const QUrl canonicalUrl(preview.canonicalUrl);
 	const QString domainText = previewDisplayHost(canonicalUrl);
-	const QString titleText =
-		trimmedPreviewText(preview.title.isEmpty() ? tr("Link preview") : preview.title, 90);
+	const QString titleText  = trimmedPreviewText(preview.title.isEmpty() ? tr("Link preview") : preview.title, 90);
 	const QString descriptionText = trimmedPreviewText(preview.description, 140);
 	const QString secondaryText   = trimmedPreviewText(preview.subtitle, 80);
 	const bool isImagePreview     = previewKey.startsWith(QLatin1String("image:"));
@@ -10991,24 +10925,23 @@ PersistentChatPreviewSpec MainWindow::persistentChatPreviewSpec(const QString &p
 	}
 
 	if (isImagePreview) {
-		spec.kind                  = PersistentChatPreviewKind::Image;
-		spec.actionUrl             = persistentChatPreviewImageUrl(previewKey);
-		spec.thumbnailImage        = preview.thumbnailImage;
-		spec.statusText            = statusText;
+		spec.kind                     = PersistentChatPreviewKind::Image;
+		spec.actionUrl                = persistentChatPreviewImageUrl(previewKey);
+		spec.thumbnailImage           = preview.thumbnailImage;
+		spec.statusText               = statusText;
 		spec.showThumbnailPlaceholder = preview.thumbnailImage.isNull();
 		return spec;
 	}
 
-	spec.kind                  = PersistentChatPreviewKind::LinkCard;
-	spec.actionUrl             = canonicalUrl;
-	spec.title                 = titleText;
-	spec.description           = !descriptionText.isEmpty()
-									 ? descriptionText
-									 : ((secondaryText.isEmpty() || secondaryText == domainText) ? QString()
-																								  : secondaryText);
-	spec.subtitle              = domainText;
-	spec.statusText            = statusText;
-	spec.thumbnailImage        = preview.thumbnailImage;
+	spec.kind        = PersistentChatPreviewKind::LinkCard;
+	spec.actionUrl   = canonicalUrl;
+	spec.title       = titleText;
+	spec.description = !descriptionText.isEmpty()
+						   ? descriptionText
+						   : ((secondaryText.isEmpty() || secondaryText == domainText) ? QString() : secondaryText);
+	spec.subtitle       = domainText;
+	spec.statusText     = statusText;
+	spec.thumbnailImage = preview.thumbnailImage;
 	spec.showThumbnailPlaceholder =
 		preview.thumbnailImage.isNull() && (!preview.metadataFinished || !preview.thumbnailFinished);
 	return spec;
@@ -11045,15 +10978,14 @@ void MainWindow::updatePersistentChatPreviewViewIfVisible(const QString &preview
 			messagePreviewKey && *messagePreviewKey == previewKey) {
 			hasMatchingBubble = true;
 			if (m_persistentChatHistoryModel) {
-				updatedModelBubble =
-					m_persistentChatHistoryModel->updateBubblePreview(message.message_id(), message.thread_id(), previewSpec)
-					|| updatedModelBubble;
+				updatedModelBubble = m_persistentChatHistoryModel->updateBubblePreview(message.message_id(),
+																					   message.thread_id(), previewSpec)
+									 || updatedModelBubble;
 			}
 			if (m_persistentChatHistoryDelegate && m_persistentChatHistoryModel) {
 				updatedVisibleBubble =
-					m_persistentChatHistoryDelegate->updateBubblePreview(m_persistentChatHistoryModel,
-																			message.message_id(), message.thread_id(),
-																			previewSpec)
+					m_persistentChatHistoryDelegate->updateBubblePreview(
+						m_persistentChatHistoryModel, message.message_id(), message.thread_id(), previewSpec)
 					|| updatedVisibleBubble;
 			}
 		}
@@ -11087,7 +11019,8 @@ void MainWindow::updatePersistentChatPreviewViewIfVisible(const QString &preview
 
 void MainWindow::renderPersistentChatView(const QString &statusMessage, bool scrollToBottom,
 										  bool preserveScrollPosition) {
-	m_pendingPersistentChatRender = PersistentChatRenderRequest { statusMessage, scrollToBottom, preserveScrollPosition };
+	m_pendingPersistentChatRender =
+		PersistentChatRenderRequest{ statusMessage, scrollToBottom, preserveScrollPosition };
 	if (m_persistentChatRenderQueued) {
 		return;
 	}
@@ -11114,8 +11047,7 @@ void MainWindow::flushPersistentChatRender() {
 
 	const PersistentChatRenderRequest request = *m_pendingPersistentChatRender;
 	m_pendingPersistentChatRender.reset();
-	renderPersistentChatViewImmediately(request.statusMessage, request.scrollToBottom,
-										request.preserveScrollPosition);
+	renderPersistentChatViewImmediately(request.statusMessage, request.scrollToBottom, request.preserveScrollPosition);
 }
 
 void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessage, bool scrollToBottom,
@@ -11126,16 +11058,14 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 	}
 	setPersistentChatContentMode(false);
 	m_lastPersistentChatViewportWidth = m_persistentChatHistory->viewport()->width();
-	const bool enforceBottomLock =
-		m_persistentChatBottomLockRendersRemaining > 0 && !m_persistentChatLoadingOlder;
+	const bool enforceBottomLock      = m_persistentChatBottomLockRendersRemaining > 0 && !m_persistentChatLoadingOlder;
 	if (enforceBottomLock) {
-		scrollToBottom = true;
+		scrollToBottom         = true;
 		preserveScrollPosition = false;
 	}
 
 	const PersistentChatTarget target = currentPersistentChatTarget();
-	const bool showInlinePreviews =
-		Global::get().s.bEnableLinkPreviews && target.scope != MumbleProto::Aggregate;
+	const bool showInlinePreviews     = Global::get().s.bEnableLinkPreviews && target.scope != MumbleProto::Aggregate;
 	m_persistentChatInlineDataImageSources.clear();
 	if (mumble::chatperf::enabled()) {
 		mumble::chatperf::recordNote(
@@ -11161,14 +11091,13 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 	mumble::chatperf::recordValue("chat.render.messages", m_persistentChatMessages.size());
 	QVector< PersistentChatHistoryRow > rows;
-	auto makeHash = [](const QStringList &parts) {
-		return QString::number(qHash(parts.join(QLatin1String("||"))));
-	};
-	auto addStateCard = [&](const QString &eyebrow, const QString &title, const QString &body, const QStringList &hints) {
+	auto makeHash = [](const QStringList &parts) { return QString::number(qHash(parts.join(QLatin1String("||")))); };
+	auto addStateCard = [&](const QString &eyebrow, const QString &title, const QString &body,
+							const QStringList &hints) {
 		PersistentChatHistoryRow row;
 		row.kind      = PersistentChatHistoryRowKind::State;
 		row.rowId     = QString::fromLatin1("state:%1:%2").arg(eyebrow, title);
-		row.signature = makeHash(QStringList { eyebrow, title, body, hints.join(QLatin1Char('|')) });
+		row.signature = makeHash(QStringList{ eyebrow, title, body, hints.join(QLatin1Char('|')) });
 		PersistentChatStateRowSpec stateSpec;
 		stateSpec.eyebrow       = eyebrow;
 		stateSpec.title         = title;
@@ -11182,28 +11111,28 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 		PersistentChatHistoryRow row;
 		row.kind      = PersistentChatHistoryRowKind::UnreadDivider;
 		row.rowId     = rowId;
-		row.signature = makeHash(QStringList { rowId, text });
-		row.text      = PersistentChatTextRowSpec { text, PersistentChatDisplayMode::Bubble };
+		row.signature = makeHash(QStringList{ rowId, text });
+		row.text      = PersistentChatTextRowSpec{ text, PersistentChatDisplayMode::Bubble };
 		rows.push_back(row);
 	};
 	// Keep voice-room chat on the same bubble rendering path as text rooms.
 	const bool compactTranscriptMode = false;
-	auto addDateDivider = [&](const QString &text, const QString &rowId) {
-		PersistentChatHistoryRow row;
-		row.kind      = PersistentChatHistoryRowKind::DateDivider;
-		row.rowId     = rowId;
-		row.signature = makeHash(QStringList { rowId, text });
-		row.text      = PersistentChatTextRowSpec { text, compactTranscriptMode ? PersistentChatDisplayMode::CompactTranscript
-																				 : PersistentChatDisplayMode::Bubble };
-		rows.push_back(row);
+	auto addDateDivider              = [&](const QString &text, const QString &rowId) {
+        PersistentChatHistoryRow row;
+        row.kind      = PersistentChatHistoryRowKind::DateDivider;
+        row.rowId     = rowId;
+        row.signature = makeHash(QStringList{ rowId, text });
+        row.text = PersistentChatTextRowSpec{ text, compactTranscriptMode ? PersistentChatDisplayMode::CompactTranscript
+                                                                          : PersistentChatDisplayMode::Bubble };
+        rows.push_back(row);
 	};
 	auto addLoadOlder = [&](const QString &text, bool loading, bool enabled) {
 		PersistentChatHistoryRow row;
 		row.kind      = PersistentChatHistoryRowKind::LoadOlder;
 		row.rowId     = QString::fromLatin1("load-older:%1").arg(m_visiblePersistentChatOldestMessageID);
-		row.signature = makeHash(QStringList { row.rowId, text, loading ? QStringLiteral("1") : QStringLiteral("0"),
-											   enabled ? QStringLiteral("1") : QStringLiteral("0") });
-		row.loadOlder = PersistentChatLoadOlderRowSpec { text, loading, enabled };
+		row.signature = makeHash(QStringList{ row.rowId, text, loading ? QStringLiteral("1") : QStringLiteral("0"),
+											  enabled ? QStringLiteral("1") : QStringLiteral("0") });
+		row.loadOlder = PersistentChatLoadOlderRowSpec{ text, loading, enabled };
 		rows.push_back(row);
 	};
 
@@ -11253,7 +11182,8 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				hints << tr("Unread state stays with each room");
 			} else {
 				title = tr("Nothing here yet");
-				body  = target.readOnly ? tr("No accessible messages yet.") : tr("No messages in %1 yet.").arg(target.label);
+				body  = target.readOnly ? tr("No accessible messages yet.")
+									   : tr("No messages in %1 yet.").arg(target.label);
 				if (target.readOnly) {
 					hints << tr("Choose another room to reply");
 				} else {
@@ -11265,14 +11195,14 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			addStateCard(eyebrow, title, body, hints);
 		}
 	} else {
-		qsizetype largestSourceChars         = -1;
-		qsizetype largestRenderedChars       = -1;
-		unsigned int largestMessageID        = 0;
-		unsigned int largestMessageThreadID  = 0;
+		qsizetype largestSourceChars        = -1;
+		qsizetype largestRenderedChars      = -1;
+		unsigned int largestMessageID       = 0;
+		unsigned int largestMessageThreadID = 0;
 		QString largestMessageSourceSample;
-		bool largestMessageHasImgTag         = false;
-		bool largestMessageHasDataImage      = false;
-		bool largestMessageHasBase64Marker   = false;
+		bool largestMessageHasImgTag       = false;
+		bool largestMessageHasDataImage    = false;
+		bool largestMessageHasBase64Marker = false;
 		if (m_persistentChatLoadingOlder) {
 			addLoadOlder(tr("Loading older messages..."), true, false);
 		} else if (m_visiblePersistentChatHasMore) {
@@ -11303,7 +11233,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			auto readGroups = buildRenderGroups(0, *firstUnreadIndex, selfIdentity);
 			renderGroups.insert(renderGroups.end(), readGroups.begin(), readGroups.end());
 			unreadGroupBoundary = renderGroups.size();
-			auto unreadGroups = buildRenderGroups(*firstUnreadIndex, m_persistentChatMessages.size(), selfIdentity);
+			auto unreadGroups   = buildRenderGroups(*firstUnreadIndex, m_persistentChatMessages.size(), selfIdentity);
 			renderGroups.insert(renderGroups.end(), unreadGroups.begin(), unreadGroups.end());
 		} else {
 			renderGroups = buildRenderGroups(0, m_persistentChatMessages.size(), selfIdentity);
@@ -11322,9 +11252,10 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			const QDate messageDate = group.date;
 			if (!hasRenderedDateSeparator || previousDate != messageDate) {
 				addDateDivider(persistentChatDateLabel(messageDate),
-							   QString::fromLatin1("date:%1").arg(messageDate.isValid() ? messageDate.toString(Qt::ISODate)
-																						  : QStringLiteral("invalid")));
-				previousDate = messageDate;
+							   QString::fromLatin1("date:%1").arg(messageDate.isValid()
+																	  ? messageDate.toString(Qt::ISODate)
+																	  : QStringLiteral("invalid")));
+				previousDate             = messageDate;
 				hasRenderedDateSeparator = true;
 			}
 
@@ -11334,31 +11265,30 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 			headerSpec.aggregateScope = target.scope == MumbleProto::Aggregate;
 			headerSpec.systemMessage  = group.systemMessage;
 			headerSpec.displayMode    = compactTranscriptMode ? PersistentChatDisplayMode::CompactTranscript
-															 : PersistentChatDisplayMode::Bubble;
-			headerSpec.actorLabel     = persistentChatActorLabel(firstMessage);
-			headerSpec.actorColor     = persistentChatActorAccentColor(headerSpec.actorLabel);
+														   : PersistentChatDisplayMode::Bubble;
+			headerSpec.actorLabel            = persistentChatActorLabel(firstMessage);
+			headerSpec.actorColor            = persistentChatActorAccentColor(headerSpec.actorLabel);
 			headerSpec.avatarForegroundColor = headerSpec.actorColor;
 			headerSpec.avatarBackgroundColor = persistentChatActorAccentBackground(headerSpec.actorColor);
-			headerSpec.timeLabel      = persistentChatTimestampLabel(group.startedAt);
-			headerSpec.timeToolTip    = persistentChatTimestampToolTip(group.startedAt);
-			headerSpec.scope    = group.scope;
-			headerSpec.scopeID  = group.scopeID;
-			headerSpec.scopeLabel = target.scope == MumbleProto::Aggregate ? persistentChatScopeLabel(group.scope, group.scopeID)
-																		   : QString();
+			headerSpec.timeLabel             = persistentChatTimestampLabel(group.startedAt);
+			headerSpec.timeToolTip           = persistentChatTimestampToolTip(group.startedAt);
+			headerSpec.scope                 = group.scope;
+			headerSpec.scopeID               = group.scopeID;
+			headerSpec.scopeLabel            = target.scope == MumbleProto::Aggregate
+										? persistentChatScopeLabel(group.scope, group.scopeID)
+										: QString();
 
 			const QString avatarFallbackText =
 				group.systemMessage ? QString() : persistentChatInitials(headerSpec.actorLabel);
 			PersistentChatHistoryRow row;
 			row.kind  = PersistentChatHistoryRowKind::MessageGroup;
-			row.rowId = QString::fromLatin1("group:%1:%2")
-							.arg(group.firstMessageID)
-							.arg(group.lastThreadID);
+			row.rowId = QString::fromLatin1("group:%1:%2").arg(group.firstMessageID).arg(group.lastThreadID);
 			PersistentChatMessageGroupRowSpec groupRowSpec;
-			groupRowSpec.header            = headerSpec;
+			groupRowSpec.header             = headerSpec;
 			groupRowSpec.avatarFallbackText = avatarFallbackText;
-			groupRowSpec.firstMessageID    = group.firstMessageID;
-			groupRowSpec.firstThreadID     = group.lastThreadID;
-			QStringList groupSignatureParts { row.rowId, headerSpec.actorLabel, headerSpec.timeLabel,
+			groupRowSpec.firstMessageID     = group.firstMessageID;
+			groupRowSpec.firstThreadID      = group.lastThreadID;
+			QStringList groupSignatureParts{ row.rowId, headerSpec.actorLabel, headerSpec.timeLabel,
 											 headerSpec.scopeLabel,
 											 QString::number(static_cast< int >(headerSpec.displayMode)) };
 
@@ -11372,11 +11302,11 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 					const QString systemText =
 						persistentChatSystemMessageText(message).value_or(tr("System event")).toHtmlEscaped();
 					const QColor systemDividerColor = activeUiThemeTokens()
-														 ? activeUiThemeTokens()->surface1
-														 : m_persistentChatHistory->palette().color(QPalette::Mid);
+														  ? activeUiThemeTokens()->surface1
+														  : m_persistentChatHistory->palette().color(QPalette::Mid);
 					const QColor systemTextColor = activeUiThemeTokens()
-													  ? activeUiThemeTokens()->overlay0
-													  : m_persistentChatHistory->palette().color(QPalette::Mid);
+													   ? activeUiThemeTokens()->overlay0
+													   : m_persistentChatHistory->palette().color(QPalette::Mid);
 					bodyHtml = QString::fromLatin1(
 								   "<table width='100%%' cellspacing='0' cellpadding='0' "
 								   "style='margin:4px 0; border:none; background:transparent;'>"
@@ -11387,44 +11317,44 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 								   "<td style='border-top:1px solid %1;'></td>"
 								   "</tr>"
 								   "</table>")
-								   .arg(systemDividerColor.name(QColor::HexArgb),
-										systemTextColor.name(QColor::HexArgb), systemText);
+								   .arg(systemDividerColor.name(QColor::HexArgb), systemTextColor.name(QColor::HexArgb),
+										systemText);
 				} else if (message.has_deleted_at() && message.deleted_at() > 0) {
 					bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 				} else {
 					QString rawBodyHtml = persistentChatMessageRawBody(message);
-					messageMarkupSource  = rawBodyHtml;
-					replyReference = resolvedPersistentChatReplyReference(m_persistentChatMessages, message);
+					messageMarkupSource = rawBodyHtml;
+					replyReference      = resolvedPersistentChatReplyReference(m_persistentChatMessages, message);
 					if (!replyReference && !message.has_body_text()) {
 						replyReference = extractPersistentChatReplyReference(rawBodyHtml, &rawBodyHtml);
 					}
-					const auto buildInlineDataImageReplacement =
-						[this, &bubbleImageResources](const QString &source, const QString &altText,
-							   const PersistentChatInlineDataImageInfo &info) {
-							mumble::chatperf::recordNote(
-								"chat.inline_data_image.builder",
-								QString::fromLatin1("estimated=%1 alt=\"%2\" prefix=\"%3\"")
-									.arg(info.estimatedBytes)
-									.arg(altText.left(48))
-									.arg(source.left(64)));
-							const QImage previewImage = persistentChatInlineDataImagePreviewImage(source, info);
-							if (previewImage.isNull()) {
-								mumble::chatperf::recordValue("chat.inline_data_image.preview_failed", 1);
-								return persistentChatInlineDataImagePlaceholderHtml(
-									info, altText,
-									persistentChatInlineDataImageOpenUrl(registerPersistentChatInlineDataImageSource(source))
-										.toString(QUrl::FullyEncoded));
-							}
+					const auto buildInlineDataImageReplacement = [this, &bubbleImageResources](
+																	 const QString &source, const QString &altText,
+																	 const PersistentChatInlineDataImageInfo &info) {
+						mumble::chatperf::recordNote("chat.inline_data_image.builder",
+													 QString::fromLatin1("estimated=%1 alt=\"%2\" prefix=\"%3\"")
+														 .arg(info.estimatedBytes)
+														 .arg(altText.left(48))
+														 .arg(source.left(64)));
+						const QImage previewImage = persistentChatInlineDataImagePreviewImage(source, info);
+						if (previewImage.isNull()) {
+							mumble::chatperf::recordValue("chat.inline_data_image.preview_failed", 1);
+							return persistentChatInlineDataImagePlaceholderHtml(
+								info, altText,
+								persistentChatInlineDataImageOpenUrl(
+									registerPersistentChatInlineDataImageSource(source))
+									.toString(QUrl::FullyEncoded));
+						}
 
-							const QString token = registerPersistentChatInlineDataImageSource(source);
-							const QUrl openUrl = persistentChatInlineDataImageOpenUrl(token);
-							const QUrl resourceUrl = persistentChatInlineDataImageResourceUrl(token);
-							bubbleImageResources.push_back(qMakePair(resourceUrl, previewImage));
-							mumble::chatperf::recordValue("chat.inline_data_image.preview_ready", 1);
-							return persistentChatInlineDataImageThumbnailHtml(
-								resourceUrl.toString(QUrl::FullyEncoded), openUrl.toString(QUrl::FullyEncoded), altText,
-								previewImage.size(), info.estimatedBytes);
-						};
+						const QString token    = registerPersistentChatInlineDataImageSource(source);
+						const QUrl openUrl     = persistentChatInlineDataImageOpenUrl(token);
+						const QUrl resourceUrl = persistentChatInlineDataImageResourceUrl(token);
+						bubbleImageResources.push_back(qMakePair(resourceUrl, previewImage));
+						mumble::chatperf::recordValue("chat.inline_data_image.preview_ready", 1);
+						return persistentChatInlineDataImageThumbnailHtml(resourceUrl.toString(QUrl::FullyEncoded),
+																		  openUrl.toString(QUrl::FullyEncoded), altText,
+																		  previewImage.size(), info.estimatedBytes);
+					};
 					bodyHtml = message.has_body_text()
 								   ? persistentChatMessageBodyHtml(message, buildInlineDataImageReplacement)
 								   : persistentChatContentHtml(rawBodyHtml, buildInlineDataImageReplacement);
@@ -11434,29 +11364,32 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 					bodyHtml += QString::fromLatin1(" <em>%1</em>").arg(tr("(edited)").toHtmlEscaped());
 				}
 				const QString messageSourceText = bubble.systemMessage
-													 ? persistentChatSystemMessageText(message).value_or(QString())
-													 : persistentChatMessageSourceText(message);
+													  ? persistentChatSystemMessageText(message).value_or(QString())
+													  : persistentChatMessageSourceText(message);
 				if (messageSourceText.size() > 100000 || bodyHtml.size() > 10000) {
 					mumble::chatperf::recordNote(
 						"chat.inline_data_image.body_html",
-						QString::fromLatin1(
-							"message_id=%1 source_chars=%2 body_chars=%3 has_data_image=%4 has_mumble_chat=%5 has_thumb_data=%6")
+						QString::fromLatin1("message_id=%1 source_chars=%2 body_chars=%3 has_data_image=%4 "
+											"has_mumble_chat=%5 has_thumb_data=%6")
 							.arg(message.message_id())
 							.arg(messageSourceText.size())
 							.arg(bodyHtml.size())
 							.arg(bodyHtml.contains(QLatin1String("data:image"), Qt::CaseInsensitive) ? 1 : 0)
-							.arg(bodyHtml.contains(QLatin1String("mumble-chat://inline-data-image"), Qt::CaseInsensitive) ? 1 : 0)
-							.arg(bodyHtml.contains(QLatin1String("Click to open or save"), Qt::CaseInsensitive) ? 1 : 0));
+							.arg(
+								bodyHtml.contains(QLatin1String("mumble-chat://inline-data-image"), Qt::CaseInsensitive)
+									? 1
+									: 0)
+							.arg(bodyHtml.contains(QLatin1String("Click to open or save"), Qt::CaseInsensitive) ? 1
+																												: 0));
 				}
 				bodyHtml = persistentChatCondensedBodyHtml(bodyHtml, messageSourceText);
 				if (messageSourceText.size() > largestSourceChars) {
-					largestSourceChars       = messageSourceText.size();
-					largestRenderedChars     = bodyHtml.size();
-					largestMessageID         = message.message_id();
-					largestMessageThreadID   = message.thread_id();
+					largestSourceChars         = messageSourceText.size();
+					largestRenderedChars       = bodyHtml.size();
+					largestMessageID           = message.message_id();
+					largestMessageThreadID     = message.thread_id();
 					largestMessageSourceSample = messageSourceText.left(120);
-					largestMessageHasImgTag    =
-						messageMarkupSource.contains(QLatin1String("<img"), Qt::CaseInsensitive);
+					largestMessageHasImgTag = messageMarkupSource.contains(QLatin1String("<img"), Qt::CaseInsensitive);
 					largestMessageHasDataImage =
 						messageMarkupSource.contains(QLatin1String("data:image"), Qt::CaseInsensitive);
 					largestMessageHasBase64Marker =
@@ -11465,26 +11398,26 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				}
 
 				PersistentChatBubbleSpec bubbleSpec;
-				bubbleSpec.messageID    = message.message_id();
-				bubbleSpec.threadID     = message.thread_id();
-				bubbleSpec.displayMode  = headerSpec.displayMode;
-				bubbleSpec.bodyHtml     = bodyHtml;
+				bubbleSpec.messageID      = message.message_id();
+				bubbleSpec.threadID       = message.thread_id();
+				bubbleSpec.displayMode    = headerSpec.displayMode;
+				bubbleSpec.bodyHtml       = bodyHtml;
 				bubbleSpec.imageResources = bubbleImageResources;
-				bubbleSpec.selfAuthored = bubble.selfAuthored;
-				bubbleSpec.copyText     = bubble.systemMessage
-											 ? persistentChatSystemMessageText(message).value_or(QString())
-											 : persistentChatMessageSourceText(message);
+				bubbleSpec.selfAuthored   = bubble.selfAuthored;
+				bubbleSpec.copyText       = bubble.systemMessage
+										  ? persistentChatSystemMessageText(message).value_or(QString())
+										  : persistentChatMessageSourceText(message);
 				bubbleSpec.systemMessage = bubble.systemMessage;
-				bubbleSpec.timeToolTip  = persistentChatTimestampToolTip(bubble.createdAt);
-				bubbleSpec.replyEnabled =
-					!bubble.systemMessage
-					&& (target.scope == MumbleProto::Aggregate || !message.has_deleted_at() || message.deleted_at() == 0);
+				bubbleSpec.timeToolTip   = persistentChatTimestampToolTip(bubble.createdAt);
+				bubbleSpec.replyEnabled  = !bubble.systemMessage
+										  && (target.scope == MumbleProto::Aggregate || !message.has_deleted_at()
+											  || message.deleted_at() == 0);
 				bubbleSpec.readOnlyAction = target.scope == MumbleProto::Aggregate;
-				bubbleSpec.actionText   =
-					bubble.systemMessage ? QString()
-										 : (target.scope == MumbleProto::Aggregate ? tr("Open room") : tr("Reply"));
-				bubbleSpec.actionScope  = message.has_scope() ? message.scope() : MumbleProto::Channel;
-				bubbleSpec.actionScopeID = message.has_scope_id() ? message.scope_id() : 0;
+				bubbleSpec.actionText     = bubble.systemMessage
+											? QString()
+											: (target.scope == MumbleProto::Aggregate ? tr("Open room") : tr("Reply"));
+				bubbleSpec.actionScope          = message.has_scope() ? message.scope() : MumbleProto::Channel;
+				bubbleSpec.actionScopeID        = message.has_scope_id() ? message.scope_id() : 0;
 				bubbleSpec.transcriptActorLabel = headerSpec.actorLabel;
 				bubbleSpec.transcriptActorColor = headerSpec.actorColor;
 				bubbleSpec.transcriptTimeLabel  = persistentChatTimestampLabel(bubble.createdAt);
@@ -11492,13 +11425,14 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				if (replyReference) {
 					bubbleSpec.hasReply       = true;
 					bubbleSpec.replyMessageID = replyReference->messageID;
-					bubbleSpec.replyActor = replyReference->actor;
-					bubbleSpec.replySnippet = replyReference->snippet;
+					bubbleSpec.replyActor     = replyReference->actor;
+					bubbleSpec.replySnippet   = replyReference->snippet;
 				}
 
-				if (!bubble.systemMessage && (!message.has_deleted_at() || message.deleted_at() == 0) && showInlinePreviews) {
+				if (!bubble.systemMessage && (!message.has_deleted_at() || message.deleted_at() == 0)
+					&& showInlinePreviews) {
 					if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
-						bubbleSpec.previewKey = *previewKey;
+						bubbleSpec.previewKey  = *previewKey;
 						bubbleSpec.previewSpec = persistentChatPreviewSpec(*previewKey);
 						if (persistentChatSourceTextIsSinglePreviewableUrl(messageSourceText)) {
 							bubbleSpec.bodyHtml = persistentChatPreviewSourceUrlHtml(messageSourceText);
@@ -11572,15 +11506,16 @@ bool MainWindow::canMarkPersistentChatRead(bool willScrollToBottom) const {
 	const bool modernShellVisible = false;
 #endif
 	return m_visiblePersistentChatScope && *m_visiblePersistentChatScope != MumbleProto::Aggregate
-		   && !m_persistentChatMessages.empty() && Global::get().sh && Global::get().sh->isRunning()
-		   && isActiveWindow() && m_persistentChatHistory && (modernShellVisible || qdwChat->isVisible())
+		   && !m_persistentChatMessages.empty() && Global::get().sh && Global::get().sh->isRunning() && isActiveWindow()
+		   && m_persistentChatHistory && (modernShellVisible || qdwChat->isVisible())
 		   && (modernShellVisible || willScrollToBottom
 			   || (m_persistentChatHistoryModel
 				   && m_persistentChatHistory->isRowVisible(m_persistentChatHistoryModel->lastMessageGroupRowId())));
 }
 
 std::size_t MainWindow::persistentChatUnreadCount() const {
-	if (!m_persistentChatController || !m_visiblePersistentChatScope || *m_visiblePersistentChatScope == MumbleProto::Aggregate) {
+	if (!m_persistentChatController || !m_visiblePersistentChatScope
+		|| *m_visiblePersistentChatScope == MumbleProto::Aggregate) {
 		return 0;
 	}
 
@@ -11641,7 +11576,7 @@ void MainWindow::refreshPersistentChatView(bool forceReload) {
 		}
 		clearPersistentChatView(tr("Direct messages still use the classic text message path and do not have persistent "
 								   "history yet."),
-							 tr("Direct messages"), { tr("Classic chat still handles direct messages") });
+								tr("Direct messages"), { tr("Classic chat still handles direct messages") });
 		return;
 	}
 
@@ -11649,9 +11584,10 @@ void MainWindow::refreshPersistentChatView(bool forceReload) {
 		if (m_persistentChatController) {
 			m_persistentChatController->clearActiveScope();
 		}
-		clearPersistentChatView(target.statusMessage.isEmpty() ? tr("Legacy server-wide chat is disabled by this server.")
-															  : target.statusMessage,
-							 tr("Server-wide chat is unavailable"), { tr("Choose a text room or voice room chat instead") });
+		clearPersistentChatView(
+			target.statusMessage.isEmpty() ? tr("Legacy server-wide chat is disabled by this server.")
+										   : target.statusMessage,
+			tr("Server-wide chat is unavailable"), { tr("Choose a text room or voice room chat instead") });
 		return;
 	}
 
@@ -11659,15 +11595,15 @@ void MainWindow::refreshPersistentChatView(bool forceReload) {
 		if (m_persistentChatController) {
 			m_persistentChatController->clearActiveScope();
 		}
-		clearPersistentChatView(target.statusMessage.isEmpty()
-								   ? tr("This legacy conversation is no longer shown in the text room list.")
-								   : target.statusMessage,
-							 tr("Conversation unavailable"), { tr("Choose a text room or voice room chat instead") });
+		clearPersistentChatView(
+			target.statusMessage.isEmpty() ? tr("This legacy conversation is no longer shown in the text room list.")
+										   : target.statusMessage,
+			tr("Conversation unavailable"), { tr("Choose a text room or voice room chat instead") });
 		return;
 	}
 
-	const bool targetChanged = !m_persistentChatController
-							   || !m_persistentChatController->activeScopeMatches(target.scope, target.scopeID);
+	const bool targetChanged =
+		!m_persistentChatController || !m_persistentChatController->activeScopeMatches(target.scope, target.scopeID);
 	if (!forceReload && !targetChanged) {
 		return;
 	}
@@ -11682,14 +11618,16 @@ void MainWindow::refreshPersistentChatView(bool forceReload) {
 		return;
 	}
 
-	m_persistentChatController->setActiveScope(PersistentChatScopeKey::fromScope(target.scope, target.scopeID), forceReload);
+	m_persistentChatController->setActiveScope(PersistentChatScopeKey::fromScope(target.scope, target.scopeID),
+											   forceReload);
 	const PersistentChatScopeStateSnapshot snapshot = m_persistentChatController->activeSnapshot();
 	if (!snapshot.initialLoaded && snapshot.messages.isEmpty()) {
 		renderPersistentChatView(tr("Loading %1...").arg(target.label));
 		return;
 	}
 
-	renderPersistentChatView(QString(), m_persistentChatHistory ? m_persistentChatHistory->isScrolledToBottom() : true, false);
+	renderPersistentChatView(QString(), m_persistentChatHistory ? m_persistentChatHistory->isScrolledToBottom() : true,
+							 false);
 }
 
 void MainWindow::renderServerLogView(bool preserveScrollPosition) {
@@ -11823,8 +11761,21 @@ bool MainWindow::attachPersistentChatImageData(const QString &dataUrl) {
 
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 void MainWindow::togglePreferredModernShellLayout() {
+	if (Global::get().s.modernLayoutPolicy == Settings::ModernLayoutForced) {
+		if (Global::get().s.wlWindowLayout == Settings::LayoutModern) {
+			Global::get().s.wlWindowLayout = Settings::LayoutHybrid;
+			Global::get().s.save();
+		}
+		queueModernShellSnapshotSync();
+		return;
+	}
+
 	Global::get().s.wlWindowLayout =
 		effectiveWindowLayout() == Settings::LayoutModern ? Settings::LayoutClassic : Settings::LayoutModern;
+	if (Global::get().s.wlWindowLayout == Settings::LayoutModern) {
+		Global::get().s.modernLayoutPolicy = Settings::ModernLayoutForced;
+		Global::get().s.wlWindowLayout     = Settings::LayoutHybrid;
+	}
 	Global::get().s.save();
 	refreshShellLayout();
 }
@@ -11887,8 +11838,7 @@ void MainWindow::handlePersistentChatEmbedState(const MumbleProto::ChatEmbedStat
 
 	const MumbleProto::ChatScope scope = msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	const unsigned int scopeID         = msg.has_scope_id() ? msg.scope_id() : 0;
-	const bool activeScopeMatches =
-		m_persistentChatController->activeScopeMatches(scope, scopeID);
+	const bool activeScopeMatches      = m_persistentChatController->activeScopeMatches(scope, scopeID);
 
 	QString oldPreviewKey;
 	if (activeScopeMatches) {
@@ -11943,7 +11893,7 @@ void MainWindow::handlePersistentChatEmbedState(const MumbleProto::ChatEmbedStat
 	const bool updatedVisibleBubble =
 		updatedLocalMessage && m_persistentChatHistoryDelegate && m_persistentChatHistoryModel
 		&& m_persistentChatHistoryDelegate->updateBubblePreview(m_persistentChatHistoryModel, msg.message_id(),
-																 msg.thread_id(), previewSpec);
+																msg.thread_id(), previewSpec);
 
 	if (!updatedModelBubble && !updatedVisibleBubble) {
 		renderPersistentChatView(QString(), wasAtBottom, !wasAtBottom);
@@ -11974,8 +11924,7 @@ void MainWindow::handlePersistentChatReactionState(const MumbleProto::ChatReacti
 
 	const MumbleProto::ChatScope scope = msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	const unsigned int scopeID         = msg.has_scope_id() ? msg.scope_id() : 0;
-	const bool activeScopeMatches =
-		m_persistentChatController->activeScopeMatches(scope, scopeID);
+	const bool activeScopeMatches      = m_persistentChatController->activeScopeMatches(scope, scopeID);
 
 	if (!m_persistentChatController->applyReactionState(msg)) {
 		return;
@@ -12023,7 +11972,7 @@ bool MainWindow::canSendToPersistentChatTarget(const PersistentChatTarget &targe
 	ChanACL::Permissions textPermissions = static_cast< ChanACL::Permissions >(permissionChannel->uiPermissions);
 	if (!textPermissions && requestPermissions && Global::get().sh) {
 		Global::get().sh->requestChannelPermissions(permissionChannel->iId);
-		textPermissions = permissionChannel->iId == 0 ? Global::get().pPermissions : ChanACL::All;
+		textPermissions                  = permissionChannel->iId == 0 ? Global::get().pPermissions : ChanACL::All;
 		permissionChannel->uiPermissions = textPermissions;
 	}
 
@@ -12114,14 +12063,12 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	const bool compactRoomHeader =
 		target.valid && !target.serverLog && !target.directMessage && !target.legacyTextPath
 		&& (target.scope == MumbleProto::TextChannel || target.scope == MumbleProto::Channel);
-	const bool compactRailSections = compactRoomHeader;
+	const bool compactRailSections             = compactRoomHeader;
 	const bool nativeConversationChromeVisible = qdwChat && qdwChat->isVisible();
-	const bool nativeNavigatorChromeVisible =
-		m_serverNavigatorContainer && m_serverNavigatorContainer->isVisible();
+	const bool nativeNavigatorChromeVisible    = m_serverNavigatorContainer && m_serverNavigatorContainer->isVisible();
 
-	if (QVBoxLayout *headerLayout = qobject_cast< QVBoxLayout * >(m_persistentChatHeaderFrame
-																	 ? m_persistentChatHeaderFrame->layout()
-																	 : nullptr)) {
+	if (QVBoxLayout *headerLayout = qobject_cast< QVBoxLayout * >(
+			m_persistentChatHeaderFrame ? m_persistentChatHeaderFrame->layout() : nullptr)) {
 		headerLayout->setContentsMargins(7, 0, 7, compactRoomHeader ? 0 : 1);
 		headerLayout->setSpacing(compactRoomHeader ? 0 : 1);
 	}
@@ -12166,8 +12113,9 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 	} else if (target.directMessage) {
 		subtitle = tr("Classic direct chat.");
 	} else if (target.scope == MumbleProto::Aggregate) {
-		subtitle = !target.statusMessage.trimmed().isEmpty() ? target.statusMessage
-															 : tr("Combined activity is retired in the new text room list.");
+		subtitle = !target.statusMessage.trimmed().isEmpty()
+					   ? target.statusMessage
+					   : tr("Combined activity is retired in the new text room list.");
 	} else if (target.scope == MumbleProto::ServerGlobal) {
 		if (!target.description.trimmed().isEmpty()) {
 			subtitle = target.description;
@@ -12237,12 +12185,13 @@ void MainWindow::updatePersistentChatChrome(const PersistentChatTarget &target) 
 		m_serverNavigatorTextChannelsTitle->setText(tr("Text rooms"));
 	}
 	if (m_serverNavigatorTextChannelsSubtitle) {
-		const bool showCreateHint = showConversationList && canManagePersistentTextChannels() && m_persistentTextChannels.isEmpty();
+		const bool showCreateHint =
+			showConversationList && canManagePersistentTextChannels() && m_persistentTextChannels.isEmpty();
 		if (nativeNavigatorChromeVisible) {
 			m_serverNavigatorTextChannelsSubtitle->setVisible(showCreateHint);
 		}
 		m_serverNavigatorTextChannelsSubtitle->setText(showCreateHint ? tr("Right-click to create a text room")
-																  : tr("Named text rooms and voice room chat"));
+																	  : tr("Named text rooms and voice room chat"));
 	}
 	if (m_persistentChatChannelList && nativeNavigatorChromeVisible) {
 		m_persistentChatChannelList->setVisible(showConversationList);
@@ -12283,9 +12232,9 @@ void MainWindow::updateServerNavigatorChrome() {
 		return;
 	}
 
-	if (!m_serverNavigatorHeaderFrame || !m_serverNavigatorTitle || !m_serverNavigatorSubtitle || !m_serverNavigatorFooter
-		|| !m_serverNavigatorFooterFrame || !m_serverNavigatorFooterPresenceButton || !m_serverNavigatorFooterAvatar
-		|| !m_serverNavigatorFooterName || !m_serverNavigatorFooterPresence) {
+	if (!m_serverNavigatorHeaderFrame || !m_serverNavigatorTitle || !m_serverNavigatorSubtitle
+		|| !m_serverNavigatorFooter || !m_serverNavigatorFooterFrame || !m_serverNavigatorFooterPresenceButton
+		|| !m_serverNavigatorFooterAvatar || !m_serverNavigatorFooterName || !m_serverNavigatorFooterPresence) {
 		return;
 	}
 
@@ -12314,15 +12263,14 @@ void MainWindow::updateServerNavigatorChrome() {
 	unsigned short port = 0;
 	Global::get().sh->getConnectionInfo(host, port, username, password);
 
-	const QString serverLabel =
-		port == 0 || port == DEFAULT_MUMBLE_PORT ? host : tr("%1:%2").arg(host).arg(port);
+	const QString serverLabel = port == 0 || port == DEFAULT_MUMBLE_PORT ? host : tr("%1:%2").arg(host).arg(port);
 
 	const ClientUser *selfUser = ClientUser::get(Global::get().uiSession);
-	QString eyebrow = tr("Voice");
-	QString title = serverLabel;
-	QString subtitle = serverLabel;
-	QString footer = tr("Connected\n%1").arg(serverLabel);
-	bool showCompactFooter = false;
+	QString eyebrow            = tr("Voice");
+	QString title              = serverLabel;
+	QString subtitle           = serverLabel;
+	QString footer             = tr("Connected\n%1").arg(serverLabel);
+	bool showCompactFooter     = false;
 
 	if (hasPersistentChatCapabilities() && chatTarget.valid && !chatTarget.legacyTextPath) {
 		eyebrow = tr("Live context");
@@ -12353,31 +12301,33 @@ void MainWindow::updateServerNavigatorChrome() {
 			subtitle = chatTarget.description;
 		}
 	} else if (ClientUser *self = ClientUser::get(Global::get().uiSession); self && self->cChannel) {
-		eyebrow = tr("Current room");
-		title = self->cChannel->qsName;
+		eyebrow  = tr("Current room");
+		title    = self->cChannel->qsName;
 		subtitle = roomPopulationLabel(self->cChannel->qlUsers.count());
 	} else {
 		footer = tr("Connected to %1").arg(serverLabel);
 	}
 
 	if (selfUser) {
-		const bool idle = isUserIdle(selfUser->uiSession);
-		const QString presenceText = Global::get().s.bDeaf ? tr("Deafened")
-											 : (Global::get().s.bMute ? tr("Muted") : (idle ? tr("Away") : tr("Online")));
-		QColor avatarBackground = palette().color(QPalette::Highlight);
-		QColor avatarText       = palette().color(QPalette::HighlightedText);
-		QColor nameColor        = palette().color(QPalette::Text);
-		QColor presenceColor    = palette().color(QPalette::Mid);
+		const bool idle            = isUserIdle(selfUser->uiSession);
+		const QString presenceText = Global::get().s.bDeaf
+										 ? tr("Deafened")
+										 : (Global::get().s.bMute ? tr("Muted") : (idle ? tr("Away") : tr("Online")));
+		QColor avatarBackground  = palette().color(QPalette::Highlight);
+		QColor avatarText        = palette().color(QPalette::HighlightedText);
+		QColor nameColor         = palette().color(QPalette::Text);
+		QColor presenceColor     = palette().color(QPalette::Mid);
 		QColor presenceRingColor = palette().color(QPalette::Window);
 		if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-			avatarBackground = alphaColor(tokens->accent, 0.34);
-			avatarText       = tokens->text;
-			nameColor        = tokens->text;
+			avatarBackground  = alphaColor(tokens->accent, 0.34);
+			avatarText        = tokens->text;
+			nameColor         = tokens->text;
 			presenceRingColor = tokens->mantle;
-			presenceColor    = Global::get().s.bDeaf ? mixColors(tokens->rosewater, tokens->red, 0.48)
-								 : (Global::get().s.bMute ? mixColors(tokens->peach, tokens->yellow, 0.36)
-													  : (idle ? mixColors(tokens->yellow, tokens->text, 0.22)
-															 : mixColors(tokens->green, tokens->text, 0.12)));
+			presenceColor     = Global::get().s.bDeaf
+								? mixColors(tokens->rosewater, tokens->red, 0.48)
+								: (Global::get().s.bMute ? mixColors(tokens->peach, tokens->yellow, 0.36)
+														 : (idle ? mixColors(tokens->yellow, tokens->text, 0.22)
+																 : mixColors(tokens->green, tokens->text, 0.12)));
 		} else if (m_serverNavigatorContentFrame) {
 			presenceRingColor = m_serverNavigatorContentFrame->palette().color(QPalette::Window);
 			if (idle && !Global::get().s.bMute && !Global::get().s.bDeaf) {
@@ -12387,8 +12337,9 @@ void MainWindow::updateServerNavigatorChrome() {
 
 		const QString selfName = selfUser->qsName.trimmed().isEmpty() ? tr("You") : selfUser->qsName.trimmed();
 		const QString initial  = selfName.left(1).toUpper();
-		m_serverNavigatorFooterAvatar->setPixmap(serverNavigatorSelfAvatarPixmap(
-			initial, m_serverNavigatorFooterAvatar->size(), avatarBackground, avatarText, presenceColor, presenceRingColor));
+		m_serverNavigatorFooterAvatar->setPixmap(
+			serverNavigatorSelfAvatarPixmap(initial, m_serverNavigatorFooterAvatar->size(), avatarBackground,
+											avatarText, presenceColor, presenceRingColor));
 		m_serverNavigatorFooterName->setText(selfName);
 		m_serverNavigatorFooterPresence->setText(presenceText);
 		m_serverNavigatorFooterName->setStyleSheet(
@@ -12457,13 +12408,12 @@ void MainWindow::syncServerNavigatorUserMenu() {
 				setAudioMute(true);
 			}
 		});
-		connect(popup->presenceButton(ServerNavigatorPresenceState::Deafened), &QPushButton::clicked, this,
-				[this]() {
-					closeServerNavigatorUserMenu();
-					if (!Global::get().s.bDeaf) {
-						setAudioDeaf(true);
-					}
-				});
+		connect(popup->presenceButton(ServerNavigatorPresenceState::Deafened), &QPushButton::clicked, this, [this]() {
+			closeServerNavigatorUserMenu();
+			if (!Global::get().s.bDeaf) {
+				setAudioDeaf(true);
+			}
+		});
 		connect(popup->muteButton(), &QPushButton::clicked, this, [this]() {
 			closeServerNavigatorUserMenu();
 			if (qaAudioMute) {
@@ -12493,7 +12443,7 @@ void MainWindow::syncServerNavigatorUserMenu() {
 	}
 
 	const ClientUser *selfUser = ClientUser::get(Global::get().uiSession);
-	auto *popup = static_cast< ServerNavigatorUserMenuPopup * >(m_serverNavigatorUserMenuPopup.data());
+	auto *popup                = static_cast< ServerNavigatorUserMenuPopup * >(m_serverNavigatorUserMenuPopup.data());
 	if (!popup || !selfUser || !m_serverNavigatorFooterPresenceButton->isVisible()) {
 		closeServerNavigatorUserMenu();
 		return;
@@ -12501,47 +12451,48 @@ void MainWindow::syncServerNavigatorUserMenu() {
 
 	const bool idle = isUserIdle(selfUser->uiSession);
 	ServerNavigatorPresenceDisplay display;
-	display.currentState = Global::get().s.bDeaf	   ? ServerNavigatorPresenceState::Deafened
-						  : (Global::get().s.bMute ? ServerNavigatorPresenceState::Muted
-												   : (idle ? ServerNavigatorPresenceState::Away
-														   : ServerNavigatorPresenceState::Online));
-	display.name  = selfUser->qsName.trimmed().isEmpty() ? tr("You") : selfUser->qsName.trimmed();
-	display.label = serverNavigatorPresenceStateLabel(display.currentState);
-	display.textColor = palette().color(QPalette::Text);
-	display.mutedTextColor = palette().color(QPalette::Mid);
+	display.currentState = Global::get().s.bDeaf
+							   ? ServerNavigatorPresenceState::Deafened
+							   : (Global::get().s.bMute ? ServerNavigatorPresenceState::Muted
+														: (idle ? ServerNavigatorPresenceState::Away
+																: ServerNavigatorPresenceState::Online));
+	display.name                  = selfUser->qsName.trimmed().isEmpty() ? tr("You") : selfUser->qsName.trimmed();
+	display.label                 = serverNavigatorPresenceStateLabel(display.currentState);
+	display.textColor             = palette().color(QPalette::Text);
+	display.mutedTextColor        = palette().color(QPalette::Mid);
 	display.avatarBackgroundColor = palette().color(QPalette::Highlight);
-	display.avatarTextColor = palette().color(QPalette::HighlightedText);
-	display.presenceColor = palette().color(QPalette::Highlight);
-	display.onlineColor = QColor(74, 186, 122);
-	display.awayColor = QColor(239, 159, 39);
-	display.mutedStateColor = QColor(219, 156, 64);
-	display.deafenedColor = QColor(226, 75, 74);
-	display.presenceRingColor = palette().color(QPalette::Window);
-	display.panelColor = palette().color(QPalette::Window);
-	display.borderColor = alphaColor(palette().color(QPalette::Mid), 0.38);
-	display.hoverColor = alphaColor(palette().color(QPalette::Highlight), 0.10);
-	display.selectedColor = alphaColor(palette().color(QPalette::Highlight), 0.14);
-	display.dividerColor = alphaColor(palette().color(QPalette::Mid), 0.28);
-	display.dangerColor = QColor(214, 92, 92);
+	display.avatarTextColor       = palette().color(QPalette::HighlightedText);
+	display.presenceColor         = palette().color(QPalette::Highlight);
+	display.onlineColor           = QColor(74, 186, 122);
+	display.awayColor             = QColor(239, 159, 39);
+	display.mutedStateColor       = QColor(219, 156, 64);
+	display.deafenedColor         = QColor(226, 75, 74);
+	display.presenceRingColor     = palette().color(QPalette::Window);
+	display.panelColor            = palette().color(QPalette::Window);
+	display.borderColor           = alphaColor(palette().color(QPalette::Mid), 0.38);
+	display.hoverColor            = alphaColor(palette().color(QPalette::Highlight), 0.10);
+	display.selectedColor         = alphaColor(palette().color(QPalette::Highlight), 0.14);
+	display.dividerColor          = alphaColor(palette().color(QPalette::Mid), 0.28);
+	display.dangerColor           = QColor(214, 92, 92);
 	if (const std::optional< UiThemeTokens > tokens = activeUiThemeTokens(); tokens) {
-		display.textColor = tokens->text;
-		display.mutedTextColor = tokens->textMuted;
+		display.textColor             = tokens->text;
+		display.mutedTextColor        = tokens->textMuted;
 		display.avatarBackgroundColor = alphaColor(tokens->accent, 0.34);
-		display.avatarTextColor = tokens->text;
-		display.onlineColor = mixColors(tokens->green, tokens->text, 0.12);
-		display.awayColor = mixColors(tokens->yellow, tokens->text, 0.22);
-		display.mutedStateColor = mixColors(tokens->peach, tokens->yellow, 0.36);
-		display.deafenedColor = mixColors(tokens->rosewater, tokens->red, 0.48);
-		display.presenceRingColor = tokens->mantle;
-		display.panelColor = alphaColor(tokens->surface0, 0.985);
-		display.borderColor = tokens->surface1;
-		display.hoverColor = alphaColor(tokens->surface1, 0.64);
-		display.dividerColor = tokens->surface1;
-		display.dangerColor = mixColors(tokens->red, tokens->rosewater, 0.20);
-		display.presenceColor = serverNavigatorPresenceStateColor(display, display.currentState);
-		display.selectedColor = alphaColor(display.presenceColor, 0.20);
+		display.avatarTextColor       = tokens->text;
+		display.onlineColor           = mixColors(tokens->green, tokens->text, 0.12);
+		display.awayColor             = mixColors(tokens->yellow, tokens->text, 0.22);
+		display.mutedStateColor       = mixColors(tokens->peach, tokens->yellow, 0.36);
+		display.deafenedColor         = mixColors(tokens->rosewater, tokens->red, 0.48);
+		display.presenceRingColor     = tokens->mantle;
+		display.panelColor            = alphaColor(tokens->surface0, 0.985);
+		display.borderColor           = tokens->surface1;
+		display.hoverColor            = alphaColor(tokens->surface1, 0.64);
+		display.dividerColor          = tokens->surface1;
+		display.dangerColor           = mixColors(tokens->red, tokens->rosewater, 0.20);
+		display.presenceColor         = serverNavigatorPresenceStateColor(display, display.currentState);
+		display.selectedColor         = alphaColor(display.presenceColor, 0.20);
 	} else if (idle && !Global::get().s.bMute && !Global::get().s.bDeaf) {
-		display.awayColor = QColor(207, 155, 65);
+		display.awayColor     = QColor(207, 155, 65);
 		display.presenceColor = display.awayColor;
 		display.selectedColor = alphaColor(display.presenceColor, 0.16);
 	} else {
@@ -12564,8 +12515,8 @@ void MainWindow::positionServerNavigatorUserMenu() {
 	popup->adjustSize();
 	const QPoint anchorTopLeft = m_serverNavigatorFooterPresenceButton->mapTo(this, QPoint(0, 0));
 	const QRect anchorRect(anchorTopLeft, m_serverNavigatorFooterPresenceButton->size());
-	const int x = qBound(8, anchorRect.right() - popup->width() + 22, width() - popup->width() - 8);
-	const int y = qMax(8, anchorRect.top() - popup->height() + 10);
+	const int x           = qBound(8, anchorRect.right() - popup->width() + 22, width() - popup->width() - 8);
+	const int y           = qMax(8, anchorRect.top() - popup->height() + 10);
 	const int arrowCenter = qBound(20, anchorRect.right() - x - 18, popup->width() - 20);
 	popup->setArrowCenterX(arrowCenter);
 	popup->move(x, y);
@@ -12892,11 +12843,7 @@ void MainWindow::keyPressEvent(QKeyEvent *e) {
 /// and qtvUsers (users tree view).
 void MainWindow::focusNextMainWidget() {
 	QWidget *mainFocusWidgets[] = {
-		qteLog,
-		m_persistentChatChannelList,
-		m_persistentChatHistory,
-		qteChat,
-		qtvUsers,
+		qteLog, m_persistentChatChannelList, m_persistentChatHistory, qteChat, qtvUsers,
 	};
 	const int numMainFocusWidgets = sizeof(mainFocusWidgets) / sizeof(mainFocusWidgets[0]);
 
@@ -12982,7 +12929,7 @@ ClientUser *MainWindow::getContextMenuUser() {
 ContextMenuTarget MainWindow::getContextMenuTargets() {
 	ContextMenuTarget target;
 	const bool hiddenLegacyUserModelSafeMode = modernShellMinimalSnapshotEnabled() && usesModernShell();
-	const bool hasExplicitContext = cuContextUser || cContextChannel;
+	const bool hasExplicitContext            = cuContextUser || cContextChannel;
 
 	if (Global::get().uiSession != 0) {
 		target.user    = getContextMenuUser();
@@ -13283,7 +13230,7 @@ QImage MainWindow::persistentChatInlineDataImageFromUrl(const QUrl &url) const {
 	}
 
 	const QString token = QUrl::fromPercentEncoding(url.path().mid(1).toUtf8());
-	const auto it = m_persistentChatInlineDataImageSources.constFind(token);
+	const auto it       = m_persistentChatInlineDataImageSources.constFind(token);
 	if (it == m_persistentChatInlineDataImageSources.cend()) {
 		return QImage();
 	}
@@ -13627,10 +13574,10 @@ void MainWindow::openUrl(const QUrl &url) {
  */
 void MainWindow::findDesiredChannel() {
 	const bool hiddenLegacyUserModelSafeMode = modernShellMinimalSnapshotEnabled() && usesModernShell();
-	bool found          = false;
-	QStringList qlChans = qsDesiredChannel.split(QLatin1String("/"));
-	Channel *chan       = Channel::get(Mumble::ROOT_CHANNEL_ID);
-	QString str         = QString();
+	bool found                               = false;
+	QStringList qlChans                      = qsDesiredChannel.split(QLatin1String("/"));
+	Channel *chan                            = Channel::get(Mumble::ROOT_CHANNEL_ID);
+	QString str                              = QString();
 	while (chan && qlChans.count() > 0) {
 		QString elem = qlChans.takeFirst().toLower();
 		if (elem.isEmpty())
@@ -13679,24 +13626,24 @@ void MainWindow::setOnTop(bool top) {
 void MainWindow::loadState(const bool minimalView) {
 	const bool modernShell = usesModernShell();
 	if (minimalView) {
-		const QByteArray &geometry = modernShell ? Global::get().s.qbaModernMinimalViewGeometry
-												  : Global::get().s.qbaMinimalViewGeometry;
+		const QByteArray &geometry =
+			modernShell ? Global::get().s.qbaModernMinimalViewGeometry : Global::get().s.qbaMinimalViewGeometry;
 		if (!geometry.isNull()) {
 			restoreGeometry(geometry);
 		}
-		const QByteArray &state = modernShell ? Global::get().s.qbaModernMinimalViewState
-											  : Global::get().s.qbaMinimalViewState;
+		const QByteArray &state =
+			modernShell ? Global::get().s.qbaModernMinimalViewState : Global::get().s.qbaMinimalViewState;
 		if (!state.isNull()) {
 			restoreState(state, stateVersion(modernShell));
 		}
 	} else {
-		const QByteArray &geometry = modernShell ? Global::get().s.qbaModernMainWindowGeometry
-												  : Global::get().s.qbaMainWindowGeometry;
+		const QByteArray &geometry =
+			modernShell ? Global::get().s.qbaModernMainWindowGeometry : Global::get().s.qbaMainWindowGeometry;
 		if (!geometry.isNull()) {
 			restoreGeometry(geometry);
 		}
-		const QByteArray &state = modernShell ? Global::get().s.qbaModernMainWindowState
-											  : Global::get().s.qbaMainWindowState;
+		const QByteArray &state =
+			modernShell ? Global::get().s.qbaModernMainWindowState : Global::get().s.qbaMainWindowState;
 		if (!state.isNull()) {
 			restoreState(state, stateVersion(modernShell));
 		}
@@ -13726,7 +13673,7 @@ void MainWindow::storeState(const bool minimalView) {
 
 void MainWindow::setupView(bool toggle_minimize) {
 	applyShellLayout();
-	bool showit = !Global::get().s.bMinimalView;
+	bool showit                               = !Global::get().s.bMinimalView;
 	const Settings::WindowLayout windowLayout = effectiveWindowLayout();
 
 	switch (windowLayout) {
@@ -13769,8 +13716,7 @@ void MainWindow::setupView(bool toggle_minimize) {
 		const Qt::Orientation dockResizeOrientation =
 			windowLayout == Settings::LayoutStacked ? Qt::Vertical : Qt::Horizontal;
 		const int dockResizeTarget = dockResizeOrientation == Qt::Vertical ? 720 : 740;
-		resizeDocks(QList< QDockWidget * >() << qdwChat, QList< int >() << dockResizeTarget,
-					dockResizeOrientation);
+		resizeDocks(QList< QDockWidget * >() << qdwChat, QList< int >() << dockResizeTarget, dockResizeOrientation);
 	}
 
 	setDockSplitterHandleWidth(this, 1);
@@ -14611,16 +14557,16 @@ void MainWindow::on_qaQuit_triggered() {
 
 void MainWindow::sendChatbarText(QString qsText, bool plainText) {
 	const PersistentChatTarget target = currentPersistentChatTarget();
-	if (target.valid && !target.readOnly && !target.directMessage && !target.legacyTextPath && m_persistentChatGateway) {
-		const QString normalizedText = qsText.replace(QLatin1String("\r\n"), QLatin1String("\n"))
-										 .replace(QLatin1Char('\r'), QLatin1Char('\n'));
+	if (target.valid && !target.readOnly && !target.directMessage && !target.legacyTextPath
+		&& m_persistentChatGateway) {
+		const QString normalizedText =
+			qsText.replace(QLatin1String("\r\n"), QLatin1String("\n")).replace(QLatin1Char('\r'), QLatin1Char('\n'));
 		syncPersistentChatGatewayHandler();
 		m_persistentChatGateway->send(
 			target.scope, target.scopeID, normalizedText,
 			plainText ? MumbleProto::ChatBodyFormatPlainText : MumbleProto::ChatBodyFormatMarkdownLite,
-			m_pendingPersistentChatReply
-				? std::optional< unsigned int >(m_pendingPersistentChatReply->message_id())
-				: std::nullopt);
+			m_pendingPersistentChatReply ? std::optional< unsigned int >(m_pendingPersistentChatReply->message_id())
+										 : std::nullopt);
 		setPersistentChatReplyTarget(std::nullopt);
 		qteChat->clear();
 		return;
@@ -14681,11 +14627,10 @@ void MainWindow::sendChatbarMessage(QString qsMessage) {
 
 	if (m_persistentChatGateway) {
 		syncPersistentChatGatewayHandler();
-		m_persistentChatGateway->send(
-			target.scope, target.scopeID, qsMessage, MumbleProto::ChatBodyFormatPlainText,
-			m_pendingPersistentChatReply
-				? std::optional< unsigned int >(m_pendingPersistentChatReply->message_id())
-				: std::nullopt);
+		m_persistentChatGateway->send(target.scope, target.scopeID, qsMessage, MumbleProto::ChatBodyFormatPlainText,
+									  m_pendingPersistentChatReply
+										  ? std::optional< unsigned int >(m_pendingPersistentChatReply->message_id())
+										  : std::nullopt);
 	}
 	setPersistentChatReplyTarget(std::nullopt);
 }
@@ -14752,8 +14697,8 @@ void MainWindow::on_qmConfig_aboutToShow() {
 }
 
 void MainWindow::qmChannel_aboutToShow() {
-	Channel *c = getContextMenuTargets().channel;
-	const ClientUser *self = ClientUser::get(Global::get().uiSession);
+	Channel *c                         = getContextMenuTargets().channel;
+	const ClientUser *self             = ClientUser::get(Global::get().uiSession);
 	const QString startScreenShareText = tr("Start Screen Share");
 
 	qmChannel->clear();
@@ -16034,8 +15979,8 @@ void MainWindow::viewCertificate(bool) {
 void MainWindow::serverConnected() {
 	m_reconnectSoundBlocker.reset();
 
-	Global::get().uiSession    = 0;
-	Global::get().pPermissions = ChanACL::None;
+	Global::get().uiSession                  = 0;
+	Global::get().pPermissions               = ChanACL::None;
 	const bool hiddenLegacyNavigatorSafeMode = modernShellMinimalSnapshotEnabled() && usesModernShell();
 
 #ifdef Q_OS_MAC
@@ -16070,15 +16015,15 @@ void MainWindow::serverConnected() {
 		qtvUsers->setRowHidden(0, QModelIndex(), false);
 	}
 
-	Global::get().bAllowHTML      = true;
+	Global::get().bAllowHTML                   = true;
 	Global::get().bPersistentGlobalChatEnabled = false;
-	Global::get().uiMessageLength = 5000;
-	Global::get().uiImageLength   = 131072;
-	Global::get().uiMaxUsers      = 0;
-	m_modernLayoutCompatibleServer = false;
-	m_modernShellRuntimeDisabled  = false;
-	m_hasPersistentChatSupport    = false;
-	m_defaultPersistentTextChannelID = 0;
+	Global::get().uiMessageLength              = 5000;
+	Global::get().uiImageLength                = 131072;
+	Global::get().uiMaxUsers                   = 0;
+	m_modernLayoutCompatibleServer             = false;
+	m_modernShellRuntimeDisabled               = false;
+	m_hasPersistentChatSupport                 = false;
+	m_defaultPersistentTextChannelID           = 0;
 	m_persistentTextChannels.clear();
 	m_userIdleSeconds.clear();
 	m_pendingUserInformationSessions.clear();
@@ -16131,13 +16076,13 @@ void MainWindow::serverDisconnected(QAbstractSocket::SocketError err, QString re
 	m_previousChannels = {};
 	m_movedBackFromChannel.reset();
 
-	Global::get().uiSession        = 0;
-	Global::get().pPermissions     = ChanACL::None;
-	Global::get().bAttenuateOthers = false;
+	Global::get().uiSession                    = 0;
+	Global::get().pPermissions                 = ChanACL::None;
+	Global::get().bAttenuateOthers             = false;
 	Global::get().bPersistentGlobalChatEnabled = false;
-	m_modernLayoutCompatibleServer = false;
-	m_modernShellRuntimeDisabled  = false;
-	m_hasPersistentChatSupport    = false;
+	m_modernLayoutCompatibleServer             = false;
+	m_modernShellRuntimeDisabled               = false;
+	m_hasPersistentChatSupport                 = false;
 	qaServerDisconnect->setEnabled(false);
 	qaServerAddToFavorites->setEnabled(false);
 	qaServerInformation->setEnabled(false);
@@ -16438,8 +16383,7 @@ void MainWindow::qtvUserCurrentChanged(const QModelIndex &, const QModelIndex &)
 		const QModelIndex currentIndex = qtvUsers ? qtvUsers->currentIndex() : QModelIndex();
 		const bool treeOwnsChatTarget =
 			m_persistentChatTargetUsesVoiceTree
-			|| (qtvUsers
-				&& (qtvUsers->hasFocus() || (qtvUsers->viewport() && qtvUsers->viewport()->hasFocus())));
+			|| (qtvUsers && (qtvUsers->hasFocus() || (qtvUsers->viewport() && qtvUsers->viewport()->hasFocus())));
 		if (treeOwnsChatTarget && currentIndex.isValid()) {
 			useVoiceTree = pmModel->getChannel(currentIndex) != nullptr;
 			if (!useVoiceTree && m_persistentChatTargetUsesVoiceTree && pmModel->getUser(currentIndex)) {
@@ -16487,8 +16431,8 @@ void MainWindow::updateChatBar(bool forcePersistentChatReload) {
 	if (Global::get().uiSession == 0 || !target.valid) {
 		qteChat->setDefaultText(tr("<div>Connect to chat</div>"), true);
 		clearPersistentChatView(tr("Connect to a server to load conversations and history."),
-							 tr("Start a conversation"),
-							 { tr("Open Server to connect"), tr("Room chat and history appear here") });
+								tr("Start a conversation"),
+								{ tr("Open Server to connect"), tr("Room chat and history appear here") });
 	} else if (target.serverLog) {
 		clearPersistentChatReplyTarget(false);
 		qteChat->setDefaultText(tr("<div>Read-only activity</div>"), true);
@@ -16503,13 +16447,13 @@ void MainWindow::updateChatBar(bool forcePersistentChatReload) {
 		qteChat->setDefaultText(tr("<div>Write to %1...</div>").arg(target.user->qsName.toHtmlEscaped()));
 		clearPersistentChatView(tr("Direct messages still use the classic text message path and do not have persistent "
 								   "history yet."),
-							 tr("Direct messages"), { tr("Classic chat still handles direct messages") });
+								tr("Direct messages"), { tr("Classic chat still handles direct messages") });
 	} else if (target.scope == MumbleProto::ServerGlobal && !Global::get().bPersistentGlobalChatEnabled) {
 		qteChat->setDefaultText(tr("<div>Server-wide chat is unavailable</div>"), true);
-		clearPersistentChatView(target.statusMessage.isEmpty()
-								   ? tr("Legacy server-wide chat is disabled by this server.")
-															  : target.statusMessage,
-							 tr("Server-wide chat is unavailable"), { tr("Choose a text room or voice room chat instead") });
+		clearPersistentChatView(
+			target.statusMessage.isEmpty() ? tr("Legacy server-wide chat is disabled by this server.")
+										   : target.statusMessage,
+			tr("Server-wide chat is unavailable"), { tr("Choose a text room or voice room chat instead") });
 	} else if (target.readOnly) {
 		qteChat->setDefaultText(
 			tr("<div>Choose a conversation to write in</div><div><small>This conversation is read-only</small></div>"),
@@ -16544,49 +16488,49 @@ void MainWindow::customEvent(QEvent *evt) {
 	}
 
 	ServerHandlerMessageEvent *shme = static_cast< ServerHandlerMessageEvent * >(evt);
-	const bool traceServerMessages = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
-	auto appendServerMessageTrace = [&](const char *phase, const char *messageName) {
-		if (!traceServerMessages) {
-			return;
-		}
+	const bool traceServerMessages  = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
+	auto appendServerMessageTrace   = [&](const char *phase, const char *messageName) {
+        if (!traceServerMessages) {
+            return;
+        }
 
-		QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
-		if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
-			return;
-		}
+        QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
+        if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
+            return;
+        }
 
-		const QByteArray line = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8() + ' '
-								+ QByteArray(phase) + ' ' + QByteArray(messageName) + " size="
-								+ QByteArray::number(shme->qbaMsg.size()) + '\n';
-		traceFile.write(line);
-		traceFile.flush();
+        const QByteArray line = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8() + ' '
+                                + QByteArray(phase) + ' ' + QByteArray(messageName)
+                                + " size=" + QByteArray::number(shme->qbaMsg.size()) + '\n';
+        traceFile.write(line);
+        traceFile.flush();
 	};
 
 #ifdef QT_NO_DEBUG
-#	define PROCESS_MUMBLE_TCP_MESSAGE(name, value)                                                     \
-		case Mumble::Protocol::TCPMessageType::name: {                                                  \
-			appendServerMessageTrace("begin", #name);                                                  \
-			MumbleProto::name msg;                                                                      \
+#	define PROCESS_MUMBLE_TCP_MESSAGE(name, value)                                                      \
+		case Mumble::Protocol::TCPMessageType::name: {                                                   \
+			appendServerMessageTrace("begin", #name);                                                    \
+			MumbleProto::name msg;                                                                       \
 			if (msg.ParseFromArray(shme->qbaMsg.constData(), static_cast< int >(shme->qbaMsg.size()))) { \
-				msg##name(msg);                                                                         \
-				appendServerMessageTrace("end", #name);                                                \
-			} else {                                                                                    \
-				appendServerMessageTrace("parse-fail", #name);                                         \
-			}                                                                                           \
-			break;                                                                                      \
+				msg##name(msg);                                                                          \
+				appendServerMessageTrace("end", #name);                                                  \
+			} else {                                                                                     \
+				appendServerMessageTrace("parse-fail", #name);                                           \
+			}                                                                                            \
+			break;                                                                                       \
 		}
 #else
 #	define PROCESS_MUMBLE_TCP_MESSAGE(name, value)                                                      \
 		case Mumble::Protocol::TCPMessageType::name: {                                                   \
-			appendServerMessageTrace("begin", #name);                                                   \
+			appendServerMessageTrace("begin", #name);                                                    \
 			MumbleProto::name msg;                                                                       \
 			if (msg.ParseFromArray(shme->qbaMsg.constData(), static_cast< int >(shme->qbaMsg.size()))) { \
 				printf("%s:\n", #name);                                                                  \
 				msg.PrintDebugString();                                                                  \
 				msg##name(msg);                                                                          \
-				appendServerMessageTrace("end", #name);                                                 \
+				appendServerMessageTrace("end", #name);                                                  \
 			} else {                                                                                     \
-				appendServerMessageTrace("parse-fail", #name);                                          \
+				appendServerMessageTrace("parse-fail", #name);                                           \
 			}                                                                                            \
 			break;                                                                                       \
 		}
@@ -16623,7 +16567,7 @@ void MainWindow::on_qteLog_anchorClicked(const QUrl &url) {
 
 	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("preview-image")) {
 		const QString previewKey = QUrl::fromPercentEncoding(url.path().mid(1).toUtf8());
-		const auto previewIt = m_persistentChatPreviews.constFind(previewKey);
+		const auto previewIt     = m_persistentChatPreviews.constFind(previewKey);
 		if (previewIt != m_persistentChatPreviews.cend() && !previewIt->thumbnailImage.isNull()) {
 			openImageDialog(previewIt->thumbnailImage);
 			return;
@@ -16633,7 +16577,7 @@ void MainWindow::on_qteLog_anchorClicked(const QUrl &url) {
 	if (url.scheme() == QLatin1String("mumble-chat") && url.host() == QLatin1String("scope")) {
 		const QStringList pathParts = url.path().split(QLatin1Char('/'), Qt::SkipEmptyParts);
 		if (pathParts.size() == 2 && pathParts.front() == QLatin1String("text")) {
-			bool ok = false;
+			bool ok                    = false;
 			const unsigned int scopeID = pathParts.back().toUInt(&ok);
 			if (ok && navigateToPersistentChatScope(MumbleProto::TextChannel, scopeID)) {
 				return;

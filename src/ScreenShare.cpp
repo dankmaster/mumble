@@ -137,8 +137,8 @@ namespace ScreenShare {
 		const unsigned int sanitizedFps    = sanitizeLimit(fps, DEFAULT_MAX_FPS, HARD_MAX_FPS);
 
 		const double pixelsPerFrame = static_cast< double >(sanitizedWidth) * static_cast< double >(sanitizedHeight);
-		const double motionFactor   = static_cast< double >(sanitizedFps) / static_cast< double >(DEFAULT_MAX_FPS);
-		double bitrateFactor        = (pixelsPerFrame / (1920.0 * 1080.0)) * motionFactor;
+		const double motionFactor   = static_cast< double >(sanitizedFps) / 30.0;
+		double bitrateFactor        = (pixelsPerFrame / (1280.0 * 720.0)) * motionFactor;
 
 		switch (codec) {
 			case MumbleProto::ScreenShareCodecAV1:
@@ -173,8 +173,7 @@ namespace ScreenShare {
 		}
 
 		const QString scheme = QUrl(normalizedUrl).scheme().trimmed().toLower();
-		if (scheme == QLatin1String("file") || scheme == QLatin1String("rtmp")
-			|| scheme == QLatin1String("rtmps")) {
+		if (scheme == QLatin1String("file") || scheme == QLatin1String("rtmp") || scheme == QLatin1String("rtmps")) {
 			return MumbleProto::ScreenShareRelayTransportDirect;
 		}
 		if (scheme == QLatin1String("wss") || scheme == QLatin1String("ws") || scheme == QLatin1String("https")
@@ -245,16 +244,13 @@ namespace ScreenShare {
 		}
 
 		if (scheme != QLatin1String("wss") && scheme != QLatin1String("ws") && scheme != QLatin1String("https")
-			&& scheme != QLatin1String("http") && scheme != QLatin1String("rtmp")
-			&& scheme != QLatin1String("rtmps")) {
+			&& scheme != QLatin1String("http") && scheme != QLatin1String("rtmp") && scheme != QLatin1String("rtmps")) {
 			return QString();
 		}
 
 		return url.toString(QUrl::NormalizePathSegments);
 	}
 
-	bool isValidRelayUrl(const QString &relayUrl) {
-		return !normalizeRelayUrl(relayUrl).isEmpty();
-	}
+	bool isValidRelayUrl(const QString &relayUrl) { return !normalizeRelayUrl(relayUrl).isEmpty(); }
 } // namespace ScreenShare
 } // namespace Mumble

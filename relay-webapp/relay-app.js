@@ -5,6 +5,19 @@
 	let relayBridge = null;
 	let bridgeLoadPromise = null;
 
+	const DEFAULT_SCREEN_SHARE_WIDTH = 1280;
+	const DEFAULT_SCREEN_SHARE_HEIGHT = 720;
+	const DEFAULT_SCREEN_SHARE_FPS = 30;
+	const MAX_IN_APP_RELAY_WIDTH = 1280;
+	const MAX_IN_APP_RELAY_HEIGHT = 720;
+	const MAX_IN_APP_RELAY_FPS = 30;
+	const MIN_SCREEN_SHARE_BITRATE_KBPS = 1200;
+	const DEFAULT_SCREEN_SHARE_BITRATE_KBPS = 3000;
+	const MAX_SCREEN_SHARE_BITRATE_KBPS = 5000;
+	const STATS_SAMPLE_INTERVAL_MSEC = 5000;
+	const STATS_BRIDGE_INTERVAL_MSEC = 15000;
+	const SECRET_PARAM_NAMES = [ "relay_token" ];
+
 	const refs = {
 		title: document.getElementById("title"),
 		subtitle: document.getElementById("subtitle"),
@@ -25,11 +38,12 @@
 		metaRoom: document.getElementById("meta-room"),
 		metaRelay: document.getElementById("meta-relay"),
 		metaCodec: document.getElementById("meta-codec"),
+		metaStats: document.getElementById("meta-stats"),
 		log: document.getElementById("log")
 	};
 
-	const query = new URLSearchParams(window.location.search);
-	const config = parseConfig(query);
+	const launchParams = collectLaunchParams();
+	const config = parseConfig(launchParams);
 	const state = {
 		room: null,
 		connectPromise: null,
@@ -41,8 +55,52 @@
 		currentTrackKey: "",
 		currentTrackElement: null,
 		currentAudioTrackKey: "",
-		currentAudioElement: null
+		currentAudioElement: null,
+		currentStatsTrack: null,
+		currentStatsPublication: null,
+		currentStatsLocal: false,
+		statsTimer: null,
+		statsLastSamples: {},
+		statsLastBridgeAt: 0,
+		statsUnavailableLogged: false
 	};
+	scrubLaunchSecrets();
+
+	function collectLaunchParams() {
+		const params = new URLSearchParams(window.location.search);
+		const fragment = window.location.hash ? window.location.hash.substring(1) : "";
+		const fragmentParams = new URLSearchParams(fragment.charAt(0) === "?" ? fragment.substring(1) : fragment);
+		fragmentParams.forEach(function(value, key) {
+			params.set(key, value);
+		});
+		return params;
+	}
+
+	function scrubLaunchSecrets() {
+		if (!window.history || typeof window.history.replaceState !== "function") {
+			return;
+		}
+
+		const query = new URLSearchParams(window.location.search);
+		let changed = Boolean(window.location.hash);
+		SECRET_PARAM_NAMES.forEach(function(key) {
+			if (query.has(key)) {
+				query.delete(key);
+				changed = true;
+			}
+		});
+		if (!changed) {
+			return;
+		}
+
+		const safeQuery = query.toString();
+		const safeUrl = window.location.pathname + (safeQuery ? "?" + safeQuery : "");
+		try {
+			window.history.replaceState(null, document.title, safeUrl);
+		} catch (error) {
+			console.warn("Unable to scrub relay launch secrets from the address bar:", error);
+		}
+	}
 
 	function timestamp() {
 		return new Date().toLocaleTimeString([], {
@@ -70,13 +128,14 @@
 		}
 	}
 
-	function notifyBridge(method, value) {
+	function notifyBridge(method) {
 		if (!relayBridge || typeof relayBridge[method] !== "function") {
 			return;
 		}
 
+		const args = Array.prototype.slice.call(arguments, 1);
 		try {
-			relayBridge[method](value);
+			relayBridge[method].apply(relayBridge, args);
 		} catch (error) {
 			console.warn("Relay bridge call failed:", error);
 		}
@@ -145,17 +204,303 @@
 		notifyBridge("requestFallback", message);
 	}
 
+	function statsProviderForTrack(track, publication, localTrack) {
+		const candidates = [ track, publication, track && track.track, publication && publication.track ];
+		const keys = localTrack
+			? [ "sender", "_sender", "rtcSender", "_rtcSender" ]
+			: [ "receiver", "_receiver", "rtcReceiver", "_rtcReceiver" ];
+
+		for (const candidate of candidates) {
+			if (!candidate) {
+				continue;
+			}
+			for (const key of keys) {
+				const provider = candidate[key];
+				if (provider && typeof provider.getStats === "function") {
+					return provider;
+				}
+			}
+			if (typeof candidate.getStats === "function") {
+				return candidate;
+			}
+		}
+
+		return null;
+	}
+
+	function forEachStats(report, callback) {
+		if (!report) {
+			return;
+		}
+		if (typeof report.forEach === "function") {
+			report.forEach(callback);
+			return;
+		}
+		if (Array.isArray(report)) {
+			report.forEach(callback);
+		}
+	}
+
+	function statNumber(stat, keys) {
+		for (const key of keys) {
+			if (typeof stat[key] === "number" && Number.isFinite(stat[key])) {
+				return stat[key];
+			}
+		}
+		return null;
+	}
+
+	function isVideoRtpStat(stat, localTrack) {
+		const expectedType = localTrack ? "outbound-rtp" : "inbound-rtp";
+		if (!stat || stat.type !== expectedType) {
+			return false;
+		}
+
+		const kind = String(stat.kind || stat.mediaType || "").trim().toLowerCase();
+		return !kind || kind === "video";
+	}
+
+	function selectPrimaryVideoRtpStat(report, localTrack) {
+		let selected = null;
+		let selectedBytes = -1;
+		forEachStats(report, function(stat) {
+			if (!isVideoRtpStat(stat, localTrack)) {
+				return;
+			}
+
+			const bytes = statNumber(stat, localTrack ? [ "bytesSent" ] : [ "bytesReceived" ]) || 0;
+			if (!selected || bytes >= selectedBytes) {
+				selected = stat;
+				selectedBytes = bytes;
+			}
+		});
+		return selected;
+	}
+
+	function selectedRoundTripTimeMs(report) {
+		let rtt = null;
+		forEachStats(report, function(stat) {
+			if (stat && stat.type === "candidate-pair" && stat.state === "succeeded"
+				&& (stat.nominated || stat.selected || stat.selectedCandidatePairId)) {
+				const current = statNumber(stat, [ "currentRoundTripTime", "totalRoundTripTime" ]);
+				if (current !== null) {
+					rtt = Math.round(current * 1000);
+				}
+			}
+		});
+		return rtt;
+	}
+
+	function codecLabelForStat(report, rtpStat) {
+		if (!rtpStat || !rtpStat.codecId) {
+			return "";
+		}
+
+		let label = "";
+		forEachStats(report, function(stat) {
+			if (stat && stat.id === rtpStat.codecId && stat.mimeType) {
+				label = String(stat.mimeType).replace(/^video\//i, "").toUpperCase();
+			}
+		});
+		return label;
+	}
+
+	function videoPlaybackQuality() {
+		const element = state.currentTrackElement;
+		if (!element || typeof element.getVideoPlaybackQuality !== "function") {
+			return null;
+		}
+
+		try {
+			return element.getVideoPlaybackQuality();
+		} catch (error) {
+			return null;
+		}
+	}
+
+	function summarizeStatsReport(report, localTrack) {
+		const rtpStat = selectPrimaryVideoRtpStat(report, localTrack);
+		if (!rtpStat) {
+			return null;
+		}
+
+		const bytes = statNumber(rtpStat, localTrack ? [ "bytesSent" ] : [ "bytesReceived" ]);
+		const frames = statNumber(rtpStat, localTrack ? [ "framesEncoded", "framesSent" ] : [ "framesDecoded" ]);
+		const lastSample = state.statsLastSamples[rtpStat.id] || null;
+		const timestamp = statNumber(rtpStat, [ "timestamp" ]) || performance.now();
+		let bitrateKbps = null;
+		let fps = null;
+		if (lastSample && bytes !== null && timestamp > lastSample.timestamp) {
+			const elapsedSeconds = (timestamp - lastSample.timestamp) / 1000;
+			bitrateKbps = Math.max(0, Math.round(((bytes - lastSample.bytes) * 8) / elapsedSeconds / 1000));
+			if (frames !== null && lastSample.frames !== null) {
+				fps = Math.max(0, Math.round((frames - lastSample.frames) / elapsedSeconds));
+			}
+		}
+		if (bytes !== null) {
+			state.statsLastSamples[rtpStat.id] = {
+				bytes,
+				frames,
+				timestamp
+			};
+		}
+
+		const packetsLost = statNumber(rtpStat, [ "packetsLost" ]);
+		const packetsReceived = statNumber(rtpStat, [ "packetsReceived" ]);
+		const packetsSent = statNumber(rtpStat, [ "packetsSent" ]);
+		const packetsTotal = localTrack ? packetsSent : ((packetsReceived || 0) + Math.max(0, packetsLost || 0));
+		const lossPercent = !localTrack && packetsLost !== null && packetsTotal > 0
+			? Math.max(0, (packetsLost / packetsTotal) * 100)
+			: null;
+		const jitter = statNumber(rtpStat, [ "jitter" ]);
+		const jitterBufferDelay = statNumber(rtpStat, [ "jitterBufferDelay" ]);
+		const jitterBufferEmitted = statNumber(rtpStat, [ "jitterBufferEmittedCount" ]);
+		const quality = videoPlaybackQuality();
+		const framesDroppedStat = statNumber(rtpStat, [ "framesDropped" ]);
+		const framesDropped = quality && typeof quality.droppedVideoFrames === "number"
+			? quality.droppedVideoFrames
+			: framesDroppedStat;
+
+		return {
+			direction: localTrack ? "out" : "in",
+			bitrateKbps,
+			fps,
+			codec: codecLabelForStat(report, rtpStat),
+			rttMs: selectedRoundTripTimeMs(report),
+			jitterMs: jitter !== null ? Math.round(jitter * 1000) : null,
+			jitterBufferMs: jitterBufferDelay !== null && jitterBufferEmitted
+				? Math.round((jitterBufferDelay / jitterBufferEmitted) * 1000)
+				: null,
+			lossPercent,
+			framesDropped,
+			nackCount: statNumber(rtpStat, [ "nackCount" ]),
+			pliCount: statNumber(rtpStat, [ "pliCount" ]),
+			firCount: statNumber(rtpStat, [ "firCount" ]),
+			retransmittedPackets: statNumber(rtpStat, localTrack ? [ "retransmittedPacketsSent" ] : [ "retransmittedPacketsReceived" ]),
+			qualityLimitationReason: String(rtpStat.qualityLimitationReason || "").trim()
+		};
+	}
+
+	function formatStatsSummary(summary) {
+		if (!summary) {
+			return "warming up";
+		}
+
+		const parts = [ summary.direction ];
+		parts.push(summary.bitrateKbps !== null ? summary.bitrateKbps + " kbps" : "bitrate warming");
+		if (summary.fps !== null) {
+			parts.push(summary.fps + " fps");
+		}
+		if (summary.codec) {
+			parts.push(summary.codec);
+		}
+		if (summary.rttMs !== null) {
+			parts.push("rtt " + summary.rttMs + " ms");
+		}
+		if (summary.jitterMs !== null) {
+			parts.push("jitter " + summary.jitterMs + " ms");
+		}
+		if (summary.jitterBufferMs !== null) {
+			parts.push("buffer " + summary.jitterBufferMs + " ms");
+		}
+		if (summary.lossPercent !== null) {
+			parts.push("loss " + summary.lossPercent.toFixed(1) + "%");
+		}
+		if (summary.framesDropped !== null && summary.framesDropped > 0) {
+			parts.push("dropped " + summary.framesDropped);
+		}
+		if (summary.nackCount || summary.pliCount || summary.firCount) {
+			parts.push("repair n" + (summary.nackCount || 0) + "/p" + (summary.pliCount || 0)
+				+ "/f" + (summary.firCount || 0));
+		}
+		if (summary.retransmittedPackets) {
+			parts.push("rtx " + summary.retransmittedPackets);
+		}
+		if (summary.qualityLimitationReason && summary.qualityLimitationReason !== "none") {
+			parts.push("limited " + summary.qualityLimitationReason);
+		}
+		return parts.join(" / ");
+	}
+
+	async function sampleStats() {
+		if (!state.currentStatsTrack) {
+			if (refs.metaStats) {
+				setText(refs.metaStats, state.isConnected ? "waiting for video" : "idle");
+			}
+			return;
+		}
+
+		const provider = statsProviderForTrack(state.currentStatsTrack, state.currentStatsPublication, state.currentStatsLocal);
+		if (!provider) {
+			if (refs.metaStats) {
+				setText(refs.metaStats, "stats unavailable");
+			}
+			if (!state.statsUnavailableLogged) {
+				log("WebRTC track stats are not exposed by this relay runtime.", "warn");
+				state.statsUnavailableLogged = true;
+			}
+			return;
+		}
+
+		try {
+			const report = await provider.getStats();
+			const summary = summarizeStatsReport(report, state.currentStatsLocal);
+			const summaryText = formatStatsSummary(summary);
+			if (refs.metaStats) {
+				setText(refs.metaStats, summaryText);
+			}
+
+			const now = Date.now();
+			if (summary && now - state.statsLastBridgeAt >= STATS_BRIDGE_INTERVAL_MSEC) {
+				state.statsLastBridgeAt = now;
+				log("Relay stats: " + summaryText + ".");
+				notifyBridge("reportStats", summaryText);
+			}
+		} catch (error) {
+			if (refs.metaStats) {
+				setText(refs.metaStats, "stats unavailable");
+			}
+			if (!state.statsUnavailableLogged) {
+				log("Unable to collect relay stats: " + describeError(error), "warn");
+				state.statsUnavailableLogged = true;
+			}
+		}
+	}
+
+	function startStatsMonitor() {
+		if (state.statsTimer) {
+			return;
+		}
+
+		void sampleStats();
+		state.statsTimer = window.setInterval(function() {
+			void sampleStats();
+		}, STATS_SAMPLE_INTERVAL_MSEC);
+	}
+
+	function stopStatsMonitor() {
+		if (state.statsTimer) {
+			window.clearInterval(state.statsTimer);
+			state.statsTimer = null;
+		}
+		state.statsLastSamples = {};
+		state.statsLastBridgeAt = 0;
+		if (refs.metaStats) {
+			setText(refs.metaStats, "idle");
+		}
+	}
+
 	function isUserCanceledScreenShareError(error) {
 		if (!error) {
 			return false;
 		}
 
 		const name = String(error.name || "").trim();
+		const message = String(error.message || error.toString() || "").toLowerCase();
 		if (name === "AbortError") {
-			return true;
+			return !message.includes("invalid state");
 		}
 
-		const message = String(error.message || error.toString() || "").toLowerCase();
 		return message.includes("user aborted") || message.includes("screen share request was cancelled")
 			|| message.includes("screen share request was canceled") || message.includes("picker was closed")
 			|| message.includes("selection was canceled") || message.includes("selection was cancelled");
@@ -199,6 +544,9 @@
 			state.currentTrackElement = null;
 			state.currentTrackKey = "";
 		}
+		state.currentStatsTrack = null;
+		state.currentStatsPublication = null;
+		state.currentStatsLocal = false;
 	}
 
 	function normalizeToken(value, fallback) {
@@ -220,6 +568,42 @@
 	function parsePositiveInteger(value, fallback) {
 		const parsed = Number.parseInt(String(value || "").trim(), 10);
 		return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+	}
+
+	function clampInteger(value, minimum, maximum) {
+		return Math.min(Math.max(value, minimum), maximum);
+	}
+
+	function recommendedScreenShareBitrateKbps(codec, width, height, fps) {
+		const pixelsPerFrame = Math.max(1, width) * Math.max(1, height);
+		const frameRateFactor = Math.max(1, fps) / DEFAULT_SCREEN_SHARE_FPS;
+		let targetKbps = DEFAULT_SCREEN_SHARE_BITRATE_KBPS
+			* (pixelsPerFrame / (DEFAULT_SCREEN_SHARE_WIDTH * DEFAULT_SCREEN_SHARE_HEIGHT))
+			* frameRateFactor;
+
+		switch (codec) {
+			case "av1":
+				targetKbps *= 0.7;
+				break;
+			case "vp9":
+				targetKbps *= 0.8;
+				break;
+			case "h264":
+			default:
+				break;
+		}
+
+		return clampInteger(Math.round(targetKbps), MIN_SCREEN_SHARE_BITRATE_KBPS, MAX_SCREEN_SHARE_BITRATE_KBPS);
+	}
+
+	function parseScreenShareBitrateKbps(value, codec, width, height, fps) {
+		const recommended = recommendedScreenShareBitrateKbps(codec, width, height, fps);
+		const parsed = parsePositiveInteger(value, 0);
+		if (parsed <= 0) {
+			return recommended;
+		}
+
+		return clampInteger(Math.min(parsed, recommended), MIN_SCREEN_SHARE_BITRATE_KBPS, MAX_SCREEN_SHARE_BITRATE_KBPS);
 	}
 
 	function parseBooleanFlag(value, fallback) {
@@ -268,6 +652,9 @@
 		const relayUrl = (params.get("relay_url") || "").trim();
 		const relayRole = normalizeToken(params.get("relay_role"), "viewer");
 		const codec = normalizeCodec(params.get("codec"));
+		const width = clampInteger(parsePositiveInteger(params.get("width"), DEFAULT_SCREEN_SHARE_WIDTH), 1, MAX_IN_APP_RELAY_WIDTH);
+		const height = clampInteger(parsePositiveInteger(params.get("height"), DEFAULT_SCREEN_SHARE_HEIGHT), 1, MAX_IN_APP_RELAY_HEIGHT);
+		const fps = clampInteger(parsePositiveInteger(params.get("fps"), DEFAULT_SCREEN_SHARE_FPS), 1, MAX_IN_APP_RELAY_FPS);
 		return {
 			relayUrl,
 			wsRelayUrl: deriveWebSocketUrl(relayUrl),
@@ -278,10 +665,10 @@
 			relayRole: relayRole === "publisher" ? "publisher" : "viewer",
 			transport: normalizeToken(params.get("transport"), "webrtc"),
 			codec,
-			width: parsePositiveInteger(params.get("width"), 1920),
-			height: parsePositiveInteger(params.get("height"), 1080),
-			fps: parsePositiveInteger(params.get("fps"), 60),
-			bitrateKbps: parsePositiveInteger(params.get("bitrate_kbps"), 12000),
+			width,
+			height,
+			fps,
+			bitrateKbps: parseScreenShareBitrateKbps(params.get("bitrate_kbps"), codec, width, height, fps),
 			captureAudio: parseBooleanFlag(params.get("capture_audio"), false),
 			systemAudio: parseIncludeExclude(params.get("system_audio"), "exclude"),
 			surfaceSwitching: parseIncludeExclude(params.get("surface_switching"), "include"),
@@ -319,10 +706,16 @@
 		const livekitSource = livekit && livekit.Track && livekit.Track.Source ? livekit.Track.Source.ScreenShare : "";
 		const publicationSource = publication && publication.source ? publication.source : "";
 		const trackSource = track && track.source ? track.source : "";
-		return screenShareSourceMatches(livekitSource)
+		if (screenShareSourceMatches(livekitSource)
 			? publicationSource === livekitSource || trackSource === livekitSource || screenShareSourceMatches(publicationSource)
 				|| screenShareSourceMatches(trackSource)
-			: screenShareSourceMatches(publicationSource) || screenShareSourceMatches(trackSource);
+			: screenShareSourceMatches(publicationSource) || screenShareSourceMatches(trackSource)) {
+			return true;
+		}
+
+		// The relay room is dedicated to one screen share, so a remote video track
+		// is still the share even when the SFU/browser omits the ScreenShare source.
+		return !state.isPublisher;
 	}
 
 	function isScreenShareAudioTrack(track, publication) {
@@ -333,10 +726,14 @@
 		const livekitSource = livekit && livekit.Track && livekit.Track.Source ? livekit.Track.Source.ScreenShareAudio : "";
 		const publicationSource = publication && publication.source ? publication.source : "";
 		const trackSource = track && track.source ? track.source : "";
-		return screenShareAudioSourceMatches(livekitSource)
+		if (screenShareAudioSourceMatches(livekitSource)
 			? publicationSource === livekitSource || trackSource === livekitSource || screenShareAudioSourceMatches(publicationSource)
 				|| screenShareAudioSourceMatches(trackSource)
-			: screenShareAudioSourceMatches(publicationSource) || screenShareAudioSourceMatches(trackSource);
+			: screenShareAudioSourceMatches(publicationSource) || screenShareAudioSourceMatches(trackSource)) {
+			return true;
+		}
+
+		return !state.isPublisher;
 	}
 
 	function describeParticipant(participant) {
@@ -352,10 +749,24 @@
 		return (localTrack ? "local:" : "remote:") + participantKey + ":" + publicationKey;
 	}
 
+	function applyScreenShareContentHint(track) {
+		const mediaTrack = track && track.mediaStreamTrack ? track.mediaStreamTrack : null;
+		if (!mediaTrack || !("contentHint" in mediaTrack)) {
+			return;
+		}
+
+		try {
+			mediaTrack.contentHint = "detail";
+		} catch (error) {
+			console.warn("Unable to apply screen-share content hint:", error);
+		}
+	}
+
 	function attachTrack(track, publication, participant, localTrack) {
 		if (!isScreenShareTrack(track, publication)) {
 			return;
 		}
+		applyScreenShareContentHint(track);
 
 		const key = trackKey(publication, participant, localTrack);
 		if (state.currentTrackKey === key && state.currentTrackElement) {
@@ -392,6 +803,12 @@
 		refs.emptyState.classList.add("hidden");
 		state.currentTrackElement = element;
 		state.currentTrackKey = key;
+		state.currentStatsTrack = track;
+		state.currentStatsPublication = publication;
+		state.currentStatsLocal = Boolean(localTrack);
+		state.statsLastSamples = {};
+		state.statsUnavailableLogged = false;
+		startStatsMonitor();
 
 		if (typeof element.play === "function") {
 			element.play().catch(function(error) {
@@ -598,7 +1015,17 @@
 
 	function buildScreenShareCaptureOptions() {
 		const options = {
-			video: true,
+			video: {
+				width: { ideal: config.width, max: config.width },
+				height: { ideal: config.height, max: config.height },
+				frameRate: { ideal: config.fps, max: config.fps }
+			},
+			resolution: {
+				width: config.width,
+				height: config.height,
+				frameRate: config.fps
+			},
+			contentHint: "detail",
 			selfBrowserSurface: config.selfBrowserSurface,
 			surfaceSwitching: config.surfaceSwitching
 		};
@@ -612,19 +1039,35 @@
 		return options;
 	}
 
+	function buildScreenSharePublishOptions() {
+		return {
+			source: livekit && livekit.Track && livekit.Track.Source ? livekit.Track.Source.ScreenShare : undefined,
+			simulcast: false,
+			videoCodec: config.codec,
+			degradationPreference: "maintain-framerate",
+			screenShareEncoding: {
+				maxBitrate: config.bitrateKbps * 1000,
+				maxFramerate: config.fps,
+				priority: "high"
+			}
+		};
+	}
+
 	function buildRoomOptions() {
 		const publishDefaults = {
-			simulcast: true,
+			degradationPreference: "maintain-framerate",
+			simulcast: false,
 			videoCodec: config.codec,
 			screenShareEncoding: {
 				maxBitrate: config.bitrateKbps * 1000,
-				maxFramerate: config.fps
+				maxFramerate: config.fps,
+				priority: "high"
 			}
 		};
 
 		return {
-			adaptiveStream: true,
-			dynacast: true,
+			adaptiveStream: false,
+			dynacast: false,
 			publishDefaults: publishDefaults
 		};
 	}
@@ -666,6 +1109,7 @@
 				state.isConnected = false;
 				state.connectPromise = null;
 				state.isSharing = false;
+				stopStatsMonitor();
 				refs.startShare.disabled = false;
 				refs.stopShare.disabled = true;
 				setPill(refs.connectionPill, "disconnected", state.intentionalDisconnect ? "muted" : "warning");
@@ -729,9 +1173,22 @@
 
 		if (roomEvent.MediaDevicesError) {
 			room.on(roomEvent.MediaDevicesError, function(error) {
-				log("Screen-capture device error: " + error.message, "error");
+				log("Screen-capture device error: " + describeError(error), "error");
 			});
 		}
+	}
+
+	function describeError(error) {
+		if (!error) {
+			return "unknown error";
+		}
+
+		const name = String(error.name || "").trim();
+		const message = String(error.message || error.toString() || "").trim();
+		if (name && message) {
+			return name + ": " + message;
+		}
+		return name || message || "unknown error";
 	}
 
 	function createRoom() {
@@ -783,14 +1240,14 @@
 		refs.startShare.disabled = true;
 		refs.stopShare.disabled = true;
 		try {
-			const room = await ensureConnected();
+			const room = state.isConnected && state.room ? state.room : await ensureConnected();
 			setHint(config.captureAudio
 				? "Choose a screen, window, or tab with audio in the browser picker."
 				: "Choose a screen or window in the browser picker.");
 			log(config.captureAudio
 				? "Requesting screen capture and shared audio from the browser."
 				: "Requesting screen capture from the browser.");
-			await room.localParticipant.setScreenShareEnabled(true, buildScreenShareCaptureOptions());
+			await room.localParticipant.setScreenShareEnabled(true, buildScreenShareCaptureOptions(), buildScreenSharePublishOptions());
 			state.isSharing = true;
 			refs.stopShare.disabled = false;
 			setPill(refs.connectionPill, "live", "success");
@@ -854,6 +1311,7 @@
 
 		try {
 			state.intentionalDisconnect = true;
+			stopStatsMonitor();
 			state.room.disconnect();
 		} catch (error) {
 			log("Relay disconnect raised an error: " + error.message, "warn");
@@ -867,7 +1325,8 @@
 		setText(refs.metaStream, config.streamId || "unknown");
 		setText(refs.metaRoom, config.relayRoomId || "unknown");
 		setText(refs.metaRelay, config.wsRelayUrl || "unknown");
-		setText(refs.metaCodec, config.codec.toUpperCase() + " / " + config.width + "x" + config.height + " @ " + config.fps + "fps");
+		setText(refs.metaCodec, config.codec.toUpperCase() + " / " + config.width + "x" + config.height + " @ "
+			+ config.fps + "fps / " + config.bitrateKbps + " kbps");
 	}
 
 	function renderShell() {
@@ -901,6 +1360,8 @@
 		log("Relay role: " + config.relayRole + ".");
 		log("Relay transport: " + config.transport + ".");
 		log("Relay endpoint: " + (config.relayUrl || "missing") + ".");
+		log("Relay media profile: " + config.codec.toUpperCase() + " " + config.width + "x" + config.height
+			+ " @ " + config.fps + "fps, " + config.bitrateKbps + " kbps, single low-latency stream.");
 		if (state.isPublisher && config.captureAudio) {
 			log("Screen-share audio capture is enabled for compatible browser sources.");
 		}

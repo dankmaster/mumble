@@ -13,6 +13,7 @@
 #include <QtCore/QList>
 #include <QtCore/QObject>
 #include <QtCore/QString>
+#include <QtCore/QStringList>
 
 struct ScreenShareSession;
 
@@ -23,16 +24,26 @@ private:
 
 public:
 	struct CapabilitySnapshot {
-		bool supportsSignaling = true;
-		bool helperAvailable   = false;
-		bool captureSupported  = false;
-		bool viewSupported     = false;
+		bool supportsSignaling       = true;
+		bool helperAvailable         = false;
+		bool captureSupported        = false;
+		bool viewSupported           = false;
+		bool hardwareEncodeSupported = false;
+		bool hardwareDecodeSupported = false;
+		bool zeroCopySupported       = false;
+		bool roiSupported            = false;
+		bool damageMetadataSupported = false;
 		QList< int > supportedCodecs;
 		QList< int > runtimeRelayTransports;
 		unsigned int maxWidth  = 0;
 		unsigned int maxHeight = 0;
 		unsigned int maxFps    = 0;
 		QString helperExecutable;
+		QString captureBackend;
+		QStringList captureBackends;
+		QStringList supportedIngestProtocols;
+		QStringList drmSystems;
+		unsigned int queueBudgetFrames = 0;
 	};
 
 	explicit ScreenShareHelperClient(QObject *parent = nullptr);
@@ -56,7 +67,8 @@ private:
 	static QString defaultHelperExecutablePath();
 	static QString diagnosticsLogPath();
 	static QStringList helperLaunchArguments();
-	static CapabilitySnapshot capabilitySnapshotFromPayload(const QJsonObject &payload, const QString &helperExecutable);
+	static CapabilitySnapshot capabilitySnapshotFromPayload(const QJsonObject &payload,
+															const QString &helperExecutable);
 	static QJsonObject payloadFromSession(const ScreenShareSession &session);
 	static void logReplyWarnings(const QJsonObject &reply, Mumble::ScreenShare::IPC::Command command,
 								 const QString &streamID = QString());

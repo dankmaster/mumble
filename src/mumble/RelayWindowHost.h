@@ -10,12 +10,12 @@
 
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 
-#include "ScreenShare.h"
-#include <QtCore/QPointer>
-#include <QtCore/QString>
-#include <QtCore/QUrl>
-#include <QtWidgets/QWidget>
-#include <QtWebEngineCore/QWebEnginePage>
+#	include "ScreenShare.h"
+#	include <QtCore/QPointer>
+#	include <QtCore/QString>
+#	include <QtCore/QUrl>
+#	include <QtWebEngineCore/QWebEnginePage>
+#	include <QtWidgets/QWidget>
 
 class QCloseEvent;
 class QTimer;
@@ -61,6 +61,7 @@ private slots:
 	void handleBridgeBootReady();
 	void handleBridgeFallbackRequested(const QString &reason);
 	void handleBridgeCloseRequested(const QString &reason);
+	void handleBridgeStatsReported(const QString &summary);
 	void handleBootTimeout();
 
 private:
@@ -72,16 +73,16 @@ private:
 
 	ScreenShareSession m_session;
 	Mode m_mode;
-	QVBoxLayout *m_layout = nullptr;
-	QWebEngineView *m_view = nullptr;
-	RelayWebPage *m_page = nullptr;
-	QWebChannel *m_channel = nullptr;
+	QVBoxLayout *m_layout       = nullptr;
+	QWebEngineView *m_view      = nullptr;
+	RelayWebPage *m_page        = nullptr;
+	QWebChannel *m_channel      = nullptr;
 	RelayWindowBridge *m_bridge = nullptr;
-	QTimer *m_bootTimeoutTimer = nullptr;
-	bool m_closingFromManager = false;
-	bool m_started = false;
-	bool m_bootReady = false;
-	bool m_fallbackIssued = false;
+	QTimer *m_bootTimeoutTimer  = nullptr;
+	bool m_closingFromManager   = false;
+	bool m_started              = false;
+	bool m_bootReady            = false;
+	bool m_fallbackIssued       = false;
 };
 
 #endif // defined(MUMBLE_HAS_MODERN_LAYOUT)

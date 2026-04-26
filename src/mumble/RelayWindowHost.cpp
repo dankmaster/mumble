@@ -7,158 +7,158 @@
 
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 
-#include "Global.h"
-#include "Log.h"
-#include "RelayWebPage.h"
-#include "RelayWindowBridge.h"
+#	include "Log.h"
+#	include "RelayWebPage.h"
+#	include "RelayWindowBridge.h"
+#	include "Global.h"
 
-#include <QtCore/QAbstractItemModel>
-#include <QtCore/QTimer>
-#include <QtCore/QUrlQuery>
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QListWidget>
-#include <QtWidgets/QAbstractItemView>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWebChannel/QWebChannel>
-#include <QtWebEngineCore/QWebEngineDesktopMediaRequest>
-#include <QtWebEngineCore/QWebEnginePage>
-#include <QtWebEngineCore/QWebEngineSettings>
-#include <QtWebEngineWidgets/QWebEngineView>
+#	include <QtCore/QAbstractItemModel>
+#	include <QtCore/QDebug>
+#	include <QtCore/QTimer>
+#	include <QtCore/QUrlQuery>
+#	include <QtGui/QCloseEvent>
+#	include <QtWebChannel/QWebChannel>
+#	include <QtWebEngineCore/QWebEngineDesktopMediaRequest>
+#	include <QtWebEngineCore/QWebEnginePage>
+#	include <QtWebEngineCore/QWebEngineSettings>
+#	include <QtWebEngineWidgets/QWebEngineView>
+#	include <QtWidgets/QAbstractItemView>
+#	include <QtWidgets/QDialog>
+#	include <QtWidgets/QDialogButtonBox>
+#	include <QtWidgets/QLabel>
+#	include <QtWidgets/QListWidget>
+#	include <QtWidgets/QVBoxLayout>
 
 namespace {
-	QUrl relayWebAppUrl() {
-		return QUrl(QStringLiteral("qrc:/relay-webapp/index.html"));
-	}
+QUrl relayWebAppUrl() {
+	return QUrl(QStringLiteral("qrc:/relay-webapp/index.html"));
+}
 
-	bool relaySessionRequiresReload(const ScreenShareSession &lhs, const ScreenShareSession &rhs) {
-		return lhs.relayUrl != rhs.relayUrl || lhs.relayRoomID != rhs.relayRoomID || lhs.relayToken != rhs.relayToken
-			|| lhs.relaySessionID != rhs.relaySessionID || lhs.streamID != rhs.streamID
-			|| lhs.relayRole != rhs.relayRole || lhs.codec != rhs.codec || lhs.relayTransport != rhs.relayTransport
-			|| lhs.width != rhs.width || lhs.height != rhs.height || lhs.fps != rhs.fps
-			|| lhs.bitrateKbps != rhs.bitrateKbps;
-	}
+bool relaySessionRequiresReload(const ScreenShareSession &lhs, const ScreenShareSession &rhs) {
+	return lhs.relayUrl != rhs.relayUrl || lhs.relayRoomID != rhs.relayRoomID || lhs.relayToken != rhs.relayToken
+		   || lhs.relaySessionID != rhs.relaySessionID || lhs.streamID != rhs.streamID || lhs.relayRole != rhs.relayRole
+		   || lhs.codec != rhs.codec || lhs.relayTransport != rhs.relayTransport || lhs.width != rhs.width
+		   || lhs.height != rhs.height || lhs.fps != rhs.fps || lhs.bitrateKbps != rhs.bitrateKbps;
+}
 
-	bool presentDesktopMediaRequest(QWidget *parent, const QWebEngineDesktopMediaRequest &request,
-								   const QString &windowTitle) {
-		const QAbstractItemModel *screensModel = request.screensModel();
-		const QAbstractItemModel *windowsModel = request.windowsModel();
+bool presentDesktopMediaRequest(QWidget *parent, const QWebEngineDesktopMediaRequest &request,
+								const QString &windowTitle) {
+	const QAbstractItemModel *screensModel = request.screensModel();
+	const QAbstractItemModel *windowsModel = request.windowsModel();
 
-		struct Choice {
-			bool isScreen = false;
-			int row       = -1;
-			QString label;
-		};
+	struct Choice {
+		bool isScreen = false;
+		int row       = -1;
+		QString label;
+	};
 
-		QList< Choice > choices;
-		auto appendChoices = [&choices](const QAbstractItemModel *model, const bool isScreen) {
-			if (!model) {
-				return;
-			}
-
-			for (int row = 0; row < model->rowCount(); ++row) {
-				const QModelIndex index = model->index(row, 0);
-				if (!index.isValid()) {
-					continue;
-				}
-
-				QString label = index.data(Qt::DisplayRole).toString().trimmed();
-				if (label.isEmpty()) {
-					label = isScreen ? QObject::tr("Screen %1").arg(row + 1) : QObject::tr("Window %1").arg(row + 1);
-				}
-
-				choices.append(Choice{ isScreen, row, label });
-			}
-		};
-
-		appendChoices(screensModel, true);
-		appendChoices(windowsModel, false);
-
-		if (choices.isEmpty()) {
-			request.cancel();
-			return false;
+	QList< Choice > choices;
+	auto appendChoices = [&choices](const QAbstractItemModel *model, const bool isScreen) {
+		if (!model) {
+			return;
 		}
-		if (choices.size() == 1) {
-			const Choice &choice = choices.constFirst();
-			const QModelIndex index = choice.isScreen ? screensModel->index(choice.row, 0)
-													  : windowsModel->index(choice.row, 0);
+
+		for (int row = 0; row < model->rowCount(); ++row) {
+			const QModelIndex index = model->index(row, 0);
 			if (!index.isValid()) {
-				request.cancel();
-				return false;
+				continue;
 			}
 
-			if (choice.isScreen) {
-				request.selectScreen(index);
-			} else {
-				request.selectWindow(index);
+			QString label = index.data(Qt::DisplayRole).toString().trimmed();
+			if (label.isEmpty()) {
+				label = isScreen ? QObject::tr("Screen %1").arg(row + 1) : QObject::tr("Window %1").arg(row + 1);
 			}
-			return true;
+
+			choices.append(Choice{ isScreen, row, label });
 		}
+	};
 
-		QDialog dialog(parent);
-		dialog.setWindowTitle(windowTitle);
-		dialog.setModal(true);
-		dialog.setMinimumSize(520, 360);
+	appendChoices(screensModel, true);
+	appendChoices(windowsModel, false);
 
-		auto *layout = new QVBoxLayout(&dialog);
-		layout->setContentsMargins(16, 16, 16, 16);
-		layout->setSpacing(12);
-
-		auto *label = new QLabel(QObject::tr("Choose a screen or window to share."), &dialog);
-		label->setWordWrap(true);
-		layout->addWidget(label);
-
-		auto *list = new QListWidget(&dialog);
-		list->setSelectionMode(QAbstractItemView::SingleSelection);
-		list->setUniformItemSizes(true);
-		for (const Choice &choice : choices) {
-			auto *item = new QListWidgetItem(choice.label, list);
-			item->setData(Qt::UserRole, choice.isScreen);
-			item->setData(Qt::UserRole + 1, choice.row);
-		}
-		if (list->count() > 0) {
-			list->setCurrentRow(0);
-		}
-		layout->addWidget(list, 1);
-
-		auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-		QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-		QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-		layout->addWidget(buttons);
-
-		if (dialog.exec() != QDialog::Accepted) {
-			request.cancel();
-			return false;
-		}
-
-		QListWidgetItem *currentItem = list->currentItem();
-		if (!currentItem) {
-			request.cancel();
-			return false;
-		}
-
-		const bool isScreen = currentItem->data(Qt::UserRole).toBool();
-		const int row = currentItem->data(Qt::UserRole + 1).toInt();
-		const QModelIndex index = isScreen ? screensModel->index(row, 0) : windowsModel->index(row, 0);
+	if (choices.isEmpty()) {
+		request.cancel();
+		return false;
+	}
+	if (choices.size() == 1) {
+		const Choice &choice = choices.constFirst();
+		const QModelIndex index =
+			choice.isScreen ? screensModel->index(choice.row, 0) : windowsModel->index(choice.row, 0);
 		if (!index.isValid()) {
 			request.cancel();
 			return false;
 		}
 
-		if (isScreen) {
+		if (choice.isScreen) {
 			request.selectScreen(index);
 		} else {
 			request.selectWindow(index);
 		}
-
 		return true;
 	}
+
+	QDialog dialog(parent);
+	dialog.setWindowTitle(windowTitle);
+	dialog.setModal(true);
+	dialog.setMinimumSize(520, 360);
+
+	auto *layout = new QVBoxLayout(&dialog);
+	layout->setContentsMargins(16, 16, 16, 16);
+	layout->setSpacing(12);
+
+	auto *label = new QLabel(QObject::tr("Choose a screen or window to share."), &dialog);
+	label->setWordWrap(true);
+	layout->addWidget(label);
+
+	auto *list = new QListWidget(&dialog);
+	list->setSelectionMode(QAbstractItemView::SingleSelection);
+	list->setUniformItemSizes(true);
+	for (const Choice &choice : choices) {
+		auto *item = new QListWidgetItem(choice.label, list);
+		item->setData(Qt::UserRole, choice.isScreen);
+		item->setData(Qt::UserRole + 1, choice.row);
+	}
+	if (list->count() > 0) {
+		list->setCurrentRow(0);
+	}
+	layout->addWidget(list, 1);
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addWidget(buttons);
+
+	if (dialog.exec() != QDialog::Accepted) {
+		request.cancel();
+		return false;
+	}
+
+	QListWidgetItem *currentItem = list->currentItem();
+	if (!currentItem) {
+		request.cancel();
+		return false;
+	}
+
+	const bool isScreen     = currentItem->data(Qt::UserRole).toBool();
+	const int row           = currentItem->data(Qt::UserRole + 1).toInt();
+	const QModelIndex index = isScreen ? screensModel->index(row, 0) : windowsModel->index(row, 0);
+	if (!index.isValid()) {
+		request.cancel();
+		return false;
+	}
+
+	if (isScreen) {
+		request.selectScreen(index);
+	} else {
+		request.selectWindow(index);
+	}
+
+	return true;
+}
 } // namespace
 
 RelayWindowHost::RelayWindowHost(const ScreenShareSession &session, const Mode mode, QWidget *parent)
-	: QWidget(parent), m_session(session), m_mode(mode) {
+	: QWidget(parent, Qt::Window), m_session(session), m_mode(mode) {
 	setAttribute(Qt::WA_DeleteOnClose, true);
 	setWindowTitle(windowTitle());
 	setMinimumSize(960, 720);
@@ -173,7 +173,7 @@ RelayWindowHost::RelayWindowHost(const ScreenShareSession &session, const Mode m
 	m_view->setPage(m_page);
 
 	m_channel = new QWebChannel(this);
-	m_bridge = new RelayWindowBridge(this);
+	m_bridge  = new RelayWindowBridge(this);
 	m_channel->registerObject(QStringLiteral("relayBridge"), m_bridge);
 	m_page->setWebChannel(m_channel);
 	m_bootTimeoutTimer = new QTimer(this);
@@ -183,27 +183,25 @@ RelayWindowHost::RelayWindowHost(const ScreenShareSession &session, const Mode m
 	m_view->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessRemoteUrls, true);
 	m_view->settings()->setAttribute(QWebEngineSettings::LocalContentCanAccessFileUrls, false);
 	m_view->settings()->setAttribute(QWebEngineSettings::PlaybackRequiresUserGesture, false);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+#	if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
 	m_view->settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
-#endif
+#	endif
 
 	connect(m_view, &QWebEngineView::loadFinished, this, &RelayWindowHost::handleLoadFinished);
 	connect(m_page, &QWebEnginePage::renderProcessTerminated, this, &RelayWindowHost::handleRenderProcessTerminated);
 	connect(m_page, &QWebEnginePage::desktopMediaRequested, this,
-			[this](const QWebEngineDesktopMediaRequest &request) {
-				handleDesktopMediaRequested(request);
-			});
+			[this](const QWebEngineDesktopMediaRequest &request) { handleDesktopMediaRequested(request); });
 	connect(m_page, &RelayWebPage::externalNavigationRequested, this, [this](const QUrl &url) {
 		if (Global::get().l) {
-			Global::get().l->log(Log::Information,
-								 tr("Relay window requested external navigation to %1.")
-									 .arg(url.toString(QUrl::FullyEncoded).toHtmlEscaped()));
+			Global::get().l->log(Log::Information, tr("Relay window requested external navigation to %1.")
+													   .arg(url.toString(QUrl::FullyEncoded).toHtmlEscaped()));
 		}
 	});
 
 	connect(m_bridge, &RelayWindowBridge::bootReady, this, &RelayWindowHost::handleBridgeBootReady);
 	connect(m_bridge, &RelayWindowBridge::fallbackRequested, this, &RelayWindowHost::handleBridgeFallbackRequested);
 	connect(m_bridge, &RelayWindowBridge::closeRequested, this, &RelayWindowHost::handleBridgeCloseRequested);
+	connect(m_bridge, &RelayWindowBridge::statsReported, this, &RelayWindowHost::handleBridgeStatsReported);
 	connect(m_bootTimeoutTimer, &QTimer::timeout, this, &RelayWindowHost::handleBootTimeout);
 }
 
@@ -224,8 +222,8 @@ bool RelayWindowHost::start(QString *errorMessage) {
 	}
 
 	m_view->load(url);
-	m_started = true;
-	m_bootReady = false;
+	m_started        = true;
+	m_bootReady      = false;
 	m_fallbackIssued = false;
 	m_bootTimeoutTimer->start();
 	setWindowTitle(windowTitle());
@@ -249,13 +247,13 @@ QString RelayWindowHost::streamID() const {
 
 void RelayWindowHost::updateSession(const ScreenShareSession &session) {
 	const bool requiresReload = relaySessionRequiresReload(m_session, session);
-	m_session = session;
+	m_session                 = session;
 	setWindowTitle(windowTitle());
 	if (!requiresReload || !m_view) {
 		return;
 	}
 
-	m_bootReady = false;
+	m_bootReady      = false;
 	m_fallbackIssued = false;
 	m_bootTimeoutTimer->start();
 	m_view->load(buildPageUrl());
@@ -279,7 +277,7 @@ void RelayWindowHost::handleLoadFinished(const bool ok) {
 		return;
 	}
 
-	m_started = false;
+	m_started   = false;
 	m_bootReady = false;
 	m_bootTimeoutTimer->stop();
 	requestFallbackOnce(tr("The in-app relay window failed to load its local assets."));
@@ -292,7 +290,7 @@ void RelayWindowHost::handleRenderProcessTerminated(const QWebEnginePage::Render
 		return;
 	}
 
-	m_started = false;
+	m_started   = false;
 	m_bootReady = false;
 	m_bootTimeoutTimer->stop();
 	requestFallbackOnce(tr("The in-app relay renderer stopped unexpectedly with exit code %1.").arg(exitCode));
@@ -315,8 +313,9 @@ void RelayWindowHost::handleBridgeBootReady() {
 	m_bootReady = true;
 	m_bootTimeoutTimer->stop();
 	if (Global::get().l) {
-		Global::get().l->log(Log::Information,
-							 tr("Opened in-app screen-share relay window for %1.").arg(m_session.streamID.toHtmlEscaped()));
+		Global::get().l->log(
+			Log::Information,
+			tr("Opened in-app screen-share relay window for %1.").arg(m_session.streamID.toHtmlEscaped()));
 	}
 }
 
@@ -337,6 +336,16 @@ void RelayWindowHost::handleBridgeCloseRequested(const QString &reason) {
 	emit closeRequested(m_session.streamID);
 }
 
+void RelayWindowHost::handleBridgeStatsReported(const QString &summary) {
+	if (m_closingFromManager || !Global::get().s.bScreenShareDiagnostics) {
+		return;
+	}
+
+	qInfo().noquote() << QStringLiteral("RelayWindowHost: stream=%1 role=%2 stats=%3")
+							 .arg(m_session.streamID.isEmpty() ? QStringLiteral("-") : m_session.streamID, roleLabel(),
+								  summary);
+}
+
 void RelayWindowHost::handleBootTimeout() {
 	if (m_closingFromManager || m_bootReady || !m_started) {
 		return;
@@ -349,15 +358,16 @@ void RelayWindowHost::handleBootTimeout() {
 QUrl RelayWindowHost::buildPageUrl() const {
 	QUrl url = relayWebAppUrl();
 	QUrlQuery query;
+	QUrlQuery fragment;
 	query.addQueryItem(QStringLiteral("mumble_screen_share"), QStringLiteral("1"));
 	query.addQueryItem(QStringLiteral("relay_url"), m_session.relayUrl);
 	query.addQueryItem(QStringLiteral("relay_room_id"), m_session.relayRoomID);
-	query.addQueryItem(QStringLiteral("relay_token"), m_session.relayToken);
 	query.addQueryItem(QStringLiteral("relay_session_id"), m_session.relaySessionID);
 	query.addQueryItem(QStringLiteral("stream_id"), m_session.streamID);
 	query.addQueryItem(QStringLiteral("relay_role"), Mumble::ScreenShare::relayRoleToConfigToken(m_session.relayRole));
 	query.addQueryItem(QStringLiteral("codec"), Mumble::ScreenShare::codecToConfigToken(m_session.codec));
-	query.addQueryItem(QStringLiteral("transport"), Mumble::ScreenShare::relayTransportToConfigToken(m_session.relayTransport));
+	query.addQueryItem(QStringLiteral("transport"),
+					   Mumble::ScreenShare::relayTransportToConfigToken(m_session.relayTransport));
 	query.addQueryItem(QStringLiteral("width"), QString::number(qMax(0U, m_session.width)));
 	query.addQueryItem(QStringLiteral("height"), QString::number(qMax(0U, m_session.height)));
 	query.addQueryItem(QStringLiteral("fps"), QString::number(qMax(0U, m_session.fps)));
@@ -370,6 +380,10 @@ QUrl RelayWindowHost::buildPageUrl() const {
 	}
 
 	url.setQuery(query);
+	if (!m_session.relayToken.trimmed().isEmpty()) {
+		fragment.addQueryItem(QStringLiteral("relay_token"), m_session.relayToken);
+		url.setFragment(fragment.toString(QUrl::FullyEncoded));
+	}
 	return url;
 }
 
@@ -379,8 +393,7 @@ QString RelayWindowHost::windowTitle() const {
 		return tr("Mumble Screen Share (%1)").arg(role);
 	}
 
-	return tr("Mumble Screen Share (%1) - %2")
-		.arg(role, m_session.streamID.toHtmlEscaped());
+	return tr("Mumble Screen Share (%1) - %2").arg(role, m_session.streamID.toHtmlEscaped());
 }
 
 QString RelayWindowHost::roleLabel() const {

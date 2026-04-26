@@ -7,38 +7,50 @@
 
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 
-#include "Log.h"
+#	include "Log.h"
 
-#include <QtCore/QDebug>
-#include <QtCore/QTimer>
-#include <QtGui/QDesktopServices>
+#	include <QtCore/QDebug>
+#	include <QtCore/QTimer>
+#	include <QtGui/QDesktopServices>
 
 namespace {
-	QT_WARNING_PUSH
-	QT_WARNING_DISABLE_DEPRECATED
-	bool isLocalRelayResource(const QUrl &url) {
-		const QString scheme = url.scheme().trimmed().toLower();
-		if (scheme != QLatin1String("qrc")) {
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
+bool isLocalRelayResource(const QUrl &url) {
+	const QString scheme = url.scheme().trimmed().toLower();
+	if (scheme != QLatin1String("qrc")) {
+		return false;
+	}
+
+	const QString path = url.path();
+	return path.startsWith(QStringLiteral("/relay-webapp")) || path.startsWith(QStringLiteral("/qtwebchannel/"));
+}
+
+bool isLocalRelaySecurityOrigin(const QUrl &url) {
+	const QString scheme = url.scheme().trimmed().toLower();
+	if (scheme != QLatin1String("qrc")) {
+		return false;
+	}
+
+	// Feature permission requests receive a security origin, not the full
+	// resource URL. For qrc pages Qt reports that origin as plain "qrc:".
+	const QString path = url.path();
+	return path.isEmpty() || path == QLatin1String("/") || isLocalRelayResource(url);
+}
+
+bool isAllowedRelayFeature(const QWebEnginePage::Feature feature) {
+	switch (feature) {
+		case QWebEnginePage::MediaAudioCapture:
+		case QWebEnginePage::MediaVideoCapture:
+		case QWebEnginePage::MediaAudioVideoCapture:
+		case QWebEnginePage::DesktopVideoCapture:
+		case QWebEnginePage::DesktopAudioVideoCapture:
+			return true;
+		default:
 			return false;
-		}
-
-		const QString path = url.path();
-		return path.startsWith(QStringLiteral("/relay-webapp")) || path.startsWith(QStringLiteral("/qtwebchannel/"));
 	}
-
-	bool isAllowedRelayFeature(const QWebEnginePage::Feature feature) {
-		switch (feature) {
-			case QWebEnginePage::MediaAudioCapture:
-			case QWebEnginePage::MediaVideoCapture:
-			case QWebEnginePage::MediaAudioVideoCapture:
-			case QWebEnginePage::DesktopVideoCapture:
-			case QWebEnginePage::DesktopAudioVideoCapture:
-				return true;
-			default:
-				return false;
-		}
-	}
-	QT_WARNING_POP
+}
+QT_WARNING_POP
 } // namespace
 
 RelayWebPage::RelayWebPage(QObject *parent) : QWebEnginePage(parent) {
@@ -46,7 +58,7 @@ RelayWebPage::RelayWebPage(QObject *parent) : QWebEnginePage(parent) {
 	QT_WARNING_DISABLE_DEPRECATED
 	connect(this, &QWebEnginePage::featurePermissionRequested, this,
 			[this](const QUrl &securityOrigin, const QWebEnginePage::Feature feature) {
-				if (isLocalRelayResource(securityOrigin) && isAllowedRelayFeature(feature)) {
+				if (isLocalRelaySecurityOrigin(securityOrigin) && isAllowedRelayFeature(feature)) {
 					setFeaturePermission(securityOrigin, feature, QWebEnginePage::PermissionGrantedByUser);
 					return;
 				}
@@ -91,12 +103,9 @@ void RelayWebPage::javaScriptConsoleMessage(const JavaScriptConsoleMessageLevel 
 			break;
 	}
 
-	qInfo().noquote()
-		<< QStringLiteral("RelayWebPage[%1]: %2:%3 %4")
-			   .arg(QString::fromLatin1(levelToken),
-					sourceID.isEmpty() ? QStringLiteral("-") : sourceID,
-					QString::number(lineNumber),
-					message);
+	qInfo().noquote() << QStringLiteral("RelayWebPage[%1]: %2:%3 %4")
+							 .arg(QString::fromLatin1(levelToken), sourceID.isEmpty() ? QStringLiteral("-") : sourceID,
+								  QString::number(lineNumber), message);
 }
 
 #endif // defined(MUMBLE_HAS_MODERN_LAYOUT)

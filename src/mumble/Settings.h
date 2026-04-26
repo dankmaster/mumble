@@ -210,6 +210,7 @@ struct Settings {
 		LogMessageLimit = 0x20,
 	};
 	enum WindowLayout { LayoutClassic, LayoutStacked, LayoutHybrid, LayoutCustom, LayoutModern };
+	enum ModernLayoutPolicy { ModernLayoutFollowLegacy, ModernLayoutForced };
 	enum AlwaysOnTopBehaviour { OnTopNever, OnTopAlways, OnTopInMinimal, OnTopInNormal };
 	enum ProxyType { NoProxy, HttpProxy, Socks5Proxy };
 	enum RecordingMode {
@@ -262,26 +263,26 @@ struct Settings {
 	///
 	/// The setting is currently only supported by the speech-dispatcher
 	/// backend.
-	QString qsTTSLanguage = {};
-	int iQuality          = 40000;
+	QString qsTTSLanguage               = {};
+	int iQuality                        = 40000;
 	bool experimentalHighBitrateEnabled = false;
-	int iMinLoudness      = 1000;
+	int iMinLoudness                    = 1000;
 	/// Actual mic hold time is (iVoiceHold / 100) seconds, where iVoiceHold is specified in 'frames',
 	/// each of which is has a size of iFrameSize (see AudioInput.h)
-	int iVoiceHold                  = 20;
-	int iJitterBufferSize           = 1;
-	bool bAllowLowDelay             = true;
-	NoiseCancel noiseCancelMode     = NoiseCancelSpeex;
-	SpeechCleanupBackend noiseCancelBackend = RNNoiseBackend;
-	QString noiseCancelModelId      = QStringLiteral("rnnoise:embedded");
-	QString noiseCancelCustomModelPath = {};
-	int iSpeexNoiseCancelStrength   = -30;
-	bool remoteSpeechCleanupEnabled = false;
-	SpeechCleanupBackend remoteSpeechCleanupBackend = RNNoiseBackend;
-	QString remoteSpeechCleanupModelId = QStringLiteral("rnnoise:embedded");
-	QString remoteSpeechCleanupCustomModelPath = {};
+	int iVoiceHold                                      = 20;
+	int iJitterBufferSize                               = 1;
+	bool bAllowLowDelay                                 = true;
+	NoiseCancel noiseCancelMode                         = NoiseCancelSpeex;
+	SpeechCleanupBackend noiseCancelBackend             = RNNoiseBackend;
+	QString noiseCancelModelId                          = QStringLiteral("rnnoise:embedded");
+	QString noiseCancelCustomModelPath                  = {};
+	int iSpeexNoiseCancelStrength                       = -30;
+	bool remoteSpeechCleanupEnabled                     = false;
+	SpeechCleanupBackend remoteSpeechCleanupBackend     = RNNoiseBackend;
+	QString remoteSpeechCleanupModelId                  = QStringLiteral("rnnoise:embedded");
+	QString remoteSpeechCleanupCustomModelPath          = {};
 	RemoteSpeechCleanupPreset remoteSpeechCleanupPreset = Normal;
-	quint64 uiAudioInputChannelMask = 0xffffffffffffffffULL;
+	quint64 uiAudioInputChannelMask                     = 0xffffffffffffffffULL;
 
 	// Idle auto actions
 	unsigned int iIdleTime           = 5 * 60;
@@ -426,40 +427,41 @@ struct Settings {
 	/// Name of the style to use from theme. @see Themes
 	QString themeDarkStyleName = QStringLiteral("Dark");
 
-	QByteArray qbaMainWindowGeometry     = {};
-	QByteArray qbaMainWindowState        = {};
-	QByteArray qbaMinimalViewGeometry    = {};
-	QByteArray qbaMinimalViewState       = {};
-	QByteArray qbaModernMainWindowGeometry  = {};
-	QByteArray qbaModernMainWindowState     = {};
-	QByteArray qbaModernMinimalViewGeometry = {};
-	QByteArray qbaModernMinimalViewState    = {};
-	QByteArray qbaConfigGeometry         = {};
-	QByteArray qbaImagePreviewGeometry   = {};
-	WindowLayout wlWindowLayout          = LayoutHybrid;
-	ChannelExpand ceExpand               = ChannelsWithUsers;
-	ChannelDrag ceChannelDrag            = Ask;
-	ChannelDrag ceUserDrag               = Move;
-	bool bMinimalView                    = false;
-	bool bHideFrame                      = false;
-	AlwaysOnTopBehaviour aotbAlwaysOnTop = OnTopNever;
-	QuitBehavior quitBehavior            = QuitBehavior::ALWAYS_ASK;
-	bool bEnableDeveloperMenu            = false;
-	bool bLockLayout                     = false;
+	QByteArray qbaMainWindowGeometry          = {};
+	QByteArray qbaMainWindowState             = {};
+	QByteArray qbaMinimalViewGeometry         = {};
+	QByteArray qbaMinimalViewState            = {};
+	QByteArray qbaModernMainWindowGeometry    = {};
+	QByteArray qbaModernMainWindowState       = {};
+	QByteArray qbaModernMinimalViewGeometry   = {};
+	QByteArray qbaModernMinimalViewState      = {};
+	QByteArray qbaConfigGeometry              = {};
+	QByteArray qbaImagePreviewGeometry        = {};
+	WindowLayout wlWindowLayout               = LayoutHybrid;
+	ModernLayoutPolicy modernLayoutPolicy     = ModernLayoutForced;
+	ChannelExpand ceExpand                    = ChannelsWithUsers;
+	ChannelDrag ceChannelDrag                 = Ask;
+	ChannelDrag ceUserDrag                    = Move;
+	bool bMinimalView                         = false;
+	bool bHideFrame                           = false;
+	AlwaysOnTopBehaviour aotbAlwaysOnTop      = OnTopNever;
+	QuitBehavior quitBehavior                 = QuitBehavior::ALWAYS_ASK;
+	bool bEnableDeveloperMenu                 = false;
+	bool bLockLayout                          = false;
 	bool bAutoSwitchModernOnCompatibleServers = true;
-	bool bHideInTray                     = false;
-	bool bStateInTray                    = true;
-	bool bUsage                          = false;
-	bool bShowUserCount                  = false;
-	bool bShowVolumeAdjustments          = true;
-	bool bShowNicknamesOnly              = false;
-	bool bChatBarUseSelection            = false;
-	int iPresenceIdleTimeoutMinutes      = 5;
-	bool bFilterHidesEmptyChannels       = true;
-	bool bFilterActive                   = false;
-	QByteArray qbaConnectDialogHeader    = {};
-	QByteArray qbaConnectDialogGeometry  = {};
-	bool bShowContextMenuInMenuBar       = false;
+	bool bHideInTray                          = false;
+	bool bStateInTray                         = true;
+	bool bUsage                               = false;
+	bool bShowUserCount                       = false;
+	bool bShowVolumeAdjustments               = true;
+	bool bShowNicknamesOnly                   = false;
+	bool bChatBarUseSelection                 = false;
+	int iPresenceIdleTimeoutMinutes           = 5;
+	bool bFilterHidesEmptyChannels            = true;
+	bool bFilterActive                        = false;
+	QByteArray qbaConnectDialogHeader         = {};
+	QByteArray qbaConnectDialogGeometry       = {};
+	bool bShowContextMenuInMenuBar            = false;
 
 	// Search settings
 	bool searchForUsers                                     = true;
@@ -539,8 +541,8 @@ struct Settings {
 	QString qsServicePrefix = {};
 
 	// Network settings - SSL
-	QString qsSslCiphers = MumbleSSL::defaultOpenSSLCipherString();
-	bool bEnableLinkPreviews = true;
+	QString qsSslCiphers         = MumbleSSL::defaultOpenSSLCipherString();
+	bool bEnableLinkPreviews     = true;
 	bool bScreenShareDiagnostics = false;
 
 	// Privacy settings
@@ -552,7 +554,7 @@ struct Settings {
 
 	KeyPair kpCertificate = {};
 
-	bool bShowTransmitModeComboBox = false;
+	bool bShowTransmitModeComboBox       = false;
 	bool bScreenShareAutoOpenCurrentRoom = false;
 	bool bScreenSharePreferInAppRelay    = true;
 
