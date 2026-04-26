@@ -5,10 +5,10 @@
 
 #include "ScreenShareHelperClient.h"
 
-#include "Global.h"
 #include "MumbleApplication.h"
 #include "ScreenShare.h"
 #include "ScreenShareManager.h"
+#include "Global.h"
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
@@ -23,64 +23,85 @@
 #include <QtNetwork/QLocalSocket>
 
 namespace {
-	constexpr int HELPER_CONNECT_TIMEOUT_MSEC = 1000;
-	constexpr int HELPER_START_TIMEOUT_MSEC   = 3000;
+constexpr int HELPER_CONNECT_TIMEOUT_MSEC = 1000;
+constexpr int HELPER_START_TIMEOUT_MSEC   = 3000;
 
-	QString streamIDForStopPayload(const QString &streamID) {
-		return streamID.trimmed();
-	}
+QString streamIDForStopPayload(const QString &streamID) {
+	return streamID.trimmed();
+}
 
-	QList< int > relayTransportListFromJson(const QJsonValue &value) {
-		QList< int > transports;
-		const QJsonArray array = value.toArray();
-		transports.reserve(array.size());
-		for (const QJsonValue &entry : array) {
-			const int transport = entry.toInt(static_cast< int >(MumbleProto::ScreenShareRelayTransportUnknown));
-			switch (static_cast< MumbleProto::ScreenShareRelayTransport >(transport)) {
-				case MumbleProto::ScreenShareRelayTransportDirect:
-				case MumbleProto::ScreenShareRelayTransportWebRTC:
-					if (!transports.contains(transport)) {
-						transports.append(transport);
-					}
-					break;
-				case MumbleProto::ScreenShareRelayTransportUnknown:
-				default:
-					break;
-			}
+QList< int > relayTransportListFromJson(const QJsonValue &value) {
+	QList< int > transports;
+	const QJsonArray array = value.toArray();
+	transports.reserve(array.size());
+	for (const QJsonValue &entry : array) {
+		const int transport = entry.toInt(static_cast< int >(MumbleProto::ScreenShareRelayTransportUnknown));
+		switch (static_cast< MumbleProto::ScreenShareRelayTransport >(transport)) {
+			case MumbleProto::ScreenShareRelayTransportDirect:
+			case MumbleProto::ScreenShareRelayTransportWebRTC:
+				if (!transports.contains(transport)) {
+					transports.append(transport);
+				}
+				break;
+			case MumbleProto::ScreenShareRelayTransportUnknown:
+			default:
+				break;
 		}
-
-		return transports;
 	}
 
-	unsigned int nonNegativePayloadValue(const QJsonObject &payload, const char *key) {
-		const int rawValue = payload.value(QLatin1String(key)).toInt();
-		if (rawValue <= 0) {
-			return 0;
+	return transports;
+}
+
+QStringList stringListFromJson(const QJsonValue &value) {
+	QStringList values;
+	const QJsonArray array = value.toArray();
+	for (const QJsonValue &entry : array) {
+		const QString token = entry.toString().trimmed();
+		if (!token.isEmpty() && !values.contains(token)) {
+			values.append(token);
 		}
+	}
+	return values;
+}
 
-		return static_cast< unsigned int >(rawValue);
+unsigned int nonNegativePayloadValue(const QJsonObject &payload, const char *key) {
+	const int rawValue = payload.value(QLatin1String(key)).toInt();
+	if (rawValue <= 0) {
+		return 0;
 	}
 
-	unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int hardMax) {
-		return Mumble::ScreenShare::sanitizeLimit(nonNegativePayloadValue(payload, key), 0U, hardMax);
+	return static_cast< unsigned int >(rawValue);
+}
+
+unsigned int limitFromPayload(const QJsonObject &payload, const char *key, const unsigned int hardMax) {
+	return Mumble::ScreenShare::sanitizeLimit(nonNegativePayloadValue(payload, key), 0U, hardMax);
+}
+
+QString commandToken(const Mumble::ScreenShare::IPC::Command command) {
+	switch (command) {
+		case Mumble::ScreenShare::IPC::Command::QueryCapabilities:
+			return QStringLiteral("query-capabilities");
+		case Mumble::ScreenShare::IPC::Command::StartPublish:
+			return QStringLiteral("start-publish");
+		case Mumble::ScreenShare::IPC::Command::StopPublish:
+			return QStringLiteral("stop-publish");
+		case Mumble::ScreenShare::IPC::Command::StartView:
+			return QStringLiteral("start-view");
+		case Mumble::ScreenShare::IPC::Command::StopView:
+			return QStringLiteral("stop-view");
 	}
 
-	QString commandToken(const Mumble::ScreenShare::IPC::Command command) {
-		switch (command) {
-			case Mumble::ScreenShare::IPC::Command::QueryCapabilities:
-				return QStringLiteral("query-capabilities");
-			case Mumble::ScreenShare::IPC::Command::StartPublish:
-				return QStringLiteral("start-publish");
-			case Mumble::ScreenShare::IPC::Command::StopPublish:
-				return QStringLiteral("stop-publish");
-			case Mumble::ScreenShare::IPC::Command::StartView:
-				return QStringLiteral("start-view");
-			case Mumble::ScreenShare::IPC::Command::StopView:
-				return QStringLiteral("stop-view");
-		}
+	return QStringLiteral("unknown");
+}
 
-		return QStringLiteral("unknown");
+QString socketErrorMessage(const QLocalSocket &socket, const QString &fallback) {
+	const QString message = socket.errorString().trimmed();
+	if (message.isEmpty() || message == QLatin1String("Unknown error")) {
+		return fallback;
 	}
+
+	return message;
+}
 } // namespace
 
 ScreenShareHelperClient::ScreenShareHelperClient(QObject *parent)
@@ -140,11 +161,10 @@ ScreenShareHelperClient::CapabilitySnapshot ScreenShareHelperClient::detectLocal
 
 	QString errorMessage;
 	const QJsonObject reply = sendRequest(Mumble::ScreenShare::IPC::Command::QueryCapabilities, QJsonObject(),
-										 snapshot.helperExecutable, &errorMessage, true);
+										  snapshot.helperExecutable, &errorMessage, true);
 	if (reply.isEmpty()) {
-		qWarning().noquote()
-			<< QStringLiteral("ScreenShareHelperClient: capability probe failed for %1: %2")
-				   .arg(snapshot.helperExecutable, errorMessage);
+		qWarning().noquote() << QStringLiteral("ScreenShareHelperClient: capability probe failed for %1: %2")
+									.arg(snapshot.helperExecutable, errorMessage);
 		return snapshot;
 	}
 	if (!Mumble::ScreenShare::IPC::replySucceeded(reply, &errorMessage)) {
@@ -157,22 +177,37 @@ ScreenShareHelperClient::CapabilitySnapshot ScreenShareHelperClient::detectLocal
 }
 
 ScreenShareHelperClient::CapabilitySnapshot
-	ScreenShareHelperClient::capabilitySnapshotFromPayload(const QJsonObject &payload, const QString &helperExecutable) {
+	ScreenShareHelperClient::capabilitySnapshotFromPayload(const QJsonObject &payload,
+														   const QString &helperExecutable) {
 	CapabilitySnapshot snapshot;
-	snapshot.helperExecutable = helperExecutable;
-	snapshot.supportsSignaling = payload.value(QStringLiteral("supports_signaling")).toBool(true);
-	snapshot.helperAvailable   = payload.value(QStringLiteral("helper_available")).toBool(true);
-	snapshot.captureSupported  = payload.value(QStringLiteral("capture_supported")).toBool(false);
-	snapshot.viewSupported     = payload.value(QStringLiteral("view_supported")).toBool(false);
-	snapshot.supportedCodecs = Mumble::ScreenShare::IPC::codecListFromJson(payload.value(QStringLiteral("supported_codecs")));
+	snapshot.helperExecutable        = helperExecutable;
+	snapshot.supportsSignaling       = payload.value(QStringLiteral("supports_signaling")).toBool(true);
+	snapshot.helperAvailable         = payload.value(QStringLiteral("helper_available")).toBool(true);
+	snapshot.captureSupported        = payload.value(QStringLiteral("capture_supported")).toBool(false);
+	snapshot.viewSupported           = payload.value(QStringLiteral("view_supported")).toBool(false);
+	snapshot.hardwareEncodeSupported = payload.value(QStringLiteral("hardware_encode_supported")).toBool(false);
+	snapshot.hardwareDecodeSupported = payload.value(QStringLiteral("hardware_decode_supported")).toBool(false);
+	snapshot.zeroCopySupported       = payload.value(QStringLiteral("zero_copy_supported")).toBool(false);
+	snapshot.roiSupported            = payload.value(QStringLiteral("roi_supported")).toBool(false);
+	snapshot.damageMetadataSupported = payload.value(QStringLiteral("damage_metadata_supported")).toBool(false);
+	snapshot.supportedCodecs =
+		Mumble::ScreenShare::IPC::codecListFromJson(payload.value(QStringLiteral("supported_codecs")));
 	snapshot.runtimeRelayTransports =
 		relayTransportListFromJson(payload.value(QStringLiteral("runtime_relay_transports")));
-	snapshot.maxWidth  = limitFromPayload(payload, "max_width", Mumble::ScreenShare::HARD_MAX_WIDTH);
-	snapshot.maxHeight = limitFromPayload(payload, "max_height", Mumble::ScreenShare::HARD_MAX_HEIGHT);
-	snapshot.maxFps    = limitFromPayload(payload, "max_fps", Mumble::ScreenShare::HARD_MAX_FPS);
+	snapshot.maxWidth                 = limitFromPayload(payload, "max_width", Mumble::ScreenShare::HARD_MAX_WIDTH);
+	snapshot.maxHeight                = limitFromPayload(payload, "max_height", Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	snapshot.maxFps                   = limitFromPayload(payload, "max_fps", Mumble::ScreenShare::HARD_MAX_FPS);
+	snapshot.captureBackend           = payload.value(QStringLiteral("capture_backend")).toString().trimmed();
+	snapshot.captureBackends          = stringListFromJson(payload.value(QStringLiteral("capture_backends")));
+	snapshot.supportedIngestProtocols = stringListFromJson(payload.value(QStringLiteral("supported_ingest_protocols")));
+	snapshot.drmSystems               = stringListFromJson(payload.value(QStringLiteral("drm_systems")));
+	snapshot.queueBudgetFrames = limitFromPayload(payload, "queue_budget_frames", Mumble::ScreenShare::HARD_MAX_FPS);
 
 	if (snapshot.supportedCodecs.isEmpty()) {
 		snapshot.supportedCodecs = Mumble::ScreenShare::defaultCodecPreferenceList();
+	}
+	if (snapshot.captureBackends.isEmpty() && !snapshot.captureBackend.isEmpty()) {
+		snapshot.captureBackends.append(snapshot.captureBackend);
 	}
 
 	return snapshot;
@@ -180,9 +215,8 @@ ScreenShareHelperClient::CapabilitySnapshot
 
 bool ScreenShareHelperClient::ensureHelperRunning(const QString &helperExecutable, QString *errorMessage) {
 	const QString socketPath = Mumble::ScreenShare::IPC::socketPath();
-	qInfo().noquote()
-		<< QStringLiteral("ScreenShareHelperClient: probing helper socket at %1 for executable %2")
-			   .arg(socketPath, helperExecutable);
+	qInfo().noquote() << QStringLiteral("ScreenShareHelperClient: probing helper socket at %1 for executable %2")
+							 .arg(socketPath, helperExecutable);
 	QLocalSocket probeSocket;
 	probeSocket.connectToServer(socketPath);
 	if (probeSocket.waitForConnected(150)) {
@@ -192,9 +226,8 @@ bool ScreenShareHelperClient::ensureHelperRunning(const QString &helperExecutabl
 		return true;
 	}
 
-	qInfo().noquote()
-		<< QStringLiteral("ScreenShareHelperClient: launching helper executable %1 with socket %2")
-			   .arg(helperExecutable, socketPath);
+	qInfo().noquote() << QStringLiteral("ScreenShareHelperClient: launching helper executable %1 with socket %2")
+							 .arg(helperExecutable, socketPath);
 	if (!QProcess::startDetached(helperExecutable, helperLaunchArguments())) {
 		if (errorMessage) {
 			*errorMessage = QStringLiteral("Failed to launch helper executable %1.").arg(helperExecutable);
@@ -229,14 +262,11 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 												 const QString &helperExecutable, QString *errorMessage,
 												 const bool launchIfNeeded) {
 	const QString socketPath = Mumble::ScreenShare::IPC::socketPath();
-	const QString streamID = payload.value(QStringLiteral("stream_id")).toString().trimmed();
+	const QString streamID   = payload.value(QStringLiteral("stream_id")).toString().trimmed();
 	qInfo().noquote()
 		<< QStringLiteral("ScreenShareHelperClient: sending %1 stream=%2 executable=%3 socket=%4 launch_if_needed=%5")
-			   .arg(commandToken(command),
-					streamID.isEmpty() ? QStringLiteral("-") : streamID,
-					helperExecutable,
-					socketPath,
-					launchIfNeeded ? QStringLiteral("true") : QStringLiteral("false"));
+			   .arg(commandToken(command), streamID.isEmpty() ? QStringLiteral("-") : streamID, helperExecutable,
+					socketPath, launchIfNeeded ? QStringLiteral("true") : QStringLiteral("false"));
 	const QFileInfo helperInfo(helperExecutable);
 	if (!helperInfo.exists() || !helperInfo.isFile() || !helperInfo.isExecutable()) {
 		if (errorMessage) {
@@ -256,7 +286,8 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 		socket.connectToServer(socketPath);
 		if (!socket.waitForConnected(HELPER_CONNECT_TIMEOUT_MSEC)) {
 			if (errorMessage) {
-				*errorMessage = socket.errorString();
+				*errorMessage = socketErrorMessage(
+					socket, QStringLiteral("Timed out connecting to the screen-share helper socket."));
 			}
 			return {};
 		}
@@ -267,13 +298,15 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 		+ QByteArray(1, '\n');
 	if (socket.write(requestData) < 0) {
 		if (errorMessage) {
-			*errorMessage = socket.errorString();
+			*errorMessage =
+				socketErrorMessage(socket, QStringLiteral("Failed to send the screen-share helper request."));
 		}
 		return {};
 	}
 	if (!socket.waitForBytesWritten(HELPER_CONNECT_TIMEOUT_MSEC)) {
 		if (errorMessage) {
-			*errorMessage = socket.errorString();
+			*errorMessage =
+				socketErrorMessage(socket, QStringLiteral("Timed out sending the screen-share helper request."));
 		}
 		return {};
 	}
@@ -286,7 +319,8 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 				break;
 			}
 			if (errorMessage) {
-				*errorMessage = socket.errorString();
+				*errorMessage = socketErrorMessage(
+					socket, QStringLiteral("Timed out waiting for a reply from the screen-share helper."));
 			}
 			return {};
 		}
@@ -295,8 +329,7 @@ QJsonObject ScreenShareHelperClient::sendRequest(Mumble::ScreenShare::IPC::Comma
 	}
 
 	const qsizetype newlineIndex = replyBytes.indexOf('\n');
-	const QByteArray jsonReply =
-		(newlineIndex >= 0 ? replyBytes.left(newlineIndex) : replyBytes).trimmed();
+	const QByteArray jsonReply   = (newlineIndex >= 0 ? replyBytes.left(newlineIndex) : replyBytes).trimmed();
 	if (jsonReply.isEmpty()) {
 		if (errorMessage) {
 			*errorMessage = QStringLiteral("Helper returned an empty reply.");
@@ -374,7 +407,7 @@ const ScreenShareHelperClient::CapabilitySnapshot &ScreenShareHelperClient::capa
 
 bool ScreenShareHelperClient::startPublish(const ScreenShareSession &session, QString *errorMessage) {
 	const QJsonObject reply = sendRequest(Mumble::ScreenShare::IPC::Command::StartPublish, payloadFromSession(session),
-										 m_capabilities.helperExecutable, errorMessage, true);
+										  m_capabilities.helperExecutable, errorMessage, true);
 	return !reply.isEmpty() && Mumble::ScreenShare::IPC::replySucceeded(reply, errorMessage);
 }
 
@@ -382,13 +415,13 @@ bool ScreenShareHelperClient::stopPublish(const QString &streamID, QString *erro
 	QJsonObject payload;
 	payload.insert(QStringLiteral("stream_id"), streamIDForStopPayload(streamID));
 	const QJsonObject reply = sendRequest(Mumble::ScreenShare::IPC::Command::StopPublish, payload,
-										 m_capabilities.helperExecutable, errorMessage, false);
+										  m_capabilities.helperExecutable, errorMessage, false);
 	return !reply.isEmpty() && Mumble::ScreenShare::IPC::replySucceeded(reply, errorMessage);
 }
 
 bool ScreenShareHelperClient::startView(const ScreenShareSession &session, QString *errorMessage) {
 	const QJsonObject reply = sendRequest(Mumble::ScreenShare::IPC::Command::StartView, payloadFromSession(session),
-										 m_capabilities.helperExecutable, errorMessage, true);
+										  m_capabilities.helperExecutable, errorMessage, true);
 	return !reply.isEmpty() && Mumble::ScreenShare::IPC::replySucceeded(reply, errorMessage);
 }
 
@@ -396,7 +429,7 @@ bool ScreenShareHelperClient::stopView(const QString &streamID, QString *errorMe
 	QJsonObject payload;
 	payload.insert(QStringLiteral("stream_id"), streamIDForStopPayload(streamID));
 	const QJsonObject reply = sendRequest(Mumble::ScreenShare::IPC::Command::StopView, payload,
-										 m_capabilities.helperExecutable, errorMessage, false);
+										  m_capabilities.helperExecutable, errorMessage, false);
 	return !reply.isEmpty() && Mumble::ScreenShare::IPC::replySucceeded(reply, errorMessage);
 }
 
@@ -407,15 +440,14 @@ void ScreenShareHelperClient::refreshCapabilities() {
 
 void ScreenShareHelperClient::logReplyWarnings(const QJsonObject &reply, Mumble::ScreenShare::IPC::Command command,
 											   const QString &streamID) {
-	const QJsonArray warnings = reply.value(QStringLiteral("payload")).toObject().value(QStringLiteral("warnings")).toArray();
+	const QJsonArray warnings =
+		reply.value(QStringLiteral("payload")).toObject().value(QStringLiteral("warnings")).toArray();
 	for (const QJsonValue &warningValue : warnings) {
 		const QString warning = warningValue.toString().trimmed();
 		if (!warning.isEmpty()) {
-			qWarning().noquote()
-				<< QStringLiteral("ScreenShareHelperClient: %1 stream=%2 warning=%3")
-					   .arg(commandToken(command),
-							streamID.isEmpty() ? QStringLiteral("-") : streamID,
-							warning);
+			qWarning().noquote() << QStringLiteral("ScreenShareHelperClient: %1 stream=%2 warning=%3")
+										.arg(commandToken(command), streamID.isEmpty() ? QStringLiteral("-") : streamID,
+											 warning);
 		}
 	}
 }

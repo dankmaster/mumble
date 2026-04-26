@@ -43,6 +43,8 @@ runtime:
 - if Murmur announces `wss://relay.example.com/mumble-screen`
 - the helper launches `https://relay.example.com/mumble-screen?...`
 - the original `wss://...` value is still passed to the web app as query data
+- the relay join token is passed in the URL fragment, not in the HTTP request
+  query, so normal static-host access logs do not receive it
 
 That lets one deployed endpoint serve:
 
@@ -55,7 +57,6 @@ The helper appends query parameters like:
 
 - `relay_url`
 - `relay_room_id`
-- `relay_token`
 - `relay_session_id`
 - `stream_id`
 - `relay_role`
@@ -66,20 +67,29 @@ The helper appends query parameters like:
 - `fps`
 - `bitrate_kbps`
 
+The sensitive `relay_token` is passed as a fragment parameter, for example
+`#relay_token=...`. The hosted page accepts the old query form for compatibility
+but scrubs either form from the visible URL after startup.
+
 The hosted page should treat those as ephemeral session inputs and should not
 persist them.
+
+While video is attached, the hosted page samples WebRTC stats and reports a
+compact bitrate, frame-rate, RTT, jitter, loss, and repair summary back through
+the in-app Qt bridge when diagnostics are enabled.
 
 ### LiveKit Token Contract
 
 When both `screen_share_relay_api_key` and `screen_share_relay_api_secret` are
 configured and the relay transport is WebRTC, Murmur now mints LiveKit-style
-JWT join tokens per recipient.
+JWT join tokens per recipient. Tokens are short-lived and are refreshed by
+Murmur when it resends session state.
 
 Publisher grant:
 
 - `roomJoin=true`
 - `canPublish=true`
-- `canPublishSources=["screen_share"]`
+- `canPublishSources=["screen_share", "screen_share_audio"]`
 - `canSubscribe=true`
 
 Viewer grant:

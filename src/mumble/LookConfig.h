@@ -23,7 +23,6 @@ private:
 	Q_OBJECT
 	Q_DISABLE_COPY(LookConfig)
 	std::optional< QColor > selectedBackgroundColor;
-	Settings::WindowLayout m_loadedWindowLayout = Settings::LayoutHybrid;
 	bool m_loadedAutoSwitchModernOnCompatibleServers = true;
 
 public:
@@ -52,6 +51,7 @@ public slots:
 private:
 	/// Reload themes combobox and select given configuredStyle in it
 	void reloadThemes();
+	void updateLayoutPolicyControls(const Settings &settings);
 
 	/// Timer to prevent change event floods from triggering theme reloads
 	QTimer *m_themeDirectoryDebouncer;

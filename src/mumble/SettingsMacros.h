@@ -18,57 +18,57 @@
 	PROCESS(misc, SERVER_PING_CONSENT_MESSAGE_VIEWED_KEY, bPingServersDialogViewed) \
 	PROCESS(misc, CRASH_EMAIL_ADDRESS_KEY, crashReportEmail)
 
-#define AUDIO_SETTINGS                                                                      \
-	PROCESS(audio, UNMUTE_ON_UNDEAF_KEY, unmuteOnUndeaf)                                    \
-	PROCESS(audio, MUTE_KEY, bMute)                                                         \
-	PROCESS(audio, DEAF_KEY, bDeaf)                                                         \
-	PROCESS(audio, TRANSMIT_MODE_KEY, atTransmit)                                           \
-	PROCESS(audio, DOUBLE_PUSH_DELAY_KEY, uiDoublePush)                                     \
-	PROCESS(audio, PTT_HOLD_KEY, pttHold)                                                   \
-	PROCESS(audio, TRANSMIT_CUE_WHEN_PTT_KEY, audioCueEnabledPTT)                           \
-	PROCESS(audio, TRANSMIT_CUE_WHEN_VAD_KEY, audioCueEnabledVAD)                           \
-	PROCESS(audio, TRANSMIT_CUE_START_KEY, qsTxAudioCueOn)                                  \
-	PROCESS(audio, TRANSMIT_CUE_STOP_KEY, qsTxAudioCueOff)                                  \
-	PROCESS(audio, PLAY_MUTE_CUE_KEY, bTxMuteCue)                                           \
-	PROCESS(audio, MUTE_CUE_KEY, qsTxMuteCue)                                               \
-	PROCESS(audio, MUTE_CUE_POPUP_SHOWN, muteCueShown)                                      \
-	PROCESS(audio, AUDIO_QUALITY_KEY, iQuality)                                             \
-	PROCESS(audio, EXPERIMENTAL_HIGH_BITRATE_ENABLED_KEY, experimentalHighBitrateEnabled)   \
-	PROCESS(audio, LOUDNESS_KEY, iMinLoudness)                                              \
-	PROCESS(audio, VOLUME_KEY, fVolume)                                                     \
-	PROCESS(audio, EXTERNAL_APPLICATIONS_VOLUME_KEY, fOtherVolume)                          \
-	PROCESS(audio, LISTENER_ATTENUATION_FACTOR_KEY, listenerAttenuationFactor)              \
-	PROCESS(audio, ALWAYS_ATTENUATE_LISTENERS_KEY, alwaysAttenuateListeners)                \
-	PROCESS(audio, ATTENUATE_EXTERNAL_APPLICATIONS_KEY, bAttenuateOthers)                   \
-	PROCESS(audio, ATTENUATE_EXTERNAL_APPLICATIONS_ON_TALK_KEY, bAttenuateOthersOnTalk)     \
-	PROCESS(audio, ATTENUATE_USERS_ON_PRIORITY_SPEAKER_KEY, bAttenuateUsersOnPrioritySpeak) \
-	PROCESS(audio, ATTENUATE_ONLY_SAME_OUTPUT_KEY, bOnlyAttenuateSameOutput)                \
-	PROCESS(audio, ATTENUATE_LOOPBACK_KEY, bAttenuateLoopbacks)                             \
-	PROCESS(audio, VAD_MODE_KEY, vsVAD)                                                     \
-	PROCESS(audio, VAD_MIN_KEY, fVADmin)                                                    \
-	PROCESS(audio, VAD_MAX_KEY, fVADmax)                                                    \
-	PROCESS(audio, NOISE_CANCEL_MODE_KEY, noiseCancelMode)                                  \
-	PROCESS(audio, NOISE_CANCEL_BACKEND_KEY, noiseCancelBackend)                            \
-	PROCESS(audio, NOISE_CANCEL_MODEL_ID_KEY, noiseCancelModelId)                           \
-	PROCESS(audio, NOISE_CANCEL_CUSTOM_MODEL_PATH_KEY, noiseCancelCustomModelPath)         \
-	PROCESS(audio, SPEEX_NOISE_CANCEL_STRENGTH_KEY, iSpeexNoiseCancelStrength)              \
-	PROCESS(audio, REMOTE_SPEECH_CLEANUP_ENABLED_KEY, remoteSpeechCleanupEnabled)           \
-	PROCESS(audio, REMOTE_SPEECH_CLEANUP_BACKEND_KEY, remoteSpeechCleanupBackend)           \
-	PROCESS(audio, REMOTE_SPEECH_CLEANUP_MODEL_ID_KEY, remoteSpeechCleanupModelId)         \
+#define AUDIO_SETTINGS                                                                              \
+	PROCESS(audio, UNMUTE_ON_UNDEAF_KEY, unmuteOnUndeaf)                                            \
+	PROCESS(audio, MUTE_KEY, bMute)                                                                 \
+	PROCESS(audio, DEAF_KEY, bDeaf)                                                                 \
+	PROCESS(audio, TRANSMIT_MODE_KEY, atTransmit)                                                   \
+	PROCESS(audio, DOUBLE_PUSH_DELAY_KEY, uiDoublePush)                                             \
+	PROCESS(audio, PTT_HOLD_KEY, pttHold)                                                           \
+	PROCESS(audio, TRANSMIT_CUE_WHEN_PTT_KEY, audioCueEnabledPTT)                                   \
+	PROCESS(audio, TRANSMIT_CUE_WHEN_VAD_KEY, audioCueEnabledVAD)                                   \
+	PROCESS(audio, TRANSMIT_CUE_START_KEY, qsTxAudioCueOn)                                          \
+	PROCESS(audio, TRANSMIT_CUE_STOP_KEY, qsTxAudioCueOff)                                          \
+	PROCESS(audio, PLAY_MUTE_CUE_KEY, bTxMuteCue)                                                   \
+	PROCESS(audio, MUTE_CUE_KEY, qsTxMuteCue)                                                       \
+	PROCESS(audio, MUTE_CUE_POPUP_SHOWN, muteCueShown)                                              \
+	PROCESS(audio, AUDIO_QUALITY_KEY, iQuality)                                                     \
+	PROCESS(audio, EXPERIMENTAL_HIGH_BITRATE_ENABLED_KEY, experimentalHighBitrateEnabled)           \
+	PROCESS(audio, LOUDNESS_KEY, iMinLoudness)                                                      \
+	PROCESS(audio, VOLUME_KEY, fVolume)                                                             \
+	PROCESS(audio, EXTERNAL_APPLICATIONS_VOLUME_KEY, fOtherVolume)                                  \
+	PROCESS(audio, LISTENER_ATTENUATION_FACTOR_KEY, listenerAttenuationFactor)                      \
+	PROCESS(audio, ALWAYS_ATTENUATE_LISTENERS_KEY, alwaysAttenuateListeners)                        \
+	PROCESS(audio, ATTENUATE_EXTERNAL_APPLICATIONS_KEY, bAttenuateOthers)                           \
+	PROCESS(audio, ATTENUATE_EXTERNAL_APPLICATIONS_ON_TALK_KEY, bAttenuateOthersOnTalk)             \
+	PROCESS(audio, ATTENUATE_USERS_ON_PRIORITY_SPEAKER_KEY, bAttenuateUsersOnPrioritySpeak)         \
+	PROCESS(audio, ATTENUATE_ONLY_SAME_OUTPUT_KEY, bOnlyAttenuateSameOutput)                        \
+	PROCESS(audio, ATTENUATE_LOOPBACK_KEY, bAttenuateLoopbacks)                                     \
+	PROCESS(audio, VAD_MODE_KEY, vsVAD)                                                             \
+	PROCESS(audio, VAD_MIN_KEY, fVADmin)                                                            \
+	PROCESS(audio, VAD_MAX_KEY, fVADmax)                                                            \
+	PROCESS(audio, NOISE_CANCEL_MODE_KEY, noiseCancelMode)                                          \
+	PROCESS(audio, NOISE_CANCEL_BACKEND_KEY, noiseCancelBackend)                                    \
+	PROCESS(audio, NOISE_CANCEL_MODEL_ID_KEY, noiseCancelModelId)                                   \
+	PROCESS(audio, NOISE_CANCEL_CUSTOM_MODEL_PATH_KEY, noiseCancelCustomModelPath)                  \
+	PROCESS(audio, SPEEX_NOISE_CANCEL_STRENGTH_KEY, iSpeexNoiseCancelStrength)                      \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_ENABLED_KEY, remoteSpeechCleanupEnabled)                   \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_BACKEND_KEY, remoteSpeechCleanupBackend)                   \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_MODEL_ID_KEY, remoteSpeechCleanupModelId)                  \
 	PROCESS(audio, REMOTE_SPEECH_CLEANUP_CUSTOM_MODEL_PATH_KEY, remoteSpeechCleanupCustomModelPath) \
-	PROCESS(audio, REMOTE_SPEECH_CLEANUP_PRESET_KEY, remoteSpeechCleanupPreset)             \
-	PROCESS(audio, INPUT_CHANNEL_MASK_KEY, uiAudioInputChannelMask)                         \
-	PROCESS(audio, ALLOW_LOW_DELAY_MODE_KEY, bAllowLowDelay)                                \
-	PROCESS(audio, VOICE_HOLD_KEY, iVoiceHold)                                              \
-	PROCESS(audio, OUTPUT_DELAY_KEY, iOutputDelay)                                          \
-	PROCESS(audio, ECHO_CANCEL_MODE_KEY, echoOption)                                        \
-	PROCESS(audio, EXCLUSIVE_INPUT_KEY, bExclusiveInput)                                    \
-	PROCESS(audio, EXCLUSIVE_OUTPUT_KEY, bExclusiveOutput)                                  \
-	PROCESS(audio, INPUT_SYSTEM_KEY, qsAudioInput)                                          \
-	PROCESS(audio, OUTPUT_SYSTEM_KEY, qsAudioOutput)                                        \
-	PROCESS(audio, NOTIFICATION_VOLUME_KEY, notificationVolume)                             \
-	PROCESS(audio, CUE_VOLUME_KEY, cueVolume)                                               \
-	PROCESS(audio, RESTRICT_WHISPERS_TO_FRIENDS_KEY, bWhisperFriends)                       \
+	PROCESS(audio, REMOTE_SPEECH_CLEANUP_PRESET_KEY, remoteSpeechCleanupPreset)                     \
+	PROCESS(audio, INPUT_CHANNEL_MASK_KEY, uiAudioInputChannelMask)                                 \
+	PROCESS(audio, ALLOW_LOW_DELAY_MODE_KEY, bAllowLowDelay)                                        \
+	PROCESS(audio, VOICE_HOLD_KEY, iVoiceHold)                                                      \
+	PROCESS(audio, OUTPUT_DELAY_KEY, iOutputDelay)                                                  \
+	PROCESS(audio, ECHO_CANCEL_MODE_KEY, echoOption)                                                \
+	PROCESS(audio, EXCLUSIVE_INPUT_KEY, bExclusiveInput)                                            \
+	PROCESS(audio, EXCLUSIVE_OUTPUT_KEY, bExclusiveOutput)                                          \
+	PROCESS(audio, INPUT_SYSTEM_KEY, qsAudioInput)                                                  \
+	PROCESS(audio, OUTPUT_SYSTEM_KEY, qsAudioOutput)                                                \
+	PROCESS(audio, NOTIFICATION_VOLUME_KEY, notificationVolume)                                     \
+	PROCESS(audio, CUE_VOLUME_KEY, cueVolume)                                                       \
+	PROCESS(audio, RESTRICT_WHISPERS_TO_FRIENDS_KEY, bWhisperFriends)                               \
 	PROCESS(audio, NOTIFICATION_USER_LIMIT_KEY, iMessageLimitUserThreshold)
 
 
@@ -151,56 +151,59 @@
 #define PRIVACY_SETTINGS PROCESS(privacy, HIDE_OS_FROM_SERVER_KEY, bHideOS)
 
 
-#define UI_SETTINGS                                                              \
-	PROCESS(ui, LANGUAGE_KEY, qsLanguage)                                        \
-	PROCESS(ui, THEME_KEY, themeName)                                            \
-	PROCESS(ui, THEME_STYLE_KEY, themeStyleName)                                 \
-	PROCESS(ui, THEME_DARK_KEY, themeDarkName)                                   \
-	PROCESS(ui, THEME_DARK_STYLE_KEY, themeDarkStyleName)                        \
-	PROCESS(ui, THEME_METHOD_KEY, styleType)                                     \
-	PROCESS(ui, CHANNEL_EXPANSION_MODE_KEY, ceExpand)                            \
-	PROCESS(ui, CHANNEL_DRAG_MODE_KEY, ceChannelDrag)                            \
-	PROCESS(ui, USER_DRAG_MODE_KEY, ceUserDrag)                                  \
-	PROCESS(ui, ALWAYS_ON_TOP_KEY, aotbAlwaysOnTop)                              \
-	PROCESS(ui, QUIT_BEHAVIOR_KEY, quitBehavior)                                 \
-	PROCESS(ui, SHOW_DEVELOPER_MENU_KEY, bEnableDeveloperMenu)                   \
-	PROCESS(ui, LOCK_LAYOUT_KEY, bLockLayout)                                    \
-	PROCESS(ui, MINIMAL_VIEW_KEY, bMinimalView)                                  \
-	PROCESS(ui, HIDE_FRAME_KEY, bHideFrame)                                      \
-	PROCESS(ui, DISPLAY_USERS_BEFORE_CHANNELS, bUserTop)                         \
-	PROCESS(ui, WINDOW_GEOMETRY_KEY, qbaMainWindowGeometry)                      \
-	PROCESS(ui, WINDOW_GEOMETRY_MINIMAL_VIEW_KEY, qbaMinimalViewGeometry)        \
-	PROCESS(ui, WINDOW_STATE_KEY, qbaMainWindowState)                            \
-	PROCESS(ui, WINDOW_STATE_MINIMAL_VIEW_KEY, qbaMinimalViewState)              \
-	PROCESS(ui, MODERN_WINDOW_GEOMETRY_KEY, qbaModernMainWindowGeometry)         \
-	PROCESS(ui, MODERN_MINIMAL_VIEW_GEOMETRY_KEY, qbaModernMinimalViewGeometry)  \
-	PROCESS(ui, MODERN_WINDOW_STATE_KEY, qbaModernMainWindowState)               \
-	PROCESS(ui, MODERN_MINIMAL_VIEW_STATE_KEY, qbaModernMinimalViewState)        \
-	PROCESS(ui, CONFIG_GEOMETRY_KEY, qbaConfigGeometry)                          \
-	PROCESS(ui, IMAGE_PREVIEW_GEOMETRY_KEY, qbaImagePreviewGeometry)             \
-	PROCESS(ui, WINDOW_LAYOUT_KEY, wlWindowLayout)                               \
-	PROCESS(ui, SERVER_FILTER_MODE_KEY, ssFilter)                                \
-	PROCESS(ui, HIDE_IN_TRAY_KEY, bHideInTray)                                   \
-	PROCESS(ui, DISPLAY_TALKING_STATE_IN_TRAY_KEY, bStateInTray)                 \
-	PROCESS(ui, SEND_USAGE_STATISTICS_KEY, bUsage)                               \
-	PROCESS(ui, DISPLAY_USER_COUNT_KEY, bShowUserCount)                          \
-	PROCESS(ui, DISPLAY_VOLUME_ADJUSTMENTS_KEY, bShowVolumeAdjustments)          \
-	PROCESS(ui, DISPLAY_NICKNAMES_ONLY_KEY, bShowNicknamesOnly)                  \
-	PROCESS(ui, SELECTED_ITEM_AS_CHATBAR_TARGET_KEY, bChatBarUseSelection)       \
-	PROCESS(ui, AUTO_SWITCH_MODERN_LAYOUT_KEY, bAutoSwitchModernOnCompatibleServers) \
-	PROCESS(ui, PRESENCE_IDLE_TIMEOUT_MINUTES_KEY, iPresenceIdleTimeoutMinutes)  \
-	PROCESS(ui, FILTER_HIDES_EMPTY_CHANNEL_KEY, bFilterHidesEmptyChannels)       \
-	PROCESS(ui, FILTER_ACTIVE_KEY, bFilterActive)                                \
-	PROCESS(ui, CONTEXT_MENU_ENTRIES_IN_MENU_BAR_KEY, bShowContextMenuInMenuBar) \
-	PROCESS(ui, CONNECT_DIALOG_GEOMETRY_KEY, qbaConnectDialogGeometry)           \
-	PROCESS(ui, CONNECT_DIALOG_HEADER_STATE_KEY, qbaConnectDialogHeader)         \
-	PROCESS(ui, DISPLAY_TRANSMIT_MODE_COMBOBOX_KEY, bShowTransmitModeComboBox)   \
+#define DANK_MUMBLE_SETTINGS PROCESS(dank_mumble, MODERN_LAYOUT_POLICY_KEY, modernLayoutPolicy)
+
+
+#define UI_SETTINGS                                                                       \
+	PROCESS(ui, LANGUAGE_KEY, qsLanguage)                                                 \
+	PROCESS(ui, THEME_KEY, themeName)                                                     \
+	PROCESS(ui, THEME_STYLE_KEY, themeStyleName)                                          \
+	PROCESS(ui, THEME_DARK_KEY, themeDarkName)                                            \
+	PROCESS(ui, THEME_DARK_STYLE_KEY, themeDarkStyleName)                                 \
+	PROCESS(ui, THEME_METHOD_KEY, styleType)                                              \
+	PROCESS(ui, CHANNEL_EXPANSION_MODE_KEY, ceExpand)                                     \
+	PROCESS(ui, CHANNEL_DRAG_MODE_KEY, ceChannelDrag)                                     \
+	PROCESS(ui, USER_DRAG_MODE_KEY, ceUserDrag)                                           \
+	PROCESS(ui, ALWAYS_ON_TOP_KEY, aotbAlwaysOnTop)                                       \
+	PROCESS(ui, QUIT_BEHAVIOR_KEY, quitBehavior)                                          \
+	PROCESS(ui, SHOW_DEVELOPER_MENU_KEY, bEnableDeveloperMenu)                            \
+	PROCESS(ui, LOCK_LAYOUT_KEY, bLockLayout)                                             \
+	PROCESS(ui, MINIMAL_VIEW_KEY, bMinimalView)                                           \
+	PROCESS(ui, HIDE_FRAME_KEY, bHideFrame)                                               \
+	PROCESS(ui, DISPLAY_USERS_BEFORE_CHANNELS, bUserTop)                                  \
+	PROCESS(ui, WINDOW_GEOMETRY_KEY, qbaMainWindowGeometry)                               \
+	PROCESS(ui, WINDOW_GEOMETRY_MINIMAL_VIEW_KEY, qbaMinimalViewGeometry)                 \
+	PROCESS(ui, WINDOW_STATE_KEY, qbaMainWindowState)                                     \
+	PROCESS(ui, WINDOW_STATE_MINIMAL_VIEW_KEY, qbaMinimalViewState)                       \
+	PROCESS(ui, MODERN_WINDOW_GEOMETRY_KEY, qbaModernMainWindowGeometry)                  \
+	PROCESS(ui, MODERN_MINIMAL_VIEW_GEOMETRY_KEY, qbaModernMinimalViewGeometry)           \
+	PROCESS(ui, MODERN_WINDOW_STATE_KEY, qbaModernMainWindowState)                        \
+	PROCESS(ui, MODERN_MINIMAL_VIEW_STATE_KEY, qbaModernMinimalViewState)                 \
+	PROCESS(ui, CONFIG_GEOMETRY_KEY, qbaConfigGeometry)                                   \
+	PROCESS(ui, IMAGE_PREVIEW_GEOMETRY_KEY, qbaImagePreviewGeometry)                      \
+	PROCESS(ui, WINDOW_LAYOUT_KEY, wlWindowLayout)                                        \
+	PROCESS(ui, SERVER_FILTER_MODE_KEY, ssFilter)                                         \
+	PROCESS(ui, HIDE_IN_TRAY_KEY, bHideInTray)                                            \
+	PROCESS(ui, DISPLAY_TALKING_STATE_IN_TRAY_KEY, bStateInTray)                          \
+	PROCESS(ui, SEND_USAGE_STATISTICS_KEY, bUsage)                                        \
+	PROCESS(ui, DISPLAY_USER_COUNT_KEY, bShowUserCount)                                   \
+	PROCESS(ui, DISPLAY_VOLUME_ADJUSTMENTS_KEY, bShowVolumeAdjustments)                   \
+	PROCESS(ui, DISPLAY_NICKNAMES_ONLY_KEY, bShowNicknamesOnly)                           \
+	PROCESS(ui, SELECTED_ITEM_AS_CHATBAR_TARGET_KEY, bChatBarUseSelection)                \
+	PROCESS(ui, AUTO_SWITCH_MODERN_LAYOUT_KEY, bAutoSwitchModernOnCompatibleServers)      \
+	PROCESS(ui, PRESENCE_IDLE_TIMEOUT_MINUTES_KEY, iPresenceIdleTimeoutMinutes)           \
+	PROCESS(ui, FILTER_HIDES_EMPTY_CHANNEL_KEY, bFilterHidesEmptyChannels)                \
+	PROCESS(ui, FILTER_ACTIVE_KEY, bFilterActive)                                         \
+	PROCESS(ui, CONTEXT_MENU_ENTRIES_IN_MENU_BAR_KEY, bShowContextMenuInMenuBar)          \
+	PROCESS(ui, CONNECT_DIALOG_GEOMETRY_KEY, qbaConnectDialogGeometry)                    \
+	PROCESS(ui, CONNECT_DIALOG_HEADER_STATE_KEY, qbaConnectDialogHeader)                  \
+	PROCESS(ui, DISPLAY_TRANSMIT_MODE_COMBOBOX_KEY, bShowTransmitModeComboBox)            \
 	PROCESS(ui, SCREEN_SHARE_AUTO_OPEN_CURRENT_ROOM_KEY, bScreenShareAutoOpenCurrentRoom) \
-	PROCESS(ui, SCREEN_SHARE_PREFER_IN_APP_RELAY_KEY, bScreenSharePreferInAppRelay) \
-	PROCESS(ui, HIGH_CONTRAST_MODE_KEY, bHighContrast)                           \
-	PROCESS(ui, MAX_LOG_LENGTH_KEY, iMaxLogBlocks)                               \
-	PROCESS(ui, USE_24H_CLOCK_KEY, bLog24HourClock)                              \
-	PROCESS(ui, LOG_MESSAGE_MARGINS_KEY, iChatMessageMargins)                    \
+	PROCESS(ui, SCREEN_SHARE_PREFER_IN_APP_RELAY_KEY, bScreenSharePreferInAppRelay)       \
+	PROCESS(ui, HIGH_CONTRAST_MODE_KEY, bHighContrast)                                    \
+	PROCESS(ui, MAX_LOG_LENGTH_KEY, iMaxLogBlocks)                                        \
+	PROCESS(ui, USE_24H_CLOCK_KEY, bLog24HourClock)                                       \
+	PROCESS(ui, LOG_MESSAGE_MARGINS_KEY, iChatMessageMargins)                             \
 	PROCESS(ui, DISABLE_PUBLIC_SERVER_LIST_KEY, bDisablePublicList)
 
 
@@ -252,10 +255,10 @@
 	PROCESS(recording, RECORDING_FORMAT_KEY, iRecordingFormat)
 
 
-#define HIDDEN_SETTINGS                                                                         \
-	PROCESS(hidden, DISABLE_CONNECT_DIALOG_EDITING_KEY, disableConnectDialogEditing)            \
-	PROCESS(hidden, ADVERTISED_RELEASE_OVERRIDE_KEY, qsAdvertisedReleaseOverride)               \
-	PROCESS(hidden, ADVERTISED_OS_OVERRIDE_KEY, qsAdvertisedOSOverride)                         \
+#define HIDDEN_SETTINGS                                                              \
+	PROCESS(hidden, DISABLE_CONNECT_DIALOG_EDITING_KEY, disableConnectDialogEditing) \
+	PROCESS(hidden, ADVERTISED_RELEASE_OVERRIDE_KEY, qsAdvertisedReleaseOverride)    \
+	PROCESS(hidden, ADVERTISED_OS_OVERRIDE_KEY, qsAdvertisedOSOverride)              \
 	PROCESS(hidden, ADVERTISED_OS_VERSION_OVERRIDE_KEY, qsAdvertisedOSVersionOverride)
 
 
@@ -356,6 +359,7 @@
 	TTS_SETTINGS               \
 	PRIVACY_SETTINGS           \
 	UI_SETTINGS                \
+	DANK_MUMBLE_SETTINGS       \
 	UPDATE_SETTINGS            \
 	LAST_CONNECTION_SETTINGS   \
 	TALKINGUI_SETTINGS         \
@@ -391,6 +395,8 @@
 	PRIVACY_SETTINGS                                     \
 	INTERMEDIATE_OPERATION                               \
 	UI_SETTINGS                                          \
+	INTERMEDIATE_OPERATION                               \
+	DANK_MUMBLE_SETTINGS                                 \
 	INTERMEDIATE_OPERATION                               \
 	UPDATE_SETTINGS                                      \
 	INTERMEDIATE_OPERATION                               \

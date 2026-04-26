@@ -52,14 +52,14 @@
 	PROCESS(Settings::NoiseCancel, NoiseCancelRNN, "RNN")     \
 	PROCESS(Settings::NoiseCancel, NoiseCancelBoth, "Speex&RNN")
 
-#define SPEECH_CLEANUP_BACKEND_VALUES                                     \
-	PROCESS(Settings::SpeechCleanupBackend, RNNoiseBackend, "RNNoise")    \
-	PROCESS(Settings::SpeechCleanupBackend, DTLNBackend, "DTLN")          \
+#define SPEECH_CLEANUP_BACKEND_VALUES                                  \
+	PROCESS(Settings::SpeechCleanupBackend, RNNoiseBackend, "RNNoise") \
+	PROCESS(Settings::SpeechCleanupBackend, DTLNBackend, "DTLN")       \
 	PROCESS(Settings::SpeechCleanupBackend, DeepFilterNetBackend, "DeepFilterNet")
 
-#define REMOTE_SPEECH_CLEANUP_PRESET_VALUES                             \
-	PROCESS(Settings::RemoteSpeechCleanupPreset, Light, "Light")        \
-	PROCESS(Settings::RemoteSpeechCleanupPreset, Normal, "Normal")      \
+#define REMOTE_SPEECH_CLEANUP_PRESET_VALUES                        \
+	PROCESS(Settings::RemoteSpeechCleanupPreset, Light, "Light")   \
+	PROCESS(Settings::RemoteSpeechCleanupPreset, Normal, "Normal") \
 	PROCESS(Settings::RemoteSpeechCleanupPreset, Aggressive, "Aggressive")
 
 #define ECHO_CANCEL_VALUES                                                \
@@ -93,6 +93,10 @@
 	PROCESS(Settings::WindowLayout, LayoutHybrid, "Hybrid")   \
 	PROCESS(Settings::WindowLayout, LayoutCustom, "Custom")   \
 	PROCESS(Settings::WindowLayout, LayoutModern, "Modern")
+
+#define MODERN_LAYOUT_POLICY_VALUES                                                 \
+	PROCESS(Settings::ModernLayoutPolicy, ModernLayoutFollowLegacy, "FollowLegacy") \
+	PROCESS(Settings::ModernLayoutPolicy, ModernLayoutForced, "Forced")
 
 #define RECORDING_MODE_VALUES                                                                       \
 	PROCESS(Settings::RecordingMode, RecordingMixdown, "Mixdown")                                   \
@@ -216,6 +220,9 @@
 	BEFORE_CODE(Settings::WindowLayout)                \
 	WINDOW_LAYOUT_VALUES                               \
 	AFTER_CODE                                         \
+	BEFORE_CODE(Settings::ModernLayoutPolicy)          \
+	MODERN_LAYOUT_POLICY_VALUES                        \
+	AFTER_CODE                                         \
 	BEFORE_CODE(Settings::RecordingMode)               \
 	RECORDING_MODE_VALUES                              \
 	AFTER_CODE                                         \
@@ -289,6 +296,7 @@ PROCESS_ALL_ENUMS
 #undef SEARCH_CHANNEL_ACTION_VALUES
 #undef SEARCH_USER_ACTION_VALUES
 #undef RECORDING_MODE_VALUES
+#undef MODERN_LAYOUT_POLICY_VALUES
 #undef STYLETYPE_VALUES
 #undef WINDOW_LAYOUT_VALUES
 #undef ALWAYS_ON_TOP_VALUES

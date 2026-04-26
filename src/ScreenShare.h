@@ -29,10 +29,10 @@ namespace ScreenShare {
 		unsigned int bitrateKbps            = 0;
 	};
 
-	constexpr unsigned int DEFAULT_MAX_WIDTH  = 1920;
-	constexpr unsigned int DEFAULT_MAX_HEIGHT = 1080;
-	constexpr unsigned int DEFAULT_MAX_FPS    = 60;
-	constexpr unsigned int DEFAULT_TARGET_BITRATE_KBPS = 12000;
+	constexpr unsigned int DEFAULT_MAX_WIDTH           = 1280;
+	constexpr unsigned int DEFAULT_MAX_HEIGHT          = 720;
+	constexpr unsigned int DEFAULT_MAX_FPS             = 30;
+	constexpr unsigned int DEFAULT_TARGET_BITRATE_KBPS = 3000;
 
 	constexpr unsigned int HARD_MAX_WIDTH        = 7680;
 	constexpr unsigned int HARD_MAX_HEIGHT       = 4320;
@@ -52,8 +52,8 @@ namespace ScreenShare {
 													   const QList< int > &availableCodecs);
 	unsigned int defaultBitrateKbps(MumbleProto::ScreenShareCodec codec, unsigned int width, unsigned int height,
 									unsigned int fps);
-	unsigned int sanitizeBitrateKbps(unsigned int bitrateKbps, MumbleProto::ScreenShareCodec codec,
-									 unsigned int width, unsigned int height, unsigned int fps);
+	unsigned int sanitizeBitrateKbps(unsigned int bitrateKbps, MumbleProto::ScreenShareCodec codec, unsigned int width,
+									 unsigned int height, unsigned int fps);
 	MumbleProto::ScreenShareRelayTransport relayTransportFromUrl(const QString &relayUrl);
 	QString relayTransportToConfigToken(MumbleProto::ScreenShareRelayTransport relayTransport);
 	QString relayRoleToConfigToken(MumbleProto::ScreenShareRelayRole relayRole);

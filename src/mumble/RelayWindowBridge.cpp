@@ -22,4 +22,11 @@ void RelayWindowBridge::requestClose(const QString &reason) {
 	emit closeRequested(reason.trimmed());
 }
 
+void RelayWindowBridge::reportStats(const QString &summary) {
+	const QString trimmedSummary = summary.trimmed();
+	if (!trimmedSummary.isEmpty()) {
+		emit statsReported(trimmedSummary);
+	}
+}
+
 #endif // defined(MUMBLE_HAS_MODERN_LAYOUT)

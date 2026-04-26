@@ -65,6 +65,19 @@
 					<div class="scope-sidecar">
 						<div id="voice-presence-stack" class="presence-stack"></div>
 						<div id="conversation-meta" class="meta-row"></div>
+						<section id="screen-share-card" class="screen-share-card hidden" aria-live="polite">
+							<div class="screen-share-card-copy">
+								<div class="screen-share-card-topline">
+									<span class="screen-share-dot" aria-hidden="true"></span>
+									<span class="section-label">Screen share</span>
+									<span id="screen-share-card-status" class="meta-pill hidden">Idle</span>
+								</div>
+								<h2 id="screen-share-card-title" class="screen-share-card-title">Screen sharing</h2>
+								<p id="screen-share-card-summary" class="screen-share-card-summary"></p>
+								<p id="screen-share-card-note" class="screen-share-card-note hidden"></p>
+							</div>
+							<div id="screen-share-card-actions" class="screen-share-card-actions"></div>
+						</section>
 						<div class="conversation-actions">
 							<button id="screen-share-button" class="chip-button screen-share-button hidden" type="button">Share screen</button>
 							<button id="load-older-button" class="chip-button" type="button">Load older</button>
@@ -73,18 +86,6 @@
 					</div>
 				</header>
 
-				<section id="screen-share-card" class="screen-share-card hidden" aria-live="polite">
-					<div class="screen-share-card-copy">
-						<div class="screen-share-card-topline">
-							<span class="section-label">Screen share</span>
-							<span id="screen-share-card-status" class="meta-pill hidden">Idle</span>
-						</div>
-						<h2 id="screen-share-card-title" class="screen-share-card-title">Screen sharing</h2>
-						<p id="screen-share-card-summary" class="screen-share-card-summary"></p>
-						<p id="screen-share-card-note" class="screen-share-card-note hidden"></p>
-					</div>
-					<div id="screen-share-card-actions" class="screen-share-card-actions"></div>
-				</section>
 				<div id="scope-banner" class="banner hidden"></div>
 				<div id="message-list" class="message-list">
 					<div class="empty-state">

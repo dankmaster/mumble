@@ -5,8 +5,10 @@
 
 #include "JSONSerialization.h"
 #include "Cert.h"
-#include "SpeechCleanup.h"
 #include "SettingsMacros.h"
+#include "SpeechCleanup.h"
+
+#include <QDebug>
 
 
 template< typename T, bool isEnum > struct SaveValueConverter {
@@ -70,7 +72,24 @@ void load(const nlohmann::json &json, const SettingsKey &key, T &variable, const
 	nlohmann::json valueEntry = key.selectFrom(json);
 
 	if (!valueEntry.is_null()) {
-		SaveValueConverter< T, std::is_enum< T >::value >::loadValue(valueEntry, variable);
+		try {
+			SaveValueConverter< T, std::is_enum< T >::value >::loadValue(valueEntry, variable);
+		} catch (const std::exception &e) {
+			qWarning("Ignoring invalid setting '%s': %s", static_cast< const char * >(key), e.what());
+			if (useDefault) {
+				CopyHelper< T, std::is_array< T >::value >::copy(variable, defaultValue);
+			}
+		} catch (const char *e) {
+			qWarning("Ignoring invalid setting '%s': %s", static_cast< const char * >(key), e);
+			if (useDefault) {
+				CopyHelper< T, std::is_array< T >::value >::copy(variable, defaultValue);
+			}
+		} catch (...) {
+			qWarning("Ignoring invalid setting '%s'", static_cast< const char * >(key));
+			if (useDefault) {
+				CopyHelper< T, std::is_array< T >::value >::copy(variable, defaultValue);
+			}
+		}
 	} else if (useDefault) {
 		CopyHelper< T, std::is_array< T >::value >::copy(variable, defaultValue);
 	}
@@ -98,15 +117,26 @@ void to_json(nlohmann::json &j, const Settings &settings) {
 	j[SettingsKeys::SETTINGS_VERSION_KEY] = 1;
 
 	const Settings defaultValues;
+	Settings serializableSettings        = settings;
+	bool forceLegacyWindowLayoutFallback = serializableSettings.modernLayoutPolicy == Settings::ModernLayoutForced
+										   || serializableSettings.wlWindowLayout == Settings::LayoutModern;
 
-#define PROCESS(category, key, variable)                          \
-	if (settings.variable != defaultValues.variable) {            \
-		save(j, #category, SettingsKeys::key, settings.variable); \
+	if (serializableSettings.wlWindowLayout == Settings::LayoutModern) {
+		serializableSettings.wlWindowLayout = Settings::LayoutHybrid;
+	}
+
+#define PROCESS(category, key, variable)                                      \
+	if (serializableSettings.variable != defaultValues.variable) {            \
+		save(j, #category, SettingsKeys::key, serializableSettings.variable); \
 	}
 
 	PROCESS_ALL_SETTINGS
 
 #undef PROCESS
+
+	if (forceLegacyWindowLayoutFallback) {
+		save(j, "ui", SettingsKeys::WINDOW_LAYOUT_KEY, serializableSettings.wlWindowLayout);
+	}
 
 	if (settings.qlShortcuts != defaultValues.qlShortcuts) {
 		// We only remove server specific shortcuts since they are saved in the DB.
@@ -167,6 +197,24 @@ void migrateSettings(nlohmann::json &json, int settingsVersion) {
 	if (json.contains("play_transmit_cue")
 		&& (!json.contains(static_cast< const char * >(SettingsKeys::TRANSMIT_CUE_WHEN_PTT_KEY)))) {
 		json[SettingsKeys::TRANSMIT_CUE_WHEN_PTT_KEY] = json.at("play_transmit_cue").get< bool >();
+	}
+
+	constexpr const char *uiCategory         = "ui";
+	constexpr const char *forkCategory       = "dank_mumble";
+	constexpr const char *modernLayoutString = "Modern";
+	if (json.contains(uiCategory) && json.at(uiCategory).is_object()) {
+		nlohmann::json &ui          = json[uiCategory];
+		const char *windowLayoutKey = static_cast< const char * >(SettingsKeys::WINDOW_LAYOUT_KEY);
+		if (ui.contains(windowLayoutKey) && ui.at(windowLayoutKey).is_string()
+			&& ui.at(windowLayoutKey).get< std::string >() == modernLayoutString) {
+			ui[windowLayoutKey] = enumToString(Settings::LayoutHybrid);
+
+			if (!json.contains(forkCategory) || !json.at(forkCategory).is_object()) {
+				json[forkCategory] = nlohmann::json::object();
+			}
+			json[forkCategory][SettingsKeys::MODERN_LAYOUT_POLICY_KEY] = enumToString(Settings::ModernLayoutForced);
+			qWarning("Migrated incompatible Modern window layout setting to fork-specific modern layout policy");
+		}
 	}
 
 	(void) settingsVersion;
@@ -232,10 +280,10 @@ void from_json(const nlohmann::json &j, Settings &settings) {
 		settings.noiseCancelCustomModelPath.clear();
 	}
 
-	settings.remoteSpeechCleanupModelId = Mumble::SpeechCleanup::normalizedModelId(
-		settings.remoteSpeechCleanupBackend, settings.remoteSpeechCleanupModelId);
+	settings.remoteSpeechCleanupModelId = Mumble::SpeechCleanup::normalizedModelId(settings.remoteSpeechCleanupBackend,
+																				   settings.remoteSpeechCleanupModelId);
 	if (!Mumble::SpeechCleanup::usesCustomModelPath(settings.remoteSpeechCleanupBackend,
-													 settings.remoteSpeechCleanupModelId)) {
+													settings.remoteSpeechCleanupModelId)) {
 		settings.remoteSpeechCleanupCustomModelPath.clear();
 	}
 
