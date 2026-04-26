@@ -1,0 +1,104 @@
+name: Setup Windows installer tooling
+description: Installs WixSharp and WiX binaries for Windows MSI packaging.
+
+inputs:
+  wixsharp-version:
+    description: WixSharp release version to install.
+    required: false
+    default: '1.19.0.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Install WixSharp
+      shell: powershell
+      env:
+        WIXSHARP_VERSION: ${{ inputs.wixsharp-version }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        $archive = Join-Path $env:RUNNER_TEMP "WixSharp.7z"
+        $installRoot = "C:\WixSharp"
+        $uri = "https://github.com/oleg-shilo/wixsharp/releases/download/v$env:WIXSHARP_VERSION/WixSharp.$env:WIXSHARP_VERSION.7z"
+
+        Invoke-WebRequest -Uri $uri -OutFile $archive
+
+        if (Test-Path -LiteralPath $installRoot) {
+          Remove-Item -LiteralPath $installRoot -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
+
+        $extractRoot = Join-Path $env:RUNNER_TEMP "WixSharpExtract"
+        if (Test-Path -LiteralPath $extractRoot) {
+          Remove-Item -LiteralPath $extractRoot -Recurse -Force
+        }
+        New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+
+        function Resolve-SevenZipPath {
+          $command = Get-Command 7z.exe -ErrorAction SilentlyContinue
+          if ($command) {
+            return $command.Source
+          }
+
+          foreach ($candidate in @(
+            "C:\Program Files\7-Zip\7z.exe",
+            "C:\Program Files (x86)\7-Zip\7z.exe",
+            "C:\ProgramData\chocolatey\bin\7z.exe"
+          )) {
+            if (Test-Path -LiteralPath $candidate) {
+              return $candidate
+            }
+          }
+
+          $chocolateyLib = "C:\ProgramData\chocolatey\lib"
+          if (Test-Path -LiteralPath $chocolateyLib) {
+            $portable = Get-ChildItem -LiteralPath $chocolateyLib -Recurse -File -Filter "7z.exe" -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if ($portable) {
+              return $portable.FullName
+            }
+          }
+
+          return $null
+        }
+
+        $sevenZip = Resolve-SevenZipPath
+        if (-not $sevenZip) {
+          choco install 7zip.portable -y --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw "Chocolatey failed to install 7zip.portable."
+          }
+          $sevenZip = Resolve-SevenZipPath
+        }
+        if (-not $sevenZip) {
+          throw "Unable to locate 7z.exe for extracting WixSharp."
+        }
+
+        & $sevenZip x -y "-o$extractRoot" $archive
+        if ($LASTEXITCODE -ne 0) {
+          throw "7z.exe failed to extract '$archive'."
+        }
+
+        $cscs = Get-ChildItem -LiteralPath $extractRoot -Recurse -File -Filter "cscs.exe" |
+          Where-Object { $_.FullName -notmatch "\\Samples\\" } |
+          Select-Object -First 1
+        if (-not $cscs) {
+          throw "WixSharp cscs.exe was not found after extracting '$archive'."
+        }
+
+        $sourceRoot = $cscs.Directory.FullName
+        Write-Host "Using WixSharp files from '$sourceRoot'."
+        Get-ChildItem -LiteralPath $sourceRoot -Force |
+          Copy-Item -Destination $installRoot -Recurse -Force
+
+        $wixBin = Join-Path $installRoot "Wix_bin\bin"
+        if (-not (Test-Path -LiteralPath (Join-Path $installRoot "cscs.exe"))) {
+          throw "WixSharp cscs.exe was not extracted under '$installRoot'."
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $wixBin "candle.exe")) -or `
+            -not (Test-Path -LiteralPath (Join-Path $wixBin "light.exe"))) {
+          throw "WiX candle.exe/light.exe were not extracted under '$wixBin'."
+        }
+
+        Add-Content -LiteralPath $env:GITHUB_PATH -Value $installRoot
+        Add-Content -LiteralPath $env:GITHUB_PATH -Value $wixBin
+        Add-Content -LiteralPath $env:GITHUB_ENV -Value "WIXSHARP_WIXDIR=$wixBin"
