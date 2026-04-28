@@ -442,13 +442,13 @@ Prevents the client from sending potentially identifying information about the o
       <item>
        <widget class="QCheckBox" name="qcbAutoUpdate">
         <property name="toolTip">
-         <string>Check for new releases of Mumble automatically.</string>
+         <string>Check for new mumble-forked builds automatically.</string>
         </property>
         <property name="whatsThis">
-         <string>This will check for new releases of Mumble every time you start the program, and notify you if one is available.</string>
+         <string>This will check the mumble-forked GitHub release every time you start the program, and notify you if a newer installer build is available.</string>
         </property>
         <property name="text">
-         <string>Check for application updates on startup</string>
+         <string>Check for mumble-forked updates on startup</string>
         </property>
        </widget>
       </item>

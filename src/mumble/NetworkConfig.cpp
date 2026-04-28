@@ -15,10 +15,6 @@
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkProxy>
 
-#ifdef NO_UPDATE_CHECK
-#	include <QMessageBox>
-#endif
-
 const QString NetworkConfig::name = QLatin1String("NetworkConfig");
 
 static ConfigWidget *NetworkConfigNew(Settings &st) {
@@ -81,8 +77,6 @@ void NetworkConfig::load(const Settings &r) {
 	loadCheckBox(qcbPluginAutoUpdate, r.bPluginAutoUpdate);
 	loadCheckBox(qcbUsage, r.bUsage);
 
-	qcbAutoUpdate->setChecked(false);
-	qcbAutoUpdate->setEnabled(false);
 	qcbUsage->setChecked(false);
 	qcbUsage->setEnabled(false);
 	qcbDisablePublicList->setChecked(true);
@@ -108,7 +102,7 @@ void NetworkConfig::save() const {
 	s.qsProxyUsername = qleUsername->text();
 	s.qsProxyPassword = qlePassword->text();
 
-	s.bUpdateCheck      = false;
+	s.bUpdateCheck      = qcbAutoUpdate->isChecked();
 	s.bPluginCheck      = qcbPluginUpdateCheck->isChecked();
 	s.bPluginAutoUpdate = qcbPluginAutoUpdate->isChecked();
 	s.bUsage            = false;
@@ -171,27 +165,6 @@ void NetworkConfig::on_qcbType_currentIndexChanged(int v) {
 
 	s.ptProxyType = pt;
 }
-
-#ifdef NO_UPDATE_CHECK
-void NetworkConfig::on_qcbAutoUpdate_stateChanged(int state) {
-	if (state == Qt::Checked) {
-		QMessageBox msgBox;
-		msgBox.setText(
-			QObject::tr("<p>You're using a Mumble version that <b>explicitly disabled</b> update-checks.</p>"
-						"<p>This means that the update notification you might receive by using this option will "
-						"<b>most likely be meaningless</b> for you.</p>"));
-		msgBox.setInformativeText(
-			QObject::tr("<p>If you're using Linux this is most likely because you are using a "
-						"version from your distribution's package repository that have their own update cycles.</p>"
-						"<p>If you want to always have the most recent Mumble version, you should consider using a "
-						"different method of installation.\n"
-						"See <a href=\"https://github.com/mumble-voip/mumble\">the project repository</a> for what "
-						"alternatives there are.</p>"));
-		msgBox.setIcon(QMessageBox::Warning);
-		msgBox.exec();
-	}
-}
-#endif
 
 QNetworkReply *Network::get(const QUrl &url) {
 	QNetworkRequest req(url);

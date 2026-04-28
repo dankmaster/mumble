@@ -81,7 +81,7 @@ jobs:
         shell: powershell
         run: |
           $arguments = @{
-            BuildNumber = "0"
+            BuildNumber = "${{ github.run_number }}"
             EnvironmentRelease = "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_RELEASE }}"
             EnvironmentCommit = "${{ env.MUMBLE_SHARED_WINDOWS_ENVIRONMENT_COMMIT }}"
             SharedWebEngine = $true
@@ -132,12 +132,34 @@ jobs:
           Set-Content -LiteralPath $hashPath -Value "$($hash.Hash)  $assetName"
 
           $notesPath = Join-Path $releaseDir "release-notes.md"
+          $manifestPath = Join-Path $releaseDir "mumble-forked-update.json"
+          $buildNumber = "${{ github.run_number }}"
+          $projectVersion = "1.7.$buildNumber"
           $shortSha = "${{ github.sha }}".Substring(0, 12)
+          $releaseUrl = "https://github.com/${{ github.repository }}/releases/tag/${{ env.MUMBLE_FORKED_RELEASE_TAG }}"
+          $installerUrl = "https://github.com/${{ github.repository }}/releases/download/${{ env.MUMBLE_FORKED_RELEASE_TAG }}/$assetName"
+
+          $manifest = [ordered]@{
+            name = "mumble-forked"
+            version = $projectVersion
+            build = [int]$buildNumber
+            commit = "${{ github.sha }}"
+            branch = "${{ github.ref_name }}"
+            releaseUrl = $releaseUrl
+            installerUrl = $installerUrl
+            sha256 = $hash.Hash
+            publishedAt = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          $manifestJson = $manifest | ConvertTo-Json -Depth 4
+          [System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
+
           Set-Content -LiteralPath $notesPath -Value @"
           # mumble-forked
 
           This is the latest unsigned shared/WebEngine MSI build for this fork.
 
+          - Version: $projectVersion
+          - Build: $buildNumber
           - Commit: ${{ github.sha }}
           - Branch/ref: ${{ github.ref_name }}
           - Installer: $assetName
@@ -148,6 +170,7 @@ jobs:
 
           "asset_path=$assetPath" >> $env:GITHUB_OUTPUT
           "hash_path=$hashPath" >> $env:GITHUB_OUTPUT
+          "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT
           "notes_path=$notesPath" >> $env:GITHUB_OUTPUT
           "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
 
@@ -190,6 +213,7 @@ jobs:
           gh release create $tag `
             "${{ steps.prepare-assets.outputs.asset_path }}" `
             "${{ steps.prepare-assets.outputs.hash_path }}" `
+            "${{ steps.prepare-assets.outputs.manifest_path }}" `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
             --title $env:MUMBLE_FORKED_RELEASE_TITLE `
@@ -203,6 +227,7 @@ jobs:
           path: |
             build-shared-webengine/mumble-forked-release/mumble-forked.msi
             build-shared-webengine/mumble-forked-release/mumble-forked.msi.sha256
+            build-shared-webengine/mumble-forked-release/mumble-forked-update.json
             build-shared-webengine/mumble-forked-release/release-notes.md
             build-shared-webengine/mumble-forked-artifacts.txt
 
