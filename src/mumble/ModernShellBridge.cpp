@@ -196,6 +196,18 @@ bool ModernShellBridge::clipboardHasImage() const {
 	return !extractMimeImage(mimeData).isNull() || !extractLocalImageUrls(mimeData).isEmpty();
 }
 
+QString ModernShellBridge::clipboardText() const {
+	const QClipboard *clipboard = QApplication::clipboard();
+	return clipboard ? clipboard->text() : QString();
+}
+
+void ModernShellBridge::setClipboardText(const QString &text) {
+	QClipboard *clipboard = QApplication::clipboard();
+	if (clipboard) {
+		clipboard->setText(text);
+	}
+}
+
 void ModernShellBridge::attachClipboardImage() {
 	emit clipboardImageAttachmentRequested();
 }

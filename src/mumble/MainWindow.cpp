@@ -308,6 +308,66 @@ QString modernShellParticipantSubtitle(const ClientUser *user, const Channel *co
 	return QObject::tr("In %1").arg(user->cChannel->qsName);
 }
 
+QString modernShellTalkStateKey(const ClientUser *user) {
+	if (!user) {
+		return QStringLiteral("passive");
+	}
+
+	switch (user->tsState) {
+		case Settings::Talking:
+			return QStringLiteral("talking");
+		case Settings::Whispering:
+			return QStringLiteral("whispering");
+		case Settings::Shouting:
+			return QStringLiteral("shouting");
+		case Settings::MutedTalking:
+			return QStringLiteral("mutedTalking");
+		case Settings::Passive:
+		default:
+			return QStringLiteral("passive");
+	}
+}
+
+QString modernShellTalkStateLabel(const ClientUser *user) {
+	if (!user) {
+		return QString();
+	}
+
+	switch (user->tsState) {
+		case Settings::Talking:
+			return QObject::tr("Talking");
+		case Settings::Whispering:
+			return QObject::tr("Whispering");
+		case Settings::Shouting:
+			return QObject::tr("Shouting");
+		case Settings::MutedTalking:
+			return QObject::tr("Talking while muted locally");
+		case Settings::Passive:
+		default:
+			return QString();
+	}
+}
+
+QString modernShellTalkStateTone(const ClientUser *user) {
+	if (!user) {
+		return QString();
+	}
+
+	switch (user->tsState) {
+		case Settings::Whispering:
+			return QStringLiteral("whisper");
+		case Settings::Shouting:
+			return QStringLiteral("warning");
+		case Settings::MutedTalking:
+			return QStringLiteral("danger");
+		case Settings::Talking:
+			return QStringLiteral("speaking");
+		case Settings::Passive:
+		default:
+			return QString();
+	}
+}
+
 QVariantList modernShellParticipantBadges(const ClientUser *user, const ClientUser *self) {
 	QVariantList badges;
 	if (!user) {
@@ -370,6 +430,12 @@ QVariantList modernShellParticipantStatuses(const ClientUser *user) {
 		return statuses;
 	}
 
+	const QString talkStateKey = modernShellTalkStateKey(user);
+	if (talkStateKey != QLatin1String("passive")) {
+		statuses.push_back(modernShellParticipantStatus(talkStateKey, modernShellTalkStateLabel(user),
+														modernShellTalkStateTone(user)));
+	}
+
 	if (!user->qsFriendName.isEmpty()) {
 		const bool customFriendLabel = user->qsFriendName.compare(user->qsName, Qt::CaseInsensitive) != 0;
 		statuses.push_back(modernShellParticipantStatus(
@@ -381,6 +447,16 @@ QVariantList modernShellParticipantStatuses(const ClientUser *user) {
 	if (user->iId >= 0) {
 		statuses.push_back(modernShellParticipantStatus(QStringLiteral("authenticated"),
 														QObject::tr("Authenticated user"), QStringLiteral("success")));
+	}
+
+	if (user->bPrioritySpeaker) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("priority"), QObject::tr("Priority speaker"),
+														QStringLiteral("warning")));
+	}
+
+	if (user->bRecording) {
+		statuses.push_back(modernShellParticipantStatus(QStringLiteral("recording"), QObject::tr("Recording"),
+														QStringLiteral("danger")));
 	}
 
 	if (user->bDeaf) {
@@ -3993,6 +4069,14 @@ void MainWindow::setupGui() {
 					 &PluginManager::on_channelRemoved);
 	QObject::connect(pmModel, &UserModel::channelRenamed, Global::get().pluginManager,
 					 &PluginManager::on_channelRenamed);
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	QObject::connect(pmModel, &QAbstractItemModel::dataChanged, this, [this]() { queueModernShellSnapshotSync(); });
+	QObject::connect(pmModel, &QAbstractItemModel::rowsInserted, this, [this]() { queueModernShellSnapshotSync(); });
+	QObject::connect(pmModel, &QAbstractItemModel::rowsRemoved, this, [this]() { queueModernShellSnapshotSync(); });
+	QObject::connect(pmModel, &QAbstractItemModel::rowsMoved, this, [this]() { queueModernShellSnapshotSync(); });
+	QObject::connect(pmModel, &QAbstractItemModel::modelReset, this, [this]() { queueModernShellSnapshotSync(); });
+	QObject::connect(pmModel, &QAbstractItemModel::layoutChanged, this, [this]() { queueModernShellSnapshotSync(); });
+#endif
 
 	qaAudioMute->setChecked(Global::get().s.bMute);
 	qaAudioDeaf->setChecked(Global::get().s.bDeaf);
@@ -5877,6 +5961,10 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 						   modernShellParticipantSubtitle(user, contextChannel, selfUser, directMessagePeer));
 		participant.insert(QStringLiteral("isSelf"), user == selfUser);
 		participant.insert(QStringLiteral("avatarUrl"), modernShellAvatarDataUrl(user, avatarSize));
+		participant.insert(QStringLiteral("talkState"), modernShellTalkStateKey(user));
+		participant.insert(QStringLiteral("talkLabel"), modernShellTalkStateLabel(user));
+		participant.insert(QStringLiteral("talkTone"), modernShellTalkStateTone(user));
+		participant.insert(QStringLiteral("talking"), user->tsState != Settings::Passive);
 		participant.insert(QStringLiteral("badges"), modernShellParticipantBadges(user, selfUser));
 		participant.insert(QStringLiteral("statuses"), modernShellParticipantStatuses(user));
 		participant.insert(QStringLiteral("canMessage"),
@@ -5912,6 +6000,10 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 						   user == selfUser ? tr("You are listening in this room") : tr("Listening in this room"));
 		participant.insert(QStringLiteral("isSelf"), user == selfUser);
 		participant.insert(QStringLiteral("avatarUrl"), modernShellAvatarDataUrl(user, avatarSize));
+		participant.insert(QStringLiteral("talkState"), modernShellTalkStateKey(user));
+		participant.insert(QStringLiteral("talkLabel"), modernShellTalkStateLabel(user));
+		participant.insert(QStringLiteral("talkTone"), modernShellTalkStateTone(user));
+		participant.insert(QStringLiteral("talking"), user->tsState != Settings::Passive);
 		participant.insert(QStringLiteral("badges"), badges);
 
 		QVariantList statuses;
@@ -15134,6 +15226,9 @@ void MainWindow::updateMenuPermissions() {
 
 void MainWindow::userStateChanged() {
 	emit talkingStatusChanged();
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	queueModernShellSnapshotSync();
+#endif
 
 	ClientUser *user = ClientUser::get(Global::get().uiSession);
 	if (!user) {

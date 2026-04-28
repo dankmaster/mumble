@@ -1294,6 +1294,18 @@
 
 	function presenceStatusIconSvg(kind) {
 		switch (String(kind || "")) {
+			case "talking":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 5v14\"></path><path d=\"M7 9v6\"></path><path d=\"M17 9v6\"></path><path d=\"M4 11v2\"></path><path d=\"M20 11v2\"></path></svg>";
+			case "whispering":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11 5L6 9H3v6h3l5 4z\"></path><path d=\"M16 10.5a3 3 0 010 3\"></path></svg>";
+			case "shouting":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11 5L6 9H3v6h3l5 4z\"></path><path d=\"M15.5 8.5a5 5 0 010 7\"></path><path d=\"M18.5 5.5a9 9 0 010 13\"></path></svg>";
+			case "mutedTalking":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11 5L6 9H3v6h3l5 4z\"></path><path d=\"M16 9l5 5\"></path><path d=\"M21 9l-5 5\"></path></svg>";
+			case "priority":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3l2.1 5.9H20l-4.8 3.6 1.8 6.2L12 15l-5 3.7 1.8-6.2L4 8.9h5.9z\"></path></svg>";
+			case "recording":
+				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"6\"></circle><circle cx=\"12\" cy=\"12\" r=\"2.5\" fill=\"currentColor\" stroke=\"none\"></circle></svg>";
 			case "friend":
 				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 3.8l2.55 5.18 5.72.83-4.13 4.03.98 5.69L12 16.83l-5.12 2.7.98-5.69-4.13-4.03 5.72-.83z\"></path></svg>";
 			case "authenticated":
@@ -1311,6 +1323,25 @@
 				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h14\"></path><path d=\"M8 8.5h8\"></path><path d=\"M8 15.5h8\"></path></svg>";
 			default:
 				return "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"5\"></circle></svg>";
+		}
+	}
+
+	function normalizedTalkState(person) {
+		return String(person && person.talkState || "passive").trim();
+	}
+
+	function talkStateClass(person) {
+		switch (normalizedTalkState(person)) {
+			case "talking":
+				return " is-talking is-talk-talking";
+			case "whispering":
+				return " is-talking is-talk-whispering";
+			case "shouting":
+				return " is-talking is-talk-shouting";
+			case "mutedTalking":
+				return " is-talking is-talk-muted";
+			default:
+				return "";
 		}
 	}
 
@@ -1366,9 +1397,9 @@
 			return String(person && person.entryKind || "user") !== "listener";
 		}).slice(0, 5).forEach(function(person) {
 			const avatar = document.createElement("div");
-			avatar.className = "stack-avatar" + (person.isSelf ? " is-self" : "");
+			avatar.className = "stack-avatar" + (person.isSelf ? " is-self" : "") + talkStateClass(person);
 			styleAvatar(avatar, person.label, !!person.isSelf, person.avatarUrl || "");
-			avatar.title = person.label || "";
+			avatar.title = [person.label || "", person.talkLabel || ""].filter(Boolean).join(" | ");
 			refs.voicePresenceStack.appendChild(avatar);
 		});
 	}
@@ -1417,7 +1448,8 @@
 			row.type = "button";
 			row.className = "presence-row"
 				+ (person.isSelf ? " is-self" : "")
-				+ (person.entryKind === "listener" ? " is-listener" : "");
+				+ (person.entryKind === "listener" ? " is-listener" : "")
+				+ talkStateClass(person);
 			row.dataset.session = person.session ? String(person.session) : "";
 			row.dataset.participantKey = participantStateKey(person);
 			row.dataset.entryKind = String(person.entryKind || "user");
@@ -1433,11 +1465,13 @@
 			const avatar = document.createElement("span");
 			avatar.className = "presence-avatar"
 				+ (person.isSelf ? " is-self" : "")
-				+ (person.entryKind === "listener" ? " is-listener" : "");
+				+ (person.entryKind === "listener" ? " is-listener" : "")
+				+ talkStateClass(person);
 			styleAvatar(avatar, person.label, !!person.isSelf, person.avatarUrl || "");
 
 			const dot = document.createElement("span");
-			dot.className = "presence-dot" + (person.entryKind === "listener" ? " is-listener" : "");
+			dot.className = "presence-dot" + (person.entryKind === "listener" ? " is-listener" : "")
+				+ talkStateClass(person);
 
 			const label = document.createElement("span");
 			label.className = "presence-copy";
@@ -1860,7 +1894,32 @@
 		}
 	}
 
+	function bridgeClipboardText(callback) {
+		if (!modernBridge || typeof modernBridge.clipboardText !== "function") {
+			callback("");
+			return;
+		}
+
+		try {
+			modernBridge.clipboardText(function(text) {
+				callback(String(text || ""));
+			});
+		} catch (error) {
+			console.warn("Unable to read clipboard text:", error);
+			callback("");
+		}
+	}
+
 	function pastePlainTextIntoComposer() {
+		bridgeClipboardText(function(text) {
+			if (text) {
+				replaceComposerSelection(text);
+			}
+		});
+		if (modernBridge && typeof modernBridge.clipboardText === "function") {
+			return;
+		}
+
 		try {
 			if (typeof document.execCommand === "function" && document.execCommand("paste")) {
 				return;
@@ -3337,6 +3396,15 @@
 		const value = String(text || "");
 		if (!value) {
 			return Promise.resolve(false);
+		}
+
+		if (modernBridge && typeof modernBridge.setClipboardText === "function") {
+			try {
+				modernBridge.setClipboardText(value);
+				return Promise.resolve(true);
+			} catch (error) {
+				console.warn("Unable to write clipboard text:", error);
+			}
 		}
 
 		if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {

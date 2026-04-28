@@ -804,6 +804,34 @@ textarea:focus-visible {
 	color: var(--reply-text);
 }
 
+.stack-avatar.is-talking,
+.presence-avatar.is-talking {
+	box-shadow:
+		0 0 0 1px rgba(78, 184, 159, 0.9),
+		0 0 0 4px rgba(78, 184, 159, 0.15);
+}
+
+.stack-avatar.is-talk-whispering,
+.presence-avatar.is-talk-whispering {
+	box-shadow:
+		0 0 0 1px rgba(111, 185, 230, 0.95),
+		0 0 0 4px rgba(111, 185, 230, 0.16);
+}
+
+.stack-avatar.is-talk-shouting,
+.presence-avatar.is-talk-shouting {
+	box-shadow:
+		0 0 0 1px rgba(239, 192, 106, 0.95),
+		0 0 0 4px rgba(239, 192, 106, 0.16);
+}
+
+.stack-avatar.is-talk-muted,
+.presence-avatar.is-talk-muted {
+	box-shadow:
+		0 0 0 1px rgba(234, 147, 143, 0.95),
+		0 0 0 4px rgba(234, 147, 143, 0.16);
+}
+
 .banner {
 	margin: 0 18px 12px;
 	margin-bottom: 12px;
@@ -2101,11 +2129,36 @@ textarea:focus-visible {
 	flex: 0 0 auto;
 	margin-top: 6px;
 	border-radius: 50%;
-	background: #4aba7a;
+	background: #525b6a;
 }
 
 .presence-dot.is-listener {
 	background: #7c9cff;
+}
+
+.presence-row.is-talking .presence-name {
+	color: var(--text-strong);
+	font-weight: 650;
+}
+
+.presence-dot.is-talking {
+	background: #4aba7a;
+	box-shadow: 0 0 0 3px rgba(74, 186, 122, 0.14);
+}
+
+.presence-dot.is-talk-whispering {
+	background: #6fb9e6;
+	box-shadow: 0 0 0 3px rgba(111, 185, 230, 0.14);
+}
+
+.presence-dot.is-talk-shouting {
+	background: #efc06a;
+	box-shadow: 0 0 0 3px rgba(239, 192, 106, 0.14);
+}
+
+.presence-dot.is-talk-muted {
+	background: #ea938f;
+	box-shadow: 0 0 0 3px rgba(234, 147, 143, 0.14);
 }
 
 .presence-copy {
@@ -2198,6 +2251,18 @@ textarea:focus-visible {
 	color: #8db2ff;
 	background: rgba(107, 136, 255, 0.14);
 	border-color: rgba(107, 136, 255, 0.2);
+}
+
+.presence-status.is-speaking {
+	color: #8eddb1;
+	background: rgba(74, 186, 122, 0.14);
+	border-color: rgba(74, 186, 122, 0.22);
+}
+
+.presence-status.is-whisper {
+	color: #91c7ee;
+	background: rgba(111, 185, 230, 0.14);
+	border-color: rgba(111, 185, 230, 0.22);
 }
 
 .presence-row.is-listener {

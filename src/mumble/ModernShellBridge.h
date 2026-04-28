@@ -9,6 +9,7 @@
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 
 #include <QtCore/QObject>
+#include <QtCore/QString>
 #include <QtCore/QVariant>
 
 class ModernShellBridge : public QObject {
@@ -46,6 +47,8 @@ public:
 	Q_INVOKABLE void disconnectServer();
 	Q_INVOKABLE void openSettings();
 	Q_INVOKABLE bool clipboardHasImage() const;
+	Q_INVOKABLE QString clipboardText() const;
+	Q_INVOKABLE void setClipboardText(const QString &text);
 	Q_INVOKABLE void attachClipboardImage();
 	Q_INVOKABLE void openImagePicker();
 	Q_INVOKABLE void attachImageData(const QString &dataUrl);
