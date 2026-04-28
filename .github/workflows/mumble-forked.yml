@@ -190,6 +190,13 @@ jobs:
             throw "Refusing to publish mumble-forked over protected build environment tag '$protectedTag'."
           }
 
+          $currentMaster = git ls-remote origin "refs/heads/master"
+          $currentMasterSha = if ($currentMaster) { ($currentMaster -split "\s+")[0] } else { "" }
+          if (-not [string]::IsNullOrWhiteSpace($currentMasterSha) -and $currentMasterSha -ne $env:GITHUB_SHA) {
+            Write-Warning "Skipping mumble-forked release publish because this run is no longer current master. Run SHA: $env:GITHUB_SHA; master SHA: $currentMasterSha."
+            exit 0
+          }
+
           $releaseRows = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
           foreach ($releaseRow in $releaseRows) {
             $releaseTag = [string]$releaseRow.tagName
@@ -199,23 +206,19 @@ jobs:
             }
             if ($releaseTag -eq $tag -or $releaseTag -like "$tag-*") {
               Write-Host "Deleting previous mumble-forked release '$releaseTag'."
-              gh release delete $releaseTag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+              gh release delete $releaseTag --repo $env:GITHUB_REPOSITORY --yes
             }
           }
 
-          git fetch --tags --force origin
-          $remoteTag = git ls-remote --tags origin "refs/tags/$tag"
-          if ($remoteTag) {
-            Write-Host "Deleting stale remote tag '$tag'."
-            git push origin ":refs/tags/$tag"
-          }
+          git tag -f $tag $env:GITHUB_SHA
+          git push origin "refs/tags/$tag" --force
 
           gh release create $tag `
             "${{ steps.prepare-assets.outputs.asset_path }}" `
             "${{ steps.prepare-assets.outputs.hash_path }}" `
             "${{ steps.prepare-assets.outputs.manifest_path }}" `
             --repo $env:GITHUB_REPOSITORY `
-            --target $env:GITHUB_SHA `
+            --verify-tag `
             --title $env:MUMBLE_FORKED_RELEASE_TITLE `
             --notes-file "${{ steps.prepare-assets.outputs.notes_path }}"
 
