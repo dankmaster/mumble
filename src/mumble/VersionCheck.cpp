@@ -18,6 +18,7 @@
 #include <QNetworkRequest>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QStringList>
 #include <QTimer>
 
 namespace {
@@ -26,6 +27,11 @@ constexpr int MaxRedirects = 5;
 
 QUrl defaultReleaseApiUrl() {
 	return QUrl(QStringLiteral("https://api.github.com/repos/dankmaster/mumble/releases/tags/mumble-forked"));
+}
+
+bool hasConfiguredUpdateOverride() {
+	return !qEnvironmentVariable("MUMBLE_FORK_UPDATE_URL").trimmed().isEmpty()
+		   || !qEnvironmentVariable("MUMBLE_FORK_UPDATE_MANIFEST_URL").trimmed().isEmpty();
 }
 
 QUrl configuredReleaseApiUrl() {
@@ -38,6 +44,16 @@ QUrl configuredReleaseApiUrl() {
 	}
 
 	return defaultReleaseApiUrl();
+}
+
+QUrl configuredManifestUrl() {
+	const QString override = qEnvironmentVariable("MUMBLE_FORK_UPDATE_MANIFEST_URL").trimmed();
+	if (override.isEmpty()) {
+		return {};
+	}
+
+	const QUrl url(override);
+	return url.isValid() ? url : QUrl();
 }
 
 bool forceUpdateNotification() {
@@ -96,6 +112,7 @@ QJsonObject updateInfoFromRelease(const QJsonObject &release, QUrl *manifestUrl)
 	const QString build = releaseBodyValue(body, QStringLiteral("Build"));
 	const QString version = releaseBodyValue(body, QStringLiteral("Version"));
 	const QString commit = releaseBodyValue(body, QStringLiteral("Commit"));
+	const QString announcement = releaseBodyValue(body, QStringLiteral("Announcement"));
 	if (!build.isEmpty()) {
 		info.insert(QStringLiteral("build"), build);
 	}
@@ -106,6 +123,9 @@ QJsonObject updateInfoFromRelease(const QJsonObject &release, QUrl *manifestUrl)
 		info.insert(QStringLiteral("commit"), commit);
 	} else {
 		info.insert(QStringLiteral("commit"), release.value(QStringLiteral("target_commitish")).toString());
+	}
+	if (!announcement.isEmpty()) {
+		info.insert(QStringLiteral("announcement"), announcement);
 	}
 
 	const QJsonArray assets = release.value(QStringLiteral("assets")).toArray();
@@ -134,6 +154,36 @@ QJsonObject normalizeManifestInfo(const QJsonObject &manifest) {
 					QStringLiteral("https://github.com/dankmaster/mumble/releases/download/mumble-forked/mumble-forked.msi"));
 	}
 	return info;
+}
+
+QString announcementText(const QJsonObject &info) {
+	const QString announcement = info.value(QStringLiteral("announcement")).toString().trimmed();
+	if (!announcement.isEmpty()) {
+		return announcement;
+	}
+
+	return VersionCheck::tr("Download the newest installer when you are ready to update.");
+}
+
+QString releaseNotesText(const QJsonObject &info) {
+	QStringList sections;
+
+	const QString releaseNotes = info.value(QStringLiteral("releaseNotes")).toString().trimmed();
+	if (!releaseNotes.isEmpty()) {
+		sections << releaseNotes;
+	}
+
+	const QString notes = info.value(QStringLiteral("notes")).toString().trimmed();
+	if (!notes.isEmpty() && notes != releaseNotes) {
+		sections << notes;
+	}
+
+	const QString changelog = info.value(QStringLiteral("changelog")).toString().trimmed();
+	if (!changelog.isEmpty() && changelog != releaseNotes && changelog != notes) {
+		sections << changelog;
+	}
+
+	return sections.join(QStringLiteral("\n\n"));
 }
 
 QString latestLabel(const QJsonObject &info) {
@@ -172,6 +222,16 @@ bool isUpdateAvailable(const QJsonObject &info) {
 	return false;
 }
 
+bool shouldSkipAutomaticUpdateCheck(bool autocheck) {
+	if (!autocheck || forceUpdateNotification() || hasConfiguredUpdateOverride()) {
+		return false;
+	}
+
+	// Build number 0 is the local-development default. Without this guard every
+	// local release build reports the current production installer as an update.
+	return Version::getPatch(Version::get()) == 0;
+}
+
 } // namespace
 
 VersionCheck::VersionCheck(bool autocheck, QObject *parent, bool) : QObject(parent), m_autocheck(autocheck) {
@@ -179,11 +239,22 @@ VersionCheck::VersionCheck(bool autocheck, QObject *parent, bool) : QObject(pare
 }
 
 void VersionCheck::performRequest() {
-	request(configuredReleaseApiUrl(), RequestKind::Release);
+	if (shouldSkipAutomaticUpdateCheck(m_autocheck)) {
+		deleteLater();
+		return;
+	}
+
+	if (!qEnvironmentVariable("MUMBLE_FORK_UPDATE_MANIFEST_URL").trimmed().isEmpty()) {
+		request(configuredManifestUrl(), RequestKind::Manifest);
+	} else {
+		request(configuredReleaseApiUrl(), RequestKind::Release);
+	}
 }
 
 void VersionCheck::request(const QUrl &url, RequestKind kind) {
-	if (!url.isValid() || url.scheme() != QLatin1String("https")) {
+	const bool localManifestOverride = kind == RequestKind::Manifest && url.isLocalFile()
+									   && !qEnvironmentVariable("MUMBLE_FORK_UPDATE_MANIFEST_URL").trimmed().isEmpty();
+	if (!url.isValid() || (!localManifestOverride && url.scheme() != QLatin1String("https"))) {
 		finishWithFailure(tr("The forked update URL is invalid."));
 		return;
 	}
@@ -264,13 +335,19 @@ void VersionCheck::finishWithInfo(const QJsonObject &info) {
 		QMessageBox messageBox(QMessageBox::Information, tr("Mumble update available"),
 							   tr("A new mumble-forked build is available."), QMessageBox::NoButton,
 							   Global::get().mw);
+		messageBox.setTextFormat(Qt::PlainText);
 		messageBox.setInformativeText(
-			tr("Current: %1, build %2\nLatest: %3")
+			tr("%1\n\nCurrent: %2, build %3\nLatest: %4")
+				.arg(announcementText(info))
 				.arg(Version::getRelease())
 				.arg(Version::getPatch(Version::get()))
 				.arg(latestLabel(info)));
 
 		QString details;
+		const QString releaseNotes = releaseNotesText(info);
+		if (!releaseNotes.isEmpty()) {
+			details += tr("Release notes:\n%1\n\n").arg(releaseNotes);
+		}
 		const QString commit = info.value(QStringLiteral("commit")).toString().trimmed();
 		if (!commit.isEmpty()) {
 			details += tr("Commit: %1\n").arg(commit);

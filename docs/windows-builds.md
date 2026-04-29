@@ -49,8 +49,14 @@ There is also a small human-facing installer workflow for this fork:
 1. Merge the intended code to `master`.
 2. Open `Actions` in the fork.
 3. Select `mumble-forked MSI Release`.
-4. Click `Run workflow` on `master`.
-5. Use the stable release page:
+4. Enter a short `update_announcement`. This is the user-facing sentence shown
+   in the in-app update popup, so write it before publishing instead of relying
+   on the generic build metadata.
+5. Optionally enter `release_notes` for extra hand-written detail. The workflow
+   also generates a changelog automatically from the previous published
+   `mumble-forked` commit to the new `master` commit.
+6. Click `Run workflow` on `master`.
+7. Use the stable release page:
    `https://github.com/dankmaster/mumble/releases/tag/mumble-forked`.
 
 The workflow builds the shared/WebEngine Windows client with packaging enabled,
@@ -62,6 +68,16 @@ commit. It explicitly preserves `build-env-*` releases, including the important
 The `Release Publishing` workflow ignores `mumble-forked*` and `build-env-*`
 tags so this convenience MSI does not dispatch Docker publishing or WinGet
 updates.
+
+The workflow writes the announcement, optional release notes, generated
+changelog, current commit, previous published commit, installer URL, and SHA256
+into `mumble-forked-update.json`. It also uploads `changelog.md` beside the MSI
+and prints an update-popup preview during the run. Local development builds use
+build number `0`, so automatic startup checks skip the public updater by
+default. To preview a draft manifest locally, set
+`MUMBLE_FORK_UPDATE_MANIFEST_URL` to a local
+`file:///.../mumble-forked-update.json` URL and set
+`MUMBLE_FORK_FORCE_UPDATE_NOTIFICATION=1` before launching the dev client.
 
 ## Notes
 

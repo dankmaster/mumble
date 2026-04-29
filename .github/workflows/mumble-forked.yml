@@ -2,6 +2,15 @@ name: mumble-forked MSI Release
 
 on:
   workflow_dispatch:
+    inputs:
+      update_announcement:
+        description: Short message shown in the in-app update popup
+        required: true
+        type: string
+      release_notes:
+        description: Optional extra details shown on GitHub and in the updater details pane
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -111,10 +120,105 @@ jobs:
       - name: Prepare release assets
         id: prepare-assets
         shell: powershell
+        env:
+          MUMBLE_FORKED_UPDATE_ANNOUNCEMENT: ${{ inputs.update_announcement }}
+          MUMBLE_FORKED_RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           $ErrorActionPreference = "Stop"
           $releaseDir = Join-Path $PWD "build-shared-webengine\mumble-forked-release"
           New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+          $announcement = ([string]$env:MUMBLE_FORKED_UPDATE_ANNOUNCEMENT).Trim()
+          if ([string]::IsNullOrWhiteSpace($announcement)) {
+            throw "The mumble-forked update announcement is required. Re-run the workflow with a short user-facing update message."
+          }
+          $releaseNotes = ([string]$env:MUMBLE_FORKED_RELEASE_NOTES).Trim()
+
+          function Get-PreviousForkedReleaseCommit {
+            param(
+              [Parameter(Mandatory = $true)]
+              [string]$Tag
+            )
+
+            $remoteRows = @(git ls-remote origin "refs/tags/$Tag" "refs/tags/$Tag^{}" 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $remoteRows.Count -eq 0) {
+              return ""
+            }
+
+            git fetch --force --no-tags origin "refs/tags/$Tag:refs/tags/$Tag" 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "Unable to fetch previous '$Tag' tag locally; changelog will start from this build."
+              return ""
+            }
+
+            $commit = (git rev-list -n 1 $Tag 2>$null)
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "Unable to resolve previous '$Tag' tag commit; changelog will start from this build."
+              return ""
+            }
+
+            return ([string]$commit).Trim()
+          }
+
+          function New-AutomatedChangelog {
+            param(
+              [string]$PreviousCommit,
+              [Parameter(Mandatory = $true)]
+              [string]$CurrentCommit,
+              [Parameter(Mandatory = $true)]
+              [string]$Repository
+            )
+
+            if (-not [string]::IsNullOrWhiteSpace($PreviousCommit)) {
+              git cat-file -e "$PreviousCommit^{commit}" 2>$null
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Previous mumble-forked commit '$PreviousCommit' is not available locally; changelog will start from this build."
+                $PreviousCommit = ""
+              }
+            }
+
+            $currentShort = $CurrentCommit.Substring(0, 12)
+            $lines = New-Object System.Collections.Generic.List[string]
+            $lines.Add("## Changelog")
+            $lines.Add("")
+
+            if ([string]::IsNullOrWhiteSpace($PreviousCommit)) {
+              $lines.Add("No previous mumble-forked MSI tag was found, so this build starts the automated changelog history.")
+              $logArgs = @("--first-parent", "--max-count=25", "--reverse", "--format=%h%x09%s", $CurrentCommit, "--")
+            } elseif ($PreviousCommit -eq $CurrentCommit) {
+              $previousShort = $PreviousCommit.Substring(0, 12)
+              $lines.Add("No source changes since the previous mumble-forked MSI (``$previousShort``).")
+              $logArgs = @()
+            } else {
+              $previousShort = $PreviousCommit.Substring(0, 12)
+              $lines.Add("Changes from ``$previousShort`` to ``$currentShort``.")
+              $lines.Add("")
+              $lines.Add("[Full comparison](https://github.com/$Repository/compare/$PreviousCommit...$CurrentCommit)")
+              $logArgs = @("--first-parent", "--reverse", "--format=%h%x09%s", "$PreviousCommit..$CurrentCommit", "--")
+            }
+
+            if ($logArgs.Count -gt 0) {
+              $rawEntries = @(git log @logArgs)
+              if ($LASTEXITCODE -ne 0) {
+                throw "Failed to generate automated mumble-forked changelog."
+              }
+
+              if ($rawEntries.Count -gt 0) {
+                $lines.Add("")
+                foreach ($entry in $rawEntries) {
+                  $parts = ([string]$entry) -split "`t", 2
+                  if ($parts.Count -eq 2) {
+                    $lines.Add("- $($parts[0]) $($parts[1])")
+                  }
+                }
+              } elseif (-not [string]::IsNullOrWhiteSpace($PreviousCommit) -and $PreviousCommit -ne $CurrentCommit) {
+                $lines.Add("")
+                $lines.Add("- No first-parent commits were found in this range.")
+              }
+            }
+
+            return ($lines -join "`n").Trim()
+          }
 
           $clientMsi = Get-ChildItem -Path ".\build-shared-webengine" -Recurse -File -Filter "*client*.msi" |
             Sort-Object -Property LastWriteTimeUtc -Descending |
@@ -132,19 +236,29 @@ jobs:
           Set-Content -LiteralPath $hashPath -Value "$($hash.Hash)  $assetName"
 
           $notesPath = Join-Path $releaseDir "release-notes.md"
+          $changelogPath = Join-Path $releaseDir "changelog.md"
           $manifestPath = Join-Path $releaseDir "mumble-forked-update.json"
+          $previewPath = Join-Path $releaseDir "update-announcement-preview.txt"
           $buildNumber = "${{ github.run_number }}"
           $projectVersion = "1.7.$buildNumber"
-          $shortSha = "${{ github.sha }}".Substring(0, 12)
+          $currentCommit = "${{ github.sha }}"
+          $shortSha = $currentCommit.Substring(0, 12)
           $releaseUrl = "https://github.com/${{ github.repository }}/releases/tag/${{ env.MUMBLE_FORKED_RELEASE_TAG }}"
           $installerUrl = "https://github.com/${{ github.repository }}/releases/download/${{ env.MUMBLE_FORKED_RELEASE_TAG }}/$assetName"
+          $previousCommit = Get-PreviousForkedReleaseCommit -Tag "${{ env.MUMBLE_FORKED_RELEASE_TAG }}"
+          $changelog = New-AutomatedChangelog -PreviousCommit $previousCommit -CurrentCommit $currentCommit -Repository "${{ github.repository }}"
+          [System.IO.File]::WriteAllText($changelogPath, "$changelog`n", [System.Text.UTF8Encoding]::new($false))
 
           $manifest = [ordered]@{
             name = "mumble-forked"
             version = $projectVersion
             build = [int]$buildNumber
-            commit = "${{ github.sha }}"
+            commit = $currentCommit
+            previousCommit = $previousCommit
             branch = "${{ github.ref_name }}"
+            announcement = $announcement
+            releaseNotes = $releaseNotes
+            changelog = $changelog
             releaseUrl = $releaseUrl
             installerUrl = $installerUrl
             sha256 = $hash.Hash
@@ -153,25 +267,56 @@ jobs:
           $manifestJson = $manifest | ConvertTo-Json -Depth 4
           [System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
 
-          Set-Content -LiteralPath $notesPath -Value @"
-          # mumble-forked
+          $notesLines = New-Object System.Collections.Generic.List[string]
+          $notesLines.Add("# mumble-forked")
+          $notesLines.Add("")
+          $notesLines.Add($announcement)
+          if (-not [string]::IsNullOrWhiteSpace($releaseNotes)) {
+            $notesLines.Add("")
+            $notesLines.Add("## Release notes")
+            $notesLines.Add("")
+            $notesLines.Add($releaseNotes)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($changelog)) {
+            $notesLines.Add("")
+            $notesLines.Add($changelog)
+          }
+          $notesLines.Add("")
+          $notesLines.Add("- Announcement: $announcement")
+          $notesLines.Add("- Version: $projectVersion")
+          $notesLines.Add("- Build: $buildNumber")
+          $notesLines.Add("- Commit: $currentCommit")
+          if (-not [string]::IsNullOrWhiteSpace($previousCommit)) {
+            $notesLines.Add("- Previous mumble-forked commit: $previousCommit")
+          }
+          $notesLines.Add("- Branch/ref: ${{ github.ref_name }}")
+          $notesLines.Add("- Installer: $assetName")
+          $notesLines.Add("- SHA256: $($hash.Hash)")
+          $notesLines.Add("")
+          $notesLines.Add("Windows may show a SmartScreen warning because this is not an official signed public release.")
+          [System.IO.File]::WriteAllLines($notesPath, $notesLines, [System.Text.UTF8Encoding]::new($false))
 
-          This is the latest unsigned shared/WebEngine MSI build for this fork.
-
-          - Version: $projectVersion
-          - Build: $buildNumber
-          - Commit: ${{ github.sha }}
-          - Branch/ref: ${{ github.ref_name }}
-          - Installer: $assetName
-          - SHA256: $($hash.Hash)
-
-          Windows may show a SmartScreen warning because this is not an official signed public release.
-          "@
+          $previewLines = @(
+            "Mumble update available",
+            "",
+            "A new mumble-forked build is available.",
+            $announcement,
+            "",
+            "Current clients below build $buildNumber will see:",
+            "Latest: $projectVersion, build $buildNumber",
+            "Details: automated changelog from the previous mumble-forked MSI",
+            "Download: $installerUrl"
+          )
+          [System.IO.File]::WriteAllLines($previewPath, $previewLines, [System.Text.UTF8Encoding]::new($false))
+          Write-Host "Updater announcement preview:"
+          Get-Content -LiteralPath $previewPath | ForEach-Object { Write-Host $_ }
 
           "asset_path=$assetPath" >> $env:GITHUB_OUTPUT
           "hash_path=$hashPath" >> $env:GITHUB_OUTPUT
+          "changelog_path=$changelogPath" >> $env:GITHUB_OUTPUT
           "manifest_path=$manifestPath" >> $env:GITHUB_OUTPUT
           "notes_path=$notesPath" >> $env:GITHUB_OUTPUT
+          "preview_path=$previewPath" >> $env:GITHUB_OUTPUT
           "short_sha=$shortSha" >> $env:GITHUB_OUTPUT
 
       - name: Replace mumble-forked release
@@ -216,6 +361,7 @@ jobs:
           gh release create $tag `
             "${{ steps.prepare-assets.outputs.asset_path }}" `
             "${{ steps.prepare-assets.outputs.hash_path }}" `
+            "${{ steps.prepare-assets.outputs.changelog_path }}" `
             "${{ steps.prepare-assets.outputs.manifest_path }}" `
             --repo $env:GITHUB_REPOSITORY `
             --verify-tag `
@@ -230,8 +376,10 @@ jobs:
           path: |
             build-shared-webengine/mumble-forked-release/mumble-forked.msi
             build-shared-webengine/mumble-forked-release/mumble-forked.msi.sha256
+            build-shared-webengine/mumble-forked-release/changelog.md
             build-shared-webengine/mumble-forked-release/mumble-forked-update.json
             build-shared-webengine/mumble-forked-release/release-notes.md
+            build-shared-webengine/mumble-forked-release/update-announcement-preview.txt
             build-shared-webengine/mumble-forked-artifacts.txt
 
       - if: ${{ steps.restore-shared-build-env-cache.outputs.cache-hit != 'true' }}
