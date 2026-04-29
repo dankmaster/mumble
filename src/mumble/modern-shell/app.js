@@ -1609,6 +1609,9 @@
 		const memberCount = Number(room.memberCount || 0);
 		const screenShare = room.screenShare || {};
 		const roomKind = String(room.kindLabel || "").trim().toLowerCase();
+		const hasRoomActions = (room.actions || []).some(function(item) {
+			return !!item && String(item.kind || "action") !== "separator";
+		});
 		const subtitleText = joinable
 			? ((room.joined || room.selected) ? (roomPathLabel || room.description || "") : "")
 			: ((room.selected || unreadCount > 0 || roomKind === "activity" || roomKind === "direct message")
@@ -1712,6 +1715,25 @@
 				dismissCompactRailAfterAction();
 			});
 			meta.appendChild(shareActionButton);
+		}
+
+		if (hasRoomActions) {
+			const roomActionButton = document.createElement("button");
+			roomActionButton.type = "button";
+			roomActionButton.className = "room-action-button";
+			roomActionButton.title = "Room actions";
+			roomActionButton.setAttribute("aria-label", "Room actions for " + (room.label || "room"));
+			roomActionButton.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"5\" cy=\"12\" r=\"1.8\"></circle><circle cx=\"12\" cy=\"12\" r=\"1.8\"></circle><circle cx=\"19\" cy=\"12\" r=\"1.8\"></circle></svg>";
+			roomActionButton.addEventListener("click", function(event) {
+				event.preventDefault();
+				event.stopPropagation();
+				const items = buildRoomContextMenuItems(getSnapshot(), room, button).filter(function(item) {
+					return !!item;
+				});
+				const bounds = roomActionButton.getBoundingClientRect();
+				showContextMenu(items, bounds.right, bounds.bottom + 4);
+			});
+			meta.appendChild(roomActionButton);
 		}
 
 		button.appendChild(chip);
@@ -3091,6 +3113,9 @@
 				+ (item.checked ? " is-selected" : "")
 				+ (item.tone ? " is-" + item.tone : "");
 			button.disabled = item.enabled === false;
+			if (item.hint) {
+				button.title = item.hint;
+			}
 
 			const label = document.createElement("span");
 			label.className = "self-menu-label";
@@ -3539,6 +3564,70 @@
 		input.dispatchEvent(new Event("input", { bubbles: true }));
 	}
 
+	function buildRoomContextMenuItems(snapshot, room, roomRow) {
+		const scope = (snapshot && snapshot.activeScope) || {};
+		const roomToken = (room && room.token) || (roomRow && roomRow.dataset.scopeToken) || "";
+		const items = [
+			{
+				label: "Open room",
+				enabled: !!roomToken,
+				action: function() {
+					notifyBridge("selectScope", roomToken);
+				}
+			},
+			{
+				label: "Join voice",
+				enabled: roomRow && roomRow.dataset.canJoin === "true",
+				action: function() {
+					notifyBridge("joinVoiceChannel", roomToken);
+				}
+			}
+		];
+
+		if (room && room.participantSession) {
+			const participantItems = actionItemsFromActionStates(room.participantActions, {
+				invokeAction: function(actionId) {
+					notifyBridge("invokeParticipantAction", room.participantSession, actionId);
+				},
+				invokeValueChanged: function(actionId, value, final) {
+					notifyBridge("participantActionValueChanged", room.participantSession, actionId, value, final);
+				}
+			});
+			if (participantItems.length) {
+				items.push({ separator: true });
+				return items.concat(participantItems);
+			}
+		}
+
+		const roomActionItems = room
+			? actionItemsFromActionStates(room.actions, {
+				invokeAction: function(actionId) {
+					notifyBridge("invokeScopeAction", room.token || roomToken, actionId);
+				},
+				invokeValueChanged: function(actionId, value, final) {
+					notifyBridge("scopeActionValueChanged", room.token || roomToken, actionId, value, final);
+				}
+			})
+			: [];
+		if (roomActionItems.length) {
+			items.push({ separator: true });
+			items.push.apply(items, roomActionItems);
+		}
+
+		if (scope.canMarkRead) {
+			items.push({ separator: true });
+			items.push({
+				label: "Mark read",
+				enabled: true,
+				action: function() {
+					notifyBridge("markRead");
+				}
+			});
+		}
+
+		return items;
+	}
+
 	function buildContextMenuItems(event) {
 		const snapshot = getSnapshot();
 		const scope = snapshot.activeScope || {};
@@ -3620,64 +3709,7 @@
 
 		if (roomRow) {
 			const room = findRoomState(snapshot, roomRow.dataset.scopeToken);
-			const items = [
-				{
-					label: "Open room",
-					enabled: !!roomRow.dataset.scopeToken,
-					action: function() {
-						notifyBridge("selectScope", roomRow.dataset.scopeToken);
-					}
-				},
-				{
-					label: "Join voice",
-					enabled: roomRow.dataset.canJoin === "true",
-					action: function() {
-						notifyBridge("joinVoiceChannel", roomRow.dataset.scopeToken);
-					}
-				}
-			];
-
-			if (room && room.participantSession) {
-				const participantItems = actionItemsFromActionStates(room.participantActions, {
-					invokeAction: function(actionId) {
-						notifyBridge("invokeParticipantAction", room.participantSession, actionId);
-					},
-					invokeValueChanged: function(actionId, value, final) {
-						notifyBridge("participantActionValueChanged", room.participantSession, actionId, value, final);
-					}
-				});
-				if (participantItems.length) {
-					items.push({ separator: true });
-					return items.concat(participantItems);
-				}
-			}
-
-			const roomActionItems = room
-				? actionItemsFromActionStates(room.actions, {
-					invokeAction: function(actionId) {
-						notifyBridge("invokeScopeAction", room.token || roomRow.dataset.scopeToken, actionId);
-					},
-					invokeValueChanged: function(actionId, value, final) {
-						notifyBridge("scopeActionValueChanged", room.token || roomRow.dataset.scopeToken, actionId, value, final);
-					}
-				})
-				: [];
-			if (roomActionItems.length) {
-				items.push({ separator: true });
-				items.push.apply(items, roomActionItems);
-			}
-
-			if (scope.canMarkRead) {
-				items.push({ separator: true });
-				items.push({
-					label: "Mark read",
-					enabled: true,
-					action: function() {
-						notifyBridge("markRead");
-					}
-				});
-			}
-			return items;
+			return buildRoomContextMenuItems(snapshot, room, roomRow);
 		}
 
 		if (bubble) {

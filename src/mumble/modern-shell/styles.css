@@ -2133,6 +2133,7 @@ textarea:focus-visible {
 	opacity: 0.45;
 }
 
+.room-action-button,
 .presence-action-button {
 	display: inline-flex;
 	align-items: center;
@@ -2153,17 +2154,22 @@ textarea:focus-visible {
 		background 120ms ease;
 }
 
+.room-action-button svg,
 .presence-action-button svg {
 	width: 14px;
 	height: 14px;
 	fill: currentColor;
 }
 
+.rail-row:hover .room-action-button,
+.room-action-button:focus-visible,
 .presence-entry:hover .presence-action-button,
 .presence-action-button:focus-visible {
 	opacity: 1;
 }
 
+.room-action-button:hover,
+.room-action-button:focus-visible,
 .presence-action-button:hover,
 .presence-action-button:focus-visible {
 	background: rgba(255, 255, 255, 0.06);

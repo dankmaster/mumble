@@ -5610,21 +5610,29 @@ ModernShellMenuSerializer::ActionDefinition
 				definition.id = QStringLiteral("screenShareOpenWindow");
 			} else if (action == qaChannelAdd) {
 				definition.id = QStringLiteral("add");
+				definition.label = tr("Add room...");
 			} else if (action == qaChannelACL) {
 				definition.id = QStringLiteral("acl");
+				definition.label = tr("Edit room ACL...");
 			} else if (action == qaChannelRemove) {
 				definition.id = QStringLiteral("remove");
+				definition.label = tr("Remove room...");
 				assignTone(QStringLiteral("danger"));
 			} else if (action == qaChannelLink) {
 				definition.id = QStringLiteral("link");
+				definition.label = tr("Link room");
 			} else if (action == qaChannelUnlink) {
 				definition.id = QStringLiteral("unlink");
+				definition.label = tr("Unlink room");
 			} else if (action == qaChannelUnlinkAll) {
 				definition.id = QStringLiteral("unlinkAll");
+				definition.label = tr("Unlink all rooms");
 			} else if (action == qaChannelCopyURL) {
 				definition.id = QStringLiteral("copyUrl");
+				definition.label = tr("Copy room URL");
 			} else if (action == qaChannelSendMessage) {
 				definition.id = QStringLiteral("sendMessage");
+				definition.label = tr("Send room message...");
 			} else if (action == qaChannelHide) {
 				definition.id = QStringLiteral("hide");
 			} else if (action == qaChannelPin) {
@@ -5832,10 +5840,23 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
 		QStringLiteral("self.toggleDeaf"), tr("Self deafen"), qaAudioDeaf->isEnabled(),
 		qaAudioDeaf->isCheckable() && qaAudioDeaf->isChecked()));
-	if (qaSelfRegister && qaSelfRegister->isEnabled()) {
+	if (const ClientUser *user = ClientUser::get(Global::get().uiSession); qaSelfRegister && user) {
 		selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
-		selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
-			QStringLiteral("self.register"), tr("Register on server"), true, false));
+		if (user->iId < 0) {
+			QString registrationHint;
+			if (user->qsHash.isEmpty()) {
+				registrationHint = tr("Connect with a certificate before registering on this server.");
+			} else if (!(Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write))) {
+				registrationHint = tr("The server is not allowing self-registration for this account.");
+			}
+			selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+				QStringLiteral("self.register"), tr("Register on server"), qaSelfRegister->isEnabled(), false,
+				QString(), registrationHint));
+		} else {
+			selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+				QStringLiteral("self.registrationStatus"), tr("Registered on server"), false, false, QString(),
+				tr("This certificate is already registered on this server.")));
+		}
 	}
 	selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
 	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
@@ -14301,8 +14322,22 @@ void MainWindow::on_qmSelf_aboutToShow() {
 
 	qaServerTextureRemove->setEnabled(user && !user->qbaTextureHash.isEmpty());
 
-	qaSelfRegister->setEnabled(user && (user->iId < 0) && !user->qsHash.isEmpty()
-							   && (Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write)));
+	const bool canSelfRegister = user && (user->iId < 0) && !user->qsHash.isEmpty()
+								 && (Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write));
+	qaSelfRegister->setEnabled(canSelfRegister);
+	if (user && user->iId >= 0) {
+		qaSelfRegister->setToolTip(tr("This certificate is already registered on this server."));
+		qaSelfRegister->setStatusTip(qaSelfRegister->toolTip());
+	} else if (user && user->qsHash.isEmpty()) {
+		qaSelfRegister->setToolTip(tr("Connect with a certificate before registering on this server."));
+		qaSelfRegister->setStatusTip(qaSelfRegister->toolTip());
+	} else if (user && !(Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write))) {
+		qaSelfRegister->setToolTip(tr("The server is not allowing self-registration for this account."));
+		qaSelfRegister->setStatusTip(qaSelfRegister->toolTip());
+	} else {
+		qaSelfRegister->setToolTip(QString());
+		qaSelfRegister->setStatusTip(QString());
+	}
 	if (Global::get().sh && Global::get().sh->m_version >= Version::fromComponents(1, 2, 3)) {
 		qaSelfPrioritySpeaker->setEnabled(user && Global::get().pPermissions & (ChanACL::Write | ChanACL::MuteDeafen));
 		qaSelfPrioritySpeaker->setChecked(user && user->bPrioritySpeaker);
@@ -14504,14 +14539,21 @@ void MainWindow::qmUser_aboutToShow() {
 	if (Global::get().sh && Global::get().sh->m_version >= Version::fromComponents(1, 2, 2))
 		qmUser->addAction(qaUserInformation);
 
-	if (p && (p->iId < 0) && !p->qsHash.isEmpty()
-		&& (Global::get().pPermissions & ((isSelf ? ChanACL::SelfRegister : ChanACL::Register) | ChanACL::Write))) {
+	const bool canOfferSelfRegister = isSelf && p && (p->iId < 0);
+	const bool canOfferUserRegister =
+		!isSelf && p && (p->iId < 0) && !p->qsHash.isEmpty()
+		&& (Global::get().pPermissions & (ChanACL::Register | ChanACL::Write));
+	if (canOfferSelfRegister || canOfferUserRegister) {
 		qmUser->addSeparator();
+		qaUserRegister->setEnabled(isSelf ? qaSelfRegister->isEnabled() : !p->qsHash.isEmpty());
 		qmUser->addAction(qaUserRegister);
 	}
 
-	if (p && !p->qsHash.isEmpty() && (!p->qsFriendName.isEmpty() || (p->uiSession != Global::get().uiSession))) {
+	if (p && !isSelf) {
 		qmUser->addSeparator();
+		qaUserFriendAdd->setEnabled(!p->qsHash.isEmpty());
+		qaUserFriendUpdate->setEnabled(!p->qsHash.isEmpty());
+		qaUserFriendRemove->setEnabled(!p->qsHash.isEmpty());
 		if (p->qsFriendName.isEmpty())
 			qmUser->addAction(qaUserFriendAdd);
 		else {
@@ -14832,7 +14874,7 @@ void MainWindow::on_qaUserRegister_triggered() {
 
 void MainWindow::on_qaUserFriendAdd_triggered() {
 	ClientUser *p = getContextMenuUser();
-	if (!p)
+	if (!p || p->qsHash.isEmpty())
 		return;
 
 	Global::get().db->addFriend(p->qsName, p->qsHash);
@@ -14845,7 +14887,7 @@ void MainWindow::on_qaUserFriendUpdate_triggered() {
 
 void MainWindow::on_qaUserFriendRemove_triggered() {
 	ClientUser *p = getContextMenuUser();
-	if (!p)
+	if (!p || p->qsHash.isEmpty())
 		return;
 
 	Global::get().db->removeFriend(p->qsHash);
@@ -17331,6 +17373,18 @@ void MainWindow::selfRegister() {
 	ClientUser *p = ClientUser::get(Global::get().uiSession);
 	if (!p)
 		return;
+	if (p->iId >= 0) {
+		Global::get().l->log(Log::PermissionDenied, tr("You are already registered on this server."));
+		return;
+	}
+	if (p->qsHash.isEmpty()) {
+		Global::get().l->log(Log::PermissionDenied, tr("You need a certificate to perform this operation."));
+		return;
+	}
+	if (!(Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write))) {
+		Global::get().l->log(Log::PermissionDenied, tr("The server is not allowing self-registration for this account."));
+		return;
+	}
 
 	QMessageBox::StandardButton result;
 	result =
