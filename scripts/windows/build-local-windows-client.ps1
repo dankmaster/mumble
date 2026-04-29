@@ -162,13 +162,6 @@ function Invoke-ProcessWithTimeout {
 		[int]$TimeoutSeconds = 180
 	)
 
-	$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-	$startInfo.FileName = $FilePath
-	$startInfo.UseShellExecute = $false
-	$startInfo.RedirectStandardOutput = $true
-	$startInfo.RedirectStandardError = $true
-	$startInfo.CreateNoWindow = $true
-
 	$escapedArguments = foreach ($argument in $Arguments) {
 		if ($argument -notmatch '[\s"]') {
 			$argument
@@ -178,28 +171,52 @@ function Invoke-ProcessWithTimeout {
 			'"' + $escapedArgument + '"'
 		}
 	}
-	$startInfo.Arguments = $escapedArguments -join ' '
+	$argumentLine = $escapedArguments -join ' '
 
-	$process = [System.Diagnostics.Process]::new()
-	$process.StartInfo = $startInfo
+	$tempRoot = if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+		$env:RUNNER_TEMP
+	} else {
+		[System.IO.Path]::GetTempPath()
+	}
+	New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+
+	$outputToken = [Guid]::NewGuid().ToString("N")
+	$stdoutPath = Join-Path $tempRoot "$outputToken.stdout.log"
+	$stderrPath = Join-Path $tempRoot "$outputToken.stderr.log"
 
 	Write-Host "$Description timeout: $TimeoutSeconds seconds"
-	[void]$process.Start()
-	$stdoutTask = $process.StandardOutput.ReadToEndAsync()
-	$stderrTask = $process.StandardError.ReadToEndAsync()
 
-	if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-		& taskkill.exe /PID $process.Id /T /F *> $null
-		throw "$Description timed out after $TimeoutSeconds seconds."
-	}
+	try {
+		$process = Start-Process -FilePath $FilePath -ArgumentList $argumentLine -NoNewWindow -PassThru `
+			-RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
 
-	$stdout = $stdoutTask.GetAwaiter().GetResult()
-	$stderr = $stderrTask.GetAwaiter().GetResult()
+		if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+			& taskkill.exe /PID $process.Id /T /F *> $null
+			throw "$Description timed out after $TimeoutSeconds seconds."
+		}
 
-	return [PSCustomObject]@{
-		ExitCode = $process.ExitCode
-		StdOut   = $stdout
-		StdErr   = $stderr
+		[string]$stdout = ""
+		[string]$stderr = ""
+		if (Test-Path -LiteralPath $stdoutPath) {
+			$content = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+			if ($null -ne $content) {
+				$stdout = $content
+			}
+		}
+		if (Test-Path -LiteralPath $stderrPath) {
+			$content = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+			if ($null -ne $content) {
+				$stderr = $content
+			}
+		}
+
+		return [PSCustomObject]@{
+			ExitCode = $process.ExitCode
+			StdOut   = $stdout
+			StdErr   = $stderr
+		}
+	} finally {
+		Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
 	}
 }
 

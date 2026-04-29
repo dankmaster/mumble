@@ -143,9 +143,19 @@ runs:
       run: |
         choco install ffmpeg -y --no-progress
 
-        $ffmpeg = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+        $chocolateyRoot = if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
+          $env:ChocolateyInstall
+        } else {
+          "C:\ProgramData\chocolatey"
+        }
+        $ffmpeg = Get-ChildItem -Path (Join-Path $chocolateyRoot "lib\ffmpeg") -Recurse -File -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue |
+          Sort-Object -Property @{ Expression = { if ($_.FullName -match "\\tools\\.*\\bin\\ffmpeg\.exe$") { 0 } else { 1 } } }, FullName |
+          Select-Object -First 1
         if (-not $ffmpeg) {
-          $ffmpeg = Get-ChildItem -Path "C:\ProgramData\chocolatey" -Recurse -File -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue |
+          $ffmpeg = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+        }
+        if (-not $ffmpeg) {
+          $ffmpeg = Get-ChildItem -Path $chocolateyRoot -Recurse -File -Filter "ffmpeg.exe" -ErrorAction SilentlyContinue |
             Sort-Object -Property FullName |
             Select-Object -First 1
         }
