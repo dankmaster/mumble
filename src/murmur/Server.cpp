@@ -558,10 +558,12 @@ void Server::readParams() {
 
 	QString regex = qrUserName.pattern();
 	m_dbWrapper.getConfigurationTo(iServerNum, "username", regex);
-	qrUserName = QRegularExpression(QRegularExpression::anchoredPattern(std::move(regex)));
+	qrUserName = QRegularExpression(QRegularExpression::anchoredPattern(regex),
+									QRegularExpression::UseUnicodePropertiesOption);
 	regex      = qrChannelName.pattern();
 	m_dbWrapper.getConfigurationTo(iServerNum, "channelname", regex);
-	qrChannelName = QRegularExpression(QRegularExpression::anchoredPattern(std::move(regex)));
+	qrChannelName = QRegularExpression(QRegularExpression::anchoredPattern(regex),
+									   QRegularExpression::UseUnicodePropertiesOption);
 
 	m_dbWrapper.getConfigurationTo(iServerNum, "messagelimit", iMessageLimit);
 	if (iMessageLimit < 1) { // Prevent disabling messages entirely
@@ -983,9 +985,11 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 	else if (key == "rollingStatsWindow")
 		rollingStatsWindow = i ? static_cast< unsigned int >(i) : Meta::mp->rollingStatsWindow;
 	else if (key == "username")
-		qrUserName = !v.isNull() ? QRegularExpression(v) : Meta::mp->qrUserName;
+		qrUserName =
+			!v.isNull() ? QRegularExpression(v, QRegularExpression::UseUnicodePropertiesOption) : Meta::mp->qrUserName;
 	else if (key == "channelname")
-		qrChannelName = !v.isNull() ? QRegularExpression(v) : Meta::mp->qrChannelName;
+		qrChannelName =
+			!v.isNull() ? QRegularExpression(v, QRegularExpression::UseUnicodePropertiesOption) : Meta::mp->qrChannelName;
 	else if (key == "suggestversion")
 		m_suggestVersion = !v.isNull() ? Version::fromConfig(v) : Meta::mp->m_suggestVersion;
 	else if (key == "suggestpositional")

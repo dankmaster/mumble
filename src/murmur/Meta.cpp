@@ -108,8 +108,10 @@ MetaParams::MetaParams() {
 	iChannelNestingLimit = 10;
 	iChannelCountLimit   = 1000;
 
-	qrUserName    = QRegularExpression(QLatin1String("[ -=\\w\\[\\]\\{\\}\\(\\)\\@\\|\\.]+"));
-	qrChannelName = QRegularExpression(QLatin1String("[ -=\\w\\#\\[\\]\\{\\}\\(\\)\\@\\|]+"));
+	qrUserName = QRegularExpression(QLatin1String("[ -=\\w\\[\\]\\{\\}\\(\\)\\@\\|\\.]+"),
+									 QRegularExpression::UseUnicodePropertiesOption);
+	qrChannelName = QRegularExpression(QLatin1String("[ -=\\w\\#\\[\\]\\{\\}\\(\\)\\@\\|]+"),
+									   QRegularExpression::UseUnicodePropertiesOption);
 
 	iMessageLimit = 1;
 	iMessageBurst = 5;
@@ -426,8 +428,10 @@ void MetaParams::read(QString fname) {
 	}
 #endif
 
-	qrUserName    = QRegularExpression(typeCheckedFromSettings("username", qrUserName.pattern()));
-	qrChannelName = QRegularExpression(typeCheckedFromSettings("channelname", qrChannelName.pattern()));
+	qrUserName = QRegularExpression(typeCheckedFromSettings("username", qrUserName.pattern()),
+									QRegularExpression::UseUnicodePropertiesOption);
+	qrChannelName = QRegularExpression(typeCheckedFromSettings("channelname", qrChannelName.pattern()),
+									   QRegularExpression::UseUnicodePropertiesOption);
 
 	iMessageLimit = typeCheckedFromSettings< unsigned int >("messagelimit", 1);
 	iMessageBurst = typeCheckedFromSettings< unsigned int >("messageburst", 5);
