@@ -228,6 +228,28 @@ function Copy-SharedEnvironmentRuntime {
 	}
 }
 
+function Copy-SharedQtOpenSslBackend {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$StageRoot,
+
+		[Parameter(Mandatory = $true)]
+		[string]$EnvironmentRoot,
+
+		[Parameter(Mandatory = $true)]
+		[string]$Triplet
+	)
+
+	$openSslBackend = Join-Path $EnvironmentRoot "installed\$Triplet\Qt6\plugins\tls\qopensslbackend.dll"
+	if (-not (Test-Path -LiteralPath $openSslBackend)) {
+		throw "Qt OpenSSL TLS backend is missing from the shared environment: '$openSslBackend'."
+	}
+
+	$stageTlsRoot = Join-Path $StageRoot "tls"
+	New-Item -ItemType Directory -Force -Path $stageTlsRoot | Out-Null
+	Copy-Item -LiteralPath $openSslBackend -Destination (Join-Path $stageTlsRoot "qopensslbackend.dll") -Force
+}
+
 function Write-SharedQtConf {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -323,7 +345,8 @@ function Assert-SharedWebEngineDeployment {
 		@{ Description = "QtWebEngineProcess.exe"; Filter = "QtWebEngineProcess.exe"; Directory = $false },
 		@{ Description = "Qt WebEngine ICU payload"; Filter = "icudtl.dat"; Directory = $false },
 		@{ Description = "Qt WebEngine resource pack"; Filter = "qtwebengine_resources*.pak"; Directory = $false },
-		@{ Description = "Qt WebEngine locale payload"; Filter = "qtwebengine_locales"; Directory = $true }
+		@{ Description = "Qt WebEngine locale payload"; Filter = "qtwebengine_locales"; Directory = $true },
+		@{ Description = "Qt OpenSSL TLS backend"; Filter = "qopensslbackend.dll"; Directory = $false }
 	)
 
 	$missing = New-Object System.Collections.Generic.List[string]
@@ -443,6 +466,7 @@ function Invoke-SharedWindowsPackaging {
 		throw "windeployqt failed for staged shared WebEngine payload."
 	}
 	Copy-SharedEnvironmentRuntime -StageRoot $stageRoot -EnvironmentRoot $env:MUMBLE_ENVIRONMENT_DIR -Triplet $env:MUMBLE_VCPKG_TRIPLET
+	Copy-SharedQtOpenSslBackend -StageRoot $stageRoot -EnvironmentRoot $env:MUMBLE_ENVIRONMENT_DIR -Triplet $env:MUMBLE_VCPKG_TRIPLET
 	Write-SharedQtConf -StageRoot $stageRoot
 	Assert-SharedWebEngineDeployment -StageRoot $stageRoot
 

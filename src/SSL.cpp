@@ -15,6 +15,13 @@
 #include <openssl/ssl.h>
 
 void MumbleSSL::initialize() {
+	const auto openSslBackend = QLatin1String("openssl");
+	if (QSslSocket::availableBackends().contains(openSslBackend) && QSslSocket::activeBackend() != openSslBackend) {
+		if (!QSslSocket::setActiveBackend(openSslBackend)) {
+			qWarning("SSL: Failed to select Qt OpenSSL backend");
+		}
+	}
+
 	// Let Qt initialize its copy of OpenSSL, if it's different than
 	// Mumble's. (Initialization is a side-effect of calling
 	// QSslSocket::supportsSsl()).
