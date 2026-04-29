@@ -3567,6 +3567,7 @@
 	function buildRoomContextMenuItems(snapshot, room, roomRow) {
 		const scope = (snapshot && snapshot.activeScope) || {};
 		const roomToken = (room && room.token) || (roomRow && roomRow.dataset.scopeToken) || "";
+		const isVoiceRoom = roomRow && roomRow.dataset.roomType === "voice";
 		const items = [
 			{
 				label: "Open room",
@@ -3574,15 +3575,18 @@
 				action: function() {
 					notifyBridge("selectScope", roomToken);
 				}
-			},
-			{
+			}
+		];
+
+		if (isVoiceRoom) {
+			items.push({
 				label: "Join voice",
 				enabled: roomRow && roomRow.dataset.canJoin === "true",
 				action: function() {
 					notifyBridge("joinVoiceChannel", roomToken);
 				}
-			}
-		];
+			});
+		}
 
 		if (room && room.participantSession) {
 			const participantItems = actionItemsFromActionStates(room.participantActions, {

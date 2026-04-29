@@ -5932,7 +5932,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		restoreModernShellInputState();
 		return actions;
 	};
-	const auto buildChannelActions = [this, restoreModernShellInputState](Channel *channel, bool allowScreenShare) {
+	const auto buildChannelActions = [this, restoreModernShellInputState](Channel *channel, bool voiceRoomContext) {
 		QVariantList actions;
 		if (!channel) {
 			return actions;
@@ -5947,12 +5947,13 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		qpContextPosition = QPoint();
 		qmChannel_aboutToShow();
 		actions = serializeModernShellMenu(qmChannel, ModernShellMenuContext::Scope);
-		if (!allowScreenShare) {
+		if (!voiceRoomContext) {
 			QVariantList filteredActions;
 			for (const QVariant &actionVariant : actions) {
 				const QVariantMap action = actionVariant.toMap();
 				const QString actionID   = action.value(QStringLiteral("id")).toString();
-				if (actionID == QLatin1String("screenShareStart") || actionID == QLatin1String("screenShareStop")
+				if (actionID == QLatin1String("join") || actionID == QLatin1String("listen")
+					|| actionID == QLatin1String("screenShareStart") || actionID == QLatin1String("screenShareStop")
 					|| actionID == QLatin1String("screenShareWatch")
 					|| actionID == QLatin1String("screenShareStopWatching")
 					|| actionID == QLatin1String("screenShareOpenWindow")) {
@@ -6722,6 +6723,10 @@ bool MainWindow::handleModernShellScopeAction(const QString &scopeToken, const Q
 
 	const QString normalizedActionID = actionId.trimmed();
 	if (normalizedActionID.isEmpty()) {
+		return false;
+	}
+	if (scopeValue != static_cast< int >(MumbleProto::Channel)
+		&& (normalizedActionID == QLatin1String("join") || normalizedActionID == QLatin1String("listen"))) {
 		return false;
 	}
 	if (normalizedActionID == QLatin1String("screenShareStart")) {
