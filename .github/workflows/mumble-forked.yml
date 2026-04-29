@@ -140,12 +140,12 @@ jobs:
               [string]$Tag
             )
 
-            $remoteRows = @(git ls-remote origin "refs/tags/$Tag" "refs/tags/$Tag^{}" 2>$null)
+            $remoteRows = @(git ls-remote origin "refs/tags/${Tag}" "refs/tags/${Tag}^{}" 2>$null)
             if ($LASTEXITCODE -ne 0 -or $remoteRows.Count -eq 0) {
               return ""
             }
 
-            git fetch --force --no-tags origin "refs/tags/$Tag:refs/tags/$Tag" 2>$null
+            git fetch --force --no-tags origin "refs/tags/${Tag}:refs/tags/${Tag}" 2>$null
             if ($LASTEXITCODE -ne 0) {
               Write-Warning "Unable to fetch previous '$Tag' tag locally; changelog will start from this build."
               return ""
