@@ -80,6 +80,7 @@
 #include "Global.h"
 
 #ifdef Q_OS_WIN
+#	include "win.h"
 #	include "TaskList.h"
 #endif
 
@@ -253,43 +254,6 @@ void clearConnectedStateWithoutUserModel() {
 
 QString modernShellScopeToken(const int scopeValue, const unsigned int scopeID) {
 	return QStringLiteral("%1:%2").arg(scopeValue).arg(scopeID);
-}
-
-QList< unsigned int > sortedDirectMessageSessions() {
-	struct DirectMessageCandidate {
-		unsigned int session = 0;
-		QString sortKey;
-	};
-
-	QList< DirectMessageCandidate > candidates;
-	{
-		QReadLocker locker(&ClientUser::c_qrwlUsers);
-		for (auto it = ClientUser::c_qmUsers.cbegin(); it != ClientUser::c_qmUsers.cend(); ++it) {
-			const ClientUser *user = it.value();
-			if (!user || user->uiSession == Global::get().uiSession) {
-				continue;
-			}
-
-			candidates.push_back({ user->uiSession, user->qsName.toCaseFolded() });
-		}
-	}
-
-	std::sort(candidates.begin(), candidates.end(),
-			  [](const DirectMessageCandidate &lhs, const DirectMessageCandidate &rhs) {
-				  if (lhs.sortKey != rhs.sortKey) {
-					  return lhs.sortKey < rhs.sortKey;
-				  }
-
-				  return lhs.session < rhs.session;
-			  });
-
-	QList< unsigned int > sessions;
-	sessions.reserve(candidates.size());
-	for (const DirectMessageCandidate &candidate : candidates) {
-		sessions.push_back(candidate.session);
-	}
-
-	return sessions;
 }
 
 QString modernShellParticipantSubtitle(const ClientUser *user, const Channel *contextChannel, const ClientUser *self,
@@ -1456,14 +1420,18 @@ public:
 		const int scopeValue         = index.data(PersistentChatScopeRole).toInt();
 		const bool utilityRow =
 			scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::ServerGlobal);
-		const bool textChannelRow  = scopeValue == static_cast< int >(MumbleProto::TextChannel);
-		const bool voiceChannelRow = scopeValue == static_cast< int >(MumbleProto::Channel);
+		const bool textChannelRow   = scopeValue == static_cast< int >(MumbleProto::TextChannel);
+		const bool directMessageRow = scopeValue == LocalDirectMessageScope;
+		const bool voiceChannelRow  = scopeValue == static_cast< int >(MumbleProto::Channel);
 		static const QIcon s_voiceRoomIcon(QLatin1String("skin:priority_speaker.svg"));
 
 		QString chipText = QStringLiteral("#");
 		switch (scopeValue) {
 			case LocalServerLogScope:
 				chipText = QObject::tr("LOG");
+				break;
+			case LocalDirectMessageScope:
+				chipText = QObject::tr("DM");
 				break;
 			case static_cast< int >(MumbleProto::ServerGlobal):
 				chipText = QObject::tr("ALL");
@@ -1487,8 +1455,9 @@ public:
 			}
 			const QColor textColor =
 				selected ? tokens->textPrimary
-						 : ((hovered || unreadCount > 0 || utilityRow || voiceChannelRow) ? tokens->textPrimary
-																						  : tokens->textSecondary);
+						 : ((hovered || unreadCount > 0 || utilityRow || voiceChannelRow || directMessageRow)
+								? tokens->textPrimary
+								: tokens->textSecondary);
 			const QColor secondaryTextColor = selected ? textColor : tokens->textMuted;
 			const QColor unreadFillColor    = tokens->accentSubtle;
 			const QColor unreadTextColor    = tokens->accent;
@@ -1824,6 +1793,8 @@ QString normalizedPersistentChatText(QString text) {
 
 constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH  = 480;
 constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT = 320;
+constexpr qint64 PERSISTENT_CHAT_INLINE_DATA_IMAGE_RAW_INLINE_MAX_BYTES = 64 * 1024;
+constexpr qint64 PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES  = 50 * 1024 * 1024;
 
 QSize persistentChatInlineImageDisplaySize(const QSize &sourceSize) {
 	if (!sourceSize.isValid() || sourceSize.isEmpty()) {
@@ -2080,6 +2051,17 @@ QByteArray persistentChatInlineDataImageBytes(const QString &source, const Persi
 }
 
 QImage persistentChatInlineDataImagePreviewImage(const QString &source, const PersistentChatInlineDataImageInfo &info) {
+	if (info.estimatedBytes > PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES) {
+		if (mumble::chatperf::enabled()) {
+			mumble::chatperf::recordNote(
+				"chat.inline_data_image.thumbnail_skipped",
+				QString::fromLatin1("estimated=%1 max=%2")
+					.arg(info.estimatedBytes)
+					.arg(PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES));
+		}
+		return QImage();
+	}
+
 	const QByteArray bytes = persistentChatInlineDataImageBytes(source, info);
 	if (bytes.isEmpty()) {
 		return QImage();
@@ -2180,7 +2162,9 @@ QString persistentChatInlineDataImagePlaceholderHtml(const PersistentChatInlineD
 							  ? altText.trimmed().toHtmlEscaped()
 							  : QObject::tr("Embedded %1 image").arg(info.formatLabel).toHtmlEscaped();
 
-	QString detail = QObject::tr("Inline render skipped for performance");
+	QString detail = info.estimatedBytes > PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES
+						 ? QObject::tr("Large image attachment")
+						 : QObject::tr("Image attachment");
 	if (const QString sizeLabel = persistentChatInlineDataImageSizeLabel(info.estimatedBytes); !sizeLabel.isEmpty()) {
 		detail += QString::fromLatin1(" (%1)").arg(sizeLabel);
 	}
@@ -2223,8 +2207,6 @@ QString normalizePersistentChatInlineImages(
 	static const QRegularExpression s_stylePattern(QLatin1String("\\bstyle\\s*=\\s*(['\"])(.*?)\\1"),
 												   QRegularExpression::CaseInsensitiveOption
 													   | QRegularExpression::DotMatchesEverythingOption);
-	constexpr qint64 PersistentChatInlineDataImageInlineMaxBytes = 64 * 1024;
-
 	QString normalizedHtml;
 	normalizedHtml.reserve(html.size() + 128);
 	int lastOffset = 0;
@@ -2239,9 +2221,10 @@ QString normalizePersistentChatInlineImages(
 		if (srcMatch.hasMatch()) {
 			const PersistentChatInlineDataImageInfo dataImageInfo =
 				persistentChatInlineDataImageInfo(srcMatch.captured(2));
-			if (dataImageInfo.valid
-				&& (dataImageInfo.estimatedBytes < 0
-					|| dataImageInfo.estimatedBytes > PersistentChatInlineDataImageInlineMaxBytes)) {
+			const bool shouldUseReplacement =
+				buildInlineDataImageReplacement || dataImageInfo.estimatedBytes < 0
+				|| dataImageInfo.estimatedBytes > PERSISTENT_CHAT_INLINE_DATA_IMAGE_RAW_INLINE_MAX_BYTES;
+			if (dataImageInfo.valid && shouldUseReplacement) {
 				const QRegularExpressionMatch altMatch = s_altPattern.match(tag);
 				const QString altText                  = altMatch.hasMatch() ? altMatch.captured(2) : QString();
 				const QString replacementHtml =
@@ -3541,9 +3524,9 @@ MainWindow::MainWindow(QWidget *p)
 	qaServerSettings->setToolTip(tr("Change server settings for connected clients"));
 	qaServerSettings->setWhatsThis(tr("This opens server settings that are applied live and saved on the server."));
 	connect(qaServerSettings, &QAction::triggered, this, &MainWindow::on_qaServerSettings_triggered);
-	qaCreateTextRoom = new QAction(tr("Create Text Room..."), this);
-	qaCreateTextRoom->setToolTip(tr("Create a persistent text room on this server"));
-	qaCreateTextRoom->setWhatsThis(tr("This creates a named text room and saves it on the server."));
+	qaCreateTextRoom = new QAction(tr("Create Room..."), this);
+	qaCreateTextRoom->setToolTip(tr("Create a voice room or persistent text room on this server"));
+	qaCreateTextRoom->setWhatsThis(tr("This creates a voice room or named text room and saves it on the server."));
 	connect(qaCreateTextRoom, &QAction::triggered, this, &MainWindow::on_qaCreateTextRoom_triggered);
 	qaUserRemoteSpeechCleanup = new QAction(tr("Remote Speech Cleanup"), this);
 	qaUserRemoteSpeechCleanup->setCheckable(true);
@@ -4384,8 +4367,8 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorCreateTextChannelButton = new QToolButton(m_serverNavigatorTextChannelsFrame);
 	m_serverNavigatorCreateTextChannelButton->setObjectName(QLatin1String("qtbServerNavigatorCreateTextRoom"));
 	m_serverNavigatorCreateTextChannelButton->setAutoRaise(true);
-	m_serverNavigatorCreateTextChannelButton->setToolTip(tr("Create text room"));
-	m_serverNavigatorCreateTextChannelButton->setAccessibleName(tr("Create text room"));
+	m_serverNavigatorCreateTextChannelButton->setToolTip(tr("Create room"));
+	m_serverNavigatorCreateTextChannelButton->setAccessibleName(tr("Create room"));
 	m_serverNavigatorCreateTextChannelButton->setIcon(createTextRoomIcon);
 	m_serverNavigatorCreateTextChannelButton->setIconSize(textChannelAdminIconSize);
 	m_serverNavigatorCreateTextChannelButton->setFixedSize(22, 22);
@@ -5378,6 +5361,15 @@ void MainWindow::queueModernShellSnapshotSync() {
 		return;
 	}
 
+	if (m_nativeWindowMoveResizeActive) {
+		m_modernShellSnapshotPendingAfterNativeMoveResize = true;
+		if (m_modernShellSyncTimer->isActive()) {
+			m_modernShellSyncTimer->stop();
+		}
+		appendModernShellConnectTrace(QStringLiteral("queueModernShellSnapshotSync deferred-window-move"));
+		return;
+	}
+
 	if (m_modernShellSyncTimer->isActive()) {
 		appendModernShellConnectTrace(QStringLiteral("queueModernShellSnapshotSync coalesced remaining=%1")
 										  .arg(m_modernShellSyncTimer->remainingTime()));
@@ -5399,6 +5391,12 @@ void MainWindow::syncModernShellSnapshot() {
 		return;
 	}
 
+	if (m_nativeWindowMoveResizeActive) {
+		m_modernShellSnapshotPendingAfterNativeMoveResize = true;
+		appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot deferred-window-move"));
+		return;
+	}
+
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot enter"));
 	const QVariantMap snapshot    = buildModernShellSnapshot();
 	const QVariantList textRooms  = snapshot.value(QStringLiteral("textRooms")).toList();
@@ -5411,6 +5409,34 @@ void MainWindow::syncModernShellSnapshot() {
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot before-setSnapshot"));
 	m_modernShellHost->bridge()->setSnapshot(snapshot);
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot after-setSnapshot"));
+#endif
+}
+
+void MainWindow::beginNativeWindowMoveOrResize() {
+	if (m_nativeWindowMoveResizeActive) {
+		return;
+	}
+
+	m_nativeWindowMoveResizeActive = true;
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	if (m_modernShellSyncTimer && m_modernShellSyncTimer->isActive()) {
+		m_modernShellSyncTimer->stop();
+		m_modernShellSnapshotPendingAfterNativeMoveResize = true;
+	}
+#endif
+}
+
+void MainWindow::endNativeWindowMoveOrResize() {
+	if (!m_nativeWindowMoveResizeActive) {
+		return;
+	}
+
+	m_nativeWindowMoveResizeActive = false;
+#if defined(MUMBLE_HAS_MODERN_LAYOUT)
+	if (m_modernShellSnapshotPendingAfterNativeMoveResize) {
+		m_modernShellSnapshotPendingAfterNativeMoveResize = false;
+		queueModernShellSnapshotSync();
+	}
 #endif
 }
 
@@ -5445,6 +5471,8 @@ ModernShellMenuSerializer::ActionDefinition
 			} else if (action == qaServerDisconnect) {
 				definition.id = QStringLiteral("server.disconnect");
 				assignTone(QStringLiteral("danger"));
+			} else if (action == qaCreateTextRoom) {
+				definition.id = QStringLiteral("server.createRoom");
 			} else if (action == qaServerInformation) {
 				definition.id = QStringLiteral("server.information");
 			} else if (action == qaServerAddToFavorites) {
@@ -5610,7 +5638,7 @@ ModernShellMenuSerializer::ActionDefinition
 				definition.id = QStringLiteral("screenShareOpenWindow");
 			} else if (action == qaChannelAdd) {
 				definition.id = QStringLiteral("add");
-				definition.label = tr("Add room...");
+				definition.label = tr("Create room...");
 			} else if (action == qaChannelACL) {
 				definition.id = QStringLiteral("acl");
 				definition.label = tr("Edit room ACL...");
@@ -6278,7 +6306,10 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			const qulonglong unreadRaw = item->data(PersistentChatUnreadRole).toULongLong();
 			const QString itemToolTip  = item->toolTip();
 			const bool selectedScope   = (target.serverLog && scopeValue == LocalServerLogScope)
-									   || (!target.serverLog && target.valid && target.scopeID == scopeID
+									   || (target.directMessage && target.user && scopeValue == LocalDirectMessageScope
+										   && target.user->uiSession == scopeID)
+									   || (!target.serverLog && !target.directMessage && target.valid
+										   && target.scopeID == scopeID
 										   && scopeValue == static_cast< int >(target.scope));
 
 			if (scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::TextChannel)
@@ -6420,9 +6451,13 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 		scopeMeta.push_back(tr("Read-only"));
 	}
 
+	const int activeScopeValue =
+		target.serverLog ? LocalServerLogScope
+						 : (target.directMessage ? LocalDirectMessageScope : static_cast< int >(target.scope));
+	const unsigned int activeScopeID =
+		target.directMessage && target.user ? target.user->uiSession : target.scopeID;
 	activeScope.insert(QStringLiteral("kindLabel"), kindLabel);
-	activeScope.insert(QStringLiteral("scopeToken"),
-					   modernShellScopeToken(static_cast< int >(target.scope), target.scopeID));
+	activeScope.insert(QStringLiteral("scopeToken"), modernShellScopeToken(activeScopeValue, activeScopeID));
 	activeScope.insert(QStringLiteral("label"), target.label.isEmpty() ? tr("No room selected") : target.label);
 	activeScope.insert(QStringLiteral("description"), scopeDescription);
 	activeScope.insert(QStringLiteral("banner"), target.statusMessage);
@@ -6532,8 +6567,32 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			} else if (deletedMessage) {
 				bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 			} else {
-				bodyHtml = message.has_body_text() ? persistentChatMessageBodyHtml(message)
-												   : persistentChatContentHtml(persistentChatMessageRawBody(message));
+				const auto buildModernInlineDataImageReplacement =
+					[this](const QString &source, const QString &altText,
+						   const PersistentChatInlineDataImageInfo &info) {
+						const QString token = registerPersistentChatInlineDataImageSource(source);
+						const QString openHref =
+							persistentChatInlineDataImageOpenUrl(token).toString(QUrl::FullyEncoded);
+						const QImage previewImage = persistentChatInlineDataImagePreviewImage(source, info);
+						if (previewImage.isNull()) {
+							mumble::chatperf::recordValue("chat.inline_data_image.modern_preview_failed", 1);
+							return persistentChatInlineDataImagePlaceholderHtml(info, altText, openHref);
+						}
+
+						const QString thumbnailSource = persistentChatInlineDataImageThumbnailSource(previewImage);
+						if (thumbnailSource.isEmpty()) {
+							mumble::chatperf::recordValue("chat.inline_data_image.modern_thumbnail_failed", 1);
+							return persistentChatInlineDataImagePlaceholderHtml(info, altText, openHref);
+						}
+
+						mumble::chatperf::recordValue("chat.inline_data_image.modern_preview_ready", 1);
+						return persistentChatInlineDataImageThumbnailHtml(thumbnailSource, openHref, altText,
+																		  previewImage.size(), info.estimatedBytes);
+					};
+				bodyHtml = message.has_body_text()
+							   ? persistentChatMessageBodyHtml(message, buildModernInlineDataImageReplacement)
+							   : persistentChatContentHtml(persistentChatMessageRawBody(message),
+														   buildModernInlineDataImageReplacement);
 				bodyHtml = persistentChatCondensedBodyHtml(bodyHtml, bodyText);
 			}
 			if (!deletedMessage && message.has_edited_at() && message.edited_at() > 0) {
@@ -6874,17 +6933,27 @@ bool MainWindow::handleModernShellParticipantMessage(const qulonglong session) {
 		return false;
 	}
 
-	if (QListWidgetItem *item =
-			findPersistentChatChannelItem(LocalDirectMessageScope, static_cast< unsigned int >(session))) {
+	if (session == 0 || session > std::numeric_limits< unsigned int >::max()
+		|| session == Global::get().uiSession) {
+		return false;
+	}
+
+	const unsigned int targetSession = static_cast< unsigned int >(session);
+	if (!ClientUser::get(targetSession)) {
+		return false;
+	}
+
+	if (QListWidgetItem *item = findPersistentChatChannelItem(LocalDirectMessageScope, targetSession)) {
 		setPersistentChatTargetUsesVoiceTree(false);
 		cachePersistentChatChannelSelection(item);
 		m_persistentChatChannelList->setCurrentItem(item);
 		return true;
 	}
 
+	m_persistentChatSelectedScopeValue = LocalDirectMessageScope;
+	m_persistentChatSelectedScopeID    = targetSession;
 	rebuildPersistentChatChannelList();
-	if (QListWidgetItem *item =
-			findPersistentChatChannelItem(LocalDirectMessageScope, static_cast< unsigned int >(session))) {
+	if (QListWidgetItem *item = findPersistentChatChannelItem(LocalDirectMessageScope, targetSession)) {
 		setPersistentChatTargetUsesVoiceTree(false);
 		cachePersistentChatChannelSelection(item);
 		m_persistentChatChannelList->setCurrentItem(item);
@@ -9298,7 +9367,10 @@ void MainWindow::rebuildPersistentChatChannelList() {
 
 	int previousScopeValue       = static_cast< int >(MumbleProto::TextChannel);
 	unsigned int previousScopeID = m_defaultPersistentTextChannelID;
-	if (const QListWidgetItem *currentItem = persistentChatChannelListCurrentItem(); currentItem) {
+	if (m_persistentChatSelectedScopeValue.has_value()) {
+		previousScopeValue = *m_persistentChatSelectedScopeValue;
+		previousScopeID    = m_persistentChatSelectedScopeID;
+	} else if (const QListWidgetItem *currentItem = persistentChatChannelListCurrentItem(); currentItem) {
 		previousScopeValue = currentItem->data(PersistentChatScopeRole).toInt();
 		previousScopeID    = currentItem->data(PersistentChatScopeIDRole).toUInt();
 	}
@@ -9359,14 +9431,14 @@ void MainWindow::rebuildPersistentChatChannelList() {
 		item->setToolTip(textChannel.description.isEmpty() ? tr("Persistent text channel") : textChannel.description);
 	}
 
-	for (const unsigned int session : sortedDirectMessageSessions()) {
-		QListWidgetItem *item = new QListWidgetItem(m_persistentChatChannelList);
-		item->setData(PersistentChatScopeRole, LocalDirectMessageScope);
-		item->setData(PersistentChatScopeIDRole, session);
-		if (const ClientUser *user = ClientUser::get(session); user) {
-			item->setToolTip(tr("Classic direct message with %1.").arg(user->qsName));
-		} else {
-			item->setToolTip(tr("Classic direct message"));
+	if (previousScopeValue == LocalDirectMessageScope && previousScopeID != 0
+		&& previousScopeID != Global::get().uiSession) {
+		const ClientUser *user = ClientUser::get(previousScopeID);
+		if (user) {
+			QListWidgetItem *item = new QListWidgetItem(m_persistentChatChannelList);
+			item->setData(PersistentChatScopeRole, LocalDirectMessageScope);
+			item->setData(PersistentChatScopeIDRole, previousScopeID);
+			item->setToolTip(tr("Direct message with %1.").arg(user->qsName));
 		}
 	}
 
@@ -9772,6 +9844,63 @@ void MainWindow::updatePersistentChatScopeSelectorLabels() {
 	}
 }
 
+bool MainWindow::canCreateVoiceRoom(Channel *channel) const {
+	if (!channel || !Global::get().sh || !Global::get().sh->isRunning() || Global::get().uiSession == 0) {
+		return false;
+	}
+
+	ChanACL::Permissions permissions = static_cast< ChanACL::Permissions >(channel->uiPermissions);
+	if (!permissions) {
+		Global::get().sh->requestChannelPermissions(channel->iId);
+		permissions = channel->iId == Mumble::ROOT_CHANNEL_ID ? Global::get().pPermissions : ChanACL::All;
+		channel->uiPermissions = permissions;
+	}
+
+	return permissions & (ChanACL::Write | ChanACL::MakeChannel | ChanACL::MakeTempChannel);
+}
+
+bool MainWindow::canCreateAnyVoiceRoom() const {
+	QList< Channel * > channels = Channel::c_qhChannels.values();
+	std::sort(channels.begin(), channels.end(), [](const Channel *lhs, const Channel *rhs) {
+		if (lhs == rhs) {
+			return false;
+		}
+		if (!lhs || !rhs) {
+			return lhs != nullptr;
+		}
+		if (lhs->iId == Mumble::ROOT_CHANNEL_ID || rhs->iId == Mumble::ROOT_CHANNEL_ID) {
+			return lhs->iId == Mumble::ROOT_CHANNEL_ID;
+		}
+		return persistentTextAclChannelLabel(lhs).localeAwareCompare(persistentTextAclChannelLabel(rhs)) < 0;
+	});
+
+	for (Channel *channel : channels) {
+		if (canCreateVoiceRoom(channel)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool MainWindow::voiceRoomCreationForcesTemporary(Channel *channel) const {
+	if (!channel) {
+		return false;
+	}
+
+	ChanACL::Permissions permissions = static_cast< ChanACL::Permissions >(channel->uiPermissions);
+	if (!permissions) {
+		canCreateVoiceRoom(channel);
+		permissions = static_cast< ChanACL::Permissions >(channel->uiPermissions);
+	}
+
+	return (permissions & ChanACL::Cached) && !(permissions & (ChanACL::Write | ChanACL::MakeChannel));
+}
+
+bool MainWindow::canCreateTextRoom() const {
+	return canManagePersistentTextChannels() && hasPersistentChatCapabilities();
+}
+
 bool MainWindow::canManagePersistentTextChannels() const {
 	return Global::get().sh && Global::get().sh->isRunning() && (Global::get().pPermissions & ChanACL::Write);
 }
@@ -9794,9 +9923,228 @@ std::optional< MainWindow::PersistentTextChannel > MainWindow::selectedPersisten
 	return *it;
 }
 
+void MainWindow::createRoom(RoomCreateType preferredType, Channel *preferredVoiceParent) {
+	if (!preferredVoiceParent) {
+		preferredVoiceParent = selectedVoiceTreeChannel();
+	}
+	if (!preferredVoiceParent) {
+		preferredVoiceParent = Channel::get(Mumble::ROOT_CHANNEL_ID);
+	}
+
+	QList< Channel * > channels = Channel::c_qhChannels.values();
+	std::sort(channels.begin(), channels.end(), [](const Channel *lhs, const Channel *rhs) {
+		if (lhs == rhs) {
+			return false;
+		}
+		if (!lhs || !rhs) {
+			return lhs != nullptr;
+		}
+		if (lhs->iId == Mumble::ROOT_CHANNEL_ID || rhs->iId == Mumble::ROOT_CHANNEL_ID) {
+			return lhs->iId == Mumble::ROOT_CHANNEL_ID;
+		}
+		return persistentTextAclChannelLabel(lhs).localeAwareCompare(persistentTextAclChannelLabel(rhs)) < 0;
+	});
+
+	const bool textAvailable = canCreateTextRoom();
+
+	QDialog dialog(this);
+	dialog.setWindowTitle(tr("Create room"));
+
+	QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+	QFormLayout *formLayout = new QFormLayout();
+	layout->addLayout(formLayout);
+
+	QComboBox *typeCombo = new QComboBox(&dialog);
+	QComboBox *voiceParentCombo = new QComboBox(&dialog);
+	for (Channel *channel : channels) {
+		if (!channel || !canCreateVoiceRoom(channel)) {
+			continue;
+		}
+		voiceParentCombo->addItem(persistentTextAclChannelLabel(channel), channel->iId);
+	}
+
+	const bool voiceAvailable = voiceParentCombo->count() > 0;
+	if (!voiceAvailable && !textAvailable) {
+		return;
+	}
+
+	if (voiceAvailable) {
+		typeCombo->addItem(tr("Voice room"), static_cast< int >(RoomCreateType::Voice));
+	}
+	if (textAvailable) {
+		typeCombo->addItem(tr("Text room"), static_cast< int >(RoomCreateType::Text));
+	}
+	const int preferredTypeIndex = typeCombo->findData(static_cast< int >(preferredType));
+	typeCombo->setCurrentIndex(preferredTypeIndex >= 0 ? preferredTypeIndex : 0);
+	formLayout->addRow(tr("Type"), typeCombo);
+
+	QLineEdit *nameEdit = new QLineEdit(&dialog);
+	nameEdit->setPlaceholderText(tr("general"));
+	formLayout->addRow(tr("Name"), nameEdit);
+
+	RichTextEditor *descriptionEdit = new RichTextEditor(&dialog);
+	descriptionEdit->setMinimumHeight(116);
+	descriptionEdit->setText(QString());
+	formLayout->addRow(tr("Topic"), descriptionEdit);
+
+	QGroupBox *advancedGroup = new QGroupBox(tr("Advanced"), &dialog);
+	advancedGroup->setCheckable(true);
+	advancedGroup->setChecked(false);
+	QVBoxLayout *advancedGroupLayout = new QVBoxLayout(advancedGroup);
+	QFrame *advancedFrame = new QFrame(advancedGroup);
+	QVBoxLayout *advancedLayout = new QVBoxLayout(advancedFrame);
+	advancedLayout->setContentsMargins(0, 0, 0, 0);
+	advancedGroupLayout->addWidget(advancedFrame);
+
+	QFrame *voiceAdvancedFrame = new QFrame(advancedFrame);
+	QFormLayout *voiceAdvancedLayout = new QFormLayout(voiceAdvancedFrame);
+	voiceAdvancedLayout->addRow(tr("Parent room"), voiceParentCombo);
+
+	QSpinBox *voiceOrderSpin = new QSpinBox(voiceAdvancedFrame);
+	voiceOrderSpin->setRange(std::numeric_limits< int >::min(), std::numeric_limits< int >::max());
+	voiceOrderSpin->setValue(0);
+	voiceAdvancedLayout->addRow(tr("Order"), voiceOrderSpin);
+
+	QCheckBox *voiceTemporaryCheck = new QCheckBox(voiceAdvancedFrame);
+	voiceAdvancedLayout->addRow(tr("Temporary"), voiceTemporaryCheck);
+
+	QSpinBox *voiceMaxUsersSpin = new QSpinBox(voiceAdvancedFrame);
+	voiceMaxUsersSpin->setRange(0, std::numeric_limits< int >::max());
+	voiceMaxUsersSpin->setValue(0);
+	voiceMaxUsersSpin->setSpecialValueText(tr("Default server value"));
+	QLabel *voiceMaxUsersLabel = new QLabel(tr("Max users"), voiceAdvancedFrame);
+	voiceAdvancedLayout->addRow(voiceMaxUsersLabel, voiceMaxUsersSpin);
+	const bool supportsVoiceMaxUsers =
+		Global::get().sh && Global::get().sh->m_version >= Version::fromComponents(1, 3, 0);
+	voiceMaxUsersLabel->setVisible(supportsVoiceMaxUsers);
+	voiceMaxUsersSpin->setVisible(supportsVoiceMaxUsers);
+	advancedLayout->addWidget(voiceAdvancedFrame);
+
+	QFrame *textAdvancedFrame = new QFrame(advancedFrame);
+	QFormLayout *textAdvancedLayout = new QFormLayout(textAdvancedFrame);
+	QComboBox *textVisibilityCombo = new QComboBox(textAdvancedFrame);
+	for (Channel *channel : channels) {
+		if (!channel) {
+			continue;
+		}
+		textVisibilityCombo->addItem(persistentTextAclChannelLabel(channel), channel->iId);
+	}
+	int rootVisibilityIndex = textVisibilityCombo->findData(Mumble::ROOT_CHANNEL_ID);
+	if (rootVisibilityIndex < 0) {
+		rootVisibilityIndex = 0;
+	}
+	textVisibilityCombo->setCurrentIndex(rootVisibilityIndex);
+	textAdvancedLayout->addRow(tr("Visibility source"), textVisibilityCombo);
+
+	QSpinBox *textOrderSpin = new QSpinBox(textAdvancedFrame);
+	textOrderSpin->setRange(0, 9999);
+	textOrderSpin->setValue(static_cast< int >(m_persistentTextChannels.size()));
+	textAdvancedLayout->addRow(tr("Order"), textOrderSpin);
+	advancedLayout->addWidget(textAdvancedFrame);
+
+	layout->addWidget(advancedGroup);
+
+	if (preferredVoiceParent) {
+		const int preferredParentIndex = voiceParentCombo->findData(preferredVoiceParent->iId);
+		if (preferredParentIndex >= 0) {
+			voiceParentCombo->setCurrentIndex(preferredParentIndex);
+		}
+	}
+
+	auto currentType = [typeCombo]() {
+		return typeCombo->currentData().toInt() == static_cast< int >(RoomCreateType::Voice) ? RoomCreateType::Voice
+																							 : RoomCreateType::Text;
+	};
+
+	auto syncVoicePermissionControls = [this, voiceParentCombo, voiceTemporaryCheck]() {
+		Channel *parent = Channel::get(voiceParentCombo->currentData().toUInt());
+		const bool forceTemporary = voiceRoomCreationForcesTemporary(parent);
+		voiceTemporaryCheck->setEnabled(!forceTemporary);
+		if (forceTemporary) {
+			voiceTemporaryCheck->setChecked(true);
+		}
+	};
+
+	auto syncTypeControls = [advancedGroup, advancedFrame, voiceAdvancedFrame, textAdvancedFrame, nameEdit, currentType,
+							 syncVoicePermissionControls]() {
+		const bool advancedVisible = advancedGroup->isChecked();
+		const bool voiceSelected   = currentType() == RoomCreateType::Voice;
+		advancedFrame->setVisible(advancedVisible);
+		voiceAdvancedFrame->setVisible(advancedVisible && voiceSelected);
+		textAdvancedFrame->setVisible(advancedVisible && !voiceSelected);
+		nameEdit->setPlaceholderText(voiceSelected ? QObject::tr("Raid room") : QObject::tr("links"));
+		if (voiceSelected) {
+			syncVoicePermissionControls();
+		}
+	};
+
+	connect(typeCombo, qOverload< int >(&QComboBox::currentIndexChanged), &dialog,
+			[syncTypeControls](int) { syncTypeControls(); });
+	connect(advancedGroup, &QGroupBox::toggled, &dialog, [syncTypeControls](bool) { syncTypeControls(); });
+	connect(voiceParentCombo, qOverload< int >(&QComboBox::currentIndexChanged), &dialog,
+			[syncVoicePermissionControls](int) { syncVoicePermissionControls(); });
+	syncTypeControls();
+
+	QDialogButtonBox *buttons =
+		new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &dialog);
+	if (QPushButton *createButton = buttons->button(QDialogButtonBox::Ok)) {
+		createButton->setText(tr("Create"));
+	}
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+		if (nameEdit->text().trimmed().isEmpty()) {
+			QMessageBox::warning(&dialog, tr("Create room"), tr("A room needs a name."));
+			nameEdit->setFocus();
+			return;
+		}
+
+		if (currentType() == RoomCreateType::Voice) {
+			Channel *parent = Channel::get(voiceParentCombo->currentData().toUInt());
+			if (!canCreateVoiceRoom(parent)) {
+				QMessageBox::warning(&dialog, tr("Create room"), tr("You cannot create a voice room there."));
+				return;
+			}
+		} else if (!canCreateTextRoom()) {
+			QMessageBox::warning(&dialog, tr("Create room"), tr("You cannot create text rooms on this server."));
+			return;
+		}
+
+		dialog.accept();
+	});
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addWidget(buttons);
+
+	if (dialog.exec() != QDialog::Accepted) {
+		return;
+	}
+
+	const QString name        = nameEdit->text().trimmed();
+	const QString description = descriptionEdit->text().trimmed();
+	if (currentType() == RoomCreateType::Voice) {
+		Channel *parent = Channel::get(voiceParentCombo->currentData().toUInt());
+		if (!parent || !Global::get().sh || !Global::get().sh->isRunning()) {
+			return;
+		}
+
+		const bool temporary = voiceRoomCreationForcesTemporary(parent) || voiceTemporaryCheck->isChecked();
+		const unsigned int maxUsers =
+			supportsVoiceMaxUsers ? static_cast< unsigned int >(voiceMaxUsersSpin->value()) : 0;
+		Global::get().sh->createChannel(parent->iId, name, description,
+										static_cast< unsigned int >(voiceOrderSpin->value()), temporary, maxUsers);
+		return;
+	}
+
+	if (!Global::get().sh || !Global::get().sh->isRunning()) {
+		return;
+	}
+
+	Global::get().sh->upsertTextChannel(0, name, description, textVisibilityCombo->currentData().toUInt(),
+										static_cast< unsigned int >(textOrderSpin->value()), true);
+}
+
 bool MainWindow::promptForPersistentTextChannel(PersistentTextChannel &textChannel, bool isNew) {
 	QDialog dialog(this);
-	dialog.setWindowTitle(isNew ? tr("Create text room") : tr("Edit text room"));
+	dialog.setWindowTitle(isNew ? tr("Create room") : tr("Edit text room"));
 
 	QVBoxLayout *layout     = new QVBoxLayout(&dialog);
 	QFormLayout *formLayout = new QFormLayout();
@@ -9839,7 +10187,7 @@ bool MainWindow::promptForPersistentTextChannel(PersistentTextChannel &textChann
 		currentAclIndex = std::max(0, aclChannelCombo->findData(Mumble::ROOT_CHANNEL_ID));
 	}
 	aclChannelCombo->setCurrentIndex(currentAclIndex);
-	formLayout->addRow(tr("ACL source"), aclChannelCombo);
+	formLayout->addRow(tr("Visibility source"), aclChannelCombo);
 
 	QSpinBox *positionSpin = new QSpinBox(&dialog);
 	positionSpin->setRange(0, 9999);
@@ -10025,19 +10373,7 @@ void MainWindow::openServerSettingsDialog() {
 }
 
 void MainWindow::createPersistentTextChannel() {
-	if (!canManagePersistentTextChannels()) {
-		return;
-	}
-
-	PersistentTextChannel textChannel;
-	textChannel.aclChannelID = Mumble::ROOT_CHANNEL_ID;
-	textChannel.position     = static_cast< unsigned int >(m_persistentTextChannels.size());
-	if (!promptForPersistentTextChannel(textChannel, true)) {
-		return;
-	}
-
-	Global::get().sh->upsertTextChannel(0, textChannel.name, textChannel.description, textChannel.aclChannelID,
-										textChannel.position, true);
+	createRoom(RoomCreateType::Text);
 }
 
 void MainWindow::editPersistentTextChannel() {
@@ -10147,9 +10483,9 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 		}
 
 		QMenu menu(this);
-		QAction *createAction = menu.addAction(tr("Create text room"));
+		QAction *createAction = menu.addAction(tr("Create room"));
 		if (menu.exec(globalPosition) == createAction) {
-			createPersistentTextChannel();
+			createRoom(RoomCreateType::Text);
 		}
 		return;
 	}
@@ -10173,18 +10509,18 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 		QAction *createAction     = nullptr;
 		QAction *setDefaultAction = nullptr;
 		if (canManage) {
-			createAction     = menu.addAction(tr("Create text room"));
+			createAction     = menu.addAction(tr("Create room"));
 			setDefaultAction = menu.addAction(tr("Set as default"));
 			setDefaultAction->setEnabled(scopeID != m_defaultPersistentTextChannelID);
 		}
-		QAction *goToVoiceRoomAction = menu.addAction(tr("Go to linked voice room"));
+		QAction *goToVoiceRoomAction = menu.addAction(tr("Go to visibility source"));
 		goToVoiceRoomAction->setEnabled(linkedChannel != nullptr);
 		QAction *editAction    = nullptr;
 		QAction *editAclAction = nullptr;
 		QAction *deleteAction  = nullptr;
 		if (canManage) {
 			editAction    = menu.addAction(tr("Edit text room"));
-			editAclAction = menu.addAction(tr("Edit ACL source"));
+			editAclAction = menu.addAction(tr("Edit visibility rules"));
 			deleteAction  = menu.addAction(tr("Delete text room"));
 		}
 
@@ -10192,7 +10528,7 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 		if (chosenAction == openAction) {
 			navigateToPersistentChatScope(MumbleProto::TextChannel, scopeID);
 		} else if (chosenAction == createAction) {
-			createPersistentTextChannel();
+			createRoom(RoomCreateType::Text);
 		} else if (chosenAction == setDefaultAction) {
 			setDefaultPersistentTextChannel();
 		} else if (chosenAction == goToVoiceRoomAction) {
@@ -12754,7 +13090,7 @@ void MainWindow::updateServerNavigatorChrome() {
 			}
 		} else if (chatTarget.scope == MumbleProto::TextChannel && chatTarget.channel) {
 			eyebrow  = tr("Room");
-			subtitle = tr("Text room linked to %1").arg(persistentTextAclChannelLabel(chatTarget.channel));
+			subtitle = tr("Visible like %1").arg(persistentTextAclChannelLabel(chatTarget.channel));
 		} else if (chatTarget.scope == MumbleProto::Channel && chatTarget.channel) {
 			eyebrow  = tr("Voice");
 			subtitle = tr("History for %1").arg(persistentTextAclChannelLabel(chatTarget.channel));
@@ -13091,8 +13427,21 @@ void MainWindow::msgBox(QString msg) {
 #ifdef Q_OS_WIN
 bool MainWindow::nativeEvent(const QByteArray &, void *message, qintptr *) {
 	MSG *msg = reinterpret_cast< MSG * >(message);
-	if (msg->message == WM_DEVICECHANGE && msg->wParam == DBT_DEVNODES_CHANGED)
-		uiNewHardware++;
+	switch (msg->message) {
+		case WM_ENTERSIZEMOVE:
+			beginNativeWindowMoveOrResize();
+			break;
+		case WM_EXITSIZEMOVE:
+			endNativeWindowMoveOrResize();
+			break;
+		case WM_DEVICECHANGE:
+			if (msg->wParam == DBT_DEVNODES_CHANGED) {
+				uiNewHardware++;
+			}
+			break;
+		default:
+			break;
+	}
 
 	return false;
 }
@@ -14403,7 +14752,7 @@ void MainWindow::on_qmServer_aboutToShow() {
 	updateFavoriteButton();
 	qaServerTokens->setEnabled(Global::get().uiSession != 0);
 	if (qaCreateTextRoom) {
-		qaCreateTextRoom->setEnabled(canManagePersistentTextChannels() && hasPersistentChatCapabilities());
+		qaCreateTextRoom->setEnabled(canCreateTextRoom() || canCreateAnyVoiceRoom());
 	}
 	if (qaServerSettings) {
 		qaServerSettings->setEnabled(canManagePersistentTextChannels());
@@ -14438,7 +14787,7 @@ void MainWindow::on_qaServerSettings_triggered() {
 }
 
 void MainWindow::on_qaCreateTextRoom_triggered() {
-	createPersistentTextChannel();
+	createRoom(RoomCreateType::Text);
 }
 
 void MainWindow::on_qaServerTexture_triggered() {
@@ -15329,7 +15678,7 @@ void MainWindow::qmChannel_aboutToShow() {
 		qaChannelPin->setChecked(c->m_filterMode == ChannelFilterMode::PIN);
 	}
 
-	qaChannelAdd->setEnabled(add);
+	qaChannelAdd->setEnabled(add || canCreateTextRoom());
 	qaChannelRemove->setEnabled(remove);
 	qaChannelACL->setEnabled(acl);
 	qaChannelLink->setEnabled(link);
@@ -15419,13 +15768,7 @@ void MainWindow::on_qaChannelAdd_triggered() {
 		aclEdit = nullptr;
 	}
 
-	aclEdit = new ACLEditor(c ? c->iId : 0, this);
-	if (c && (c->uiPermissions & ChanACL::Cached) && !(c->uiPermissions & (ChanACL::Write | ChanACL::MakeChannel))) {
-		aclEdit->qcbChannelTemporary->setEnabled(false);
-		aclEdit->qcbChannelTemporary->setChecked(true);
-	}
-
-	aclEdit->show();
+	createRoom(RoomCreateType::Voice, c);
 }
 
 void MainWindow::on_qaChannelRemove_triggered() {
@@ -15605,7 +15948,8 @@ void MainWindow::updateMenuPermissions() {
 
 	qaChannelJoin->setEnabled(p & (ChanACL::Write | ChanACL::Enter));
 
-	qaChannelAdd->setEnabled(p & (ChanACL::Write | ChanACL::MakeChannel | ChanACL::MakeTempChannel));
+	qaChannelAdd->setEnabled((p & (ChanACL::Write | ChanACL::MakeChannel | ChanACL::MakeTempChannel))
+							 || canCreateTextRoom());
 	qaChannelRemove->setEnabled(p & ChanACL::Write);
 	qaChannelACL->setEnabled((p & ChanACL::Write) || (Global::get().pPermissions & ChanACL::Write));
 

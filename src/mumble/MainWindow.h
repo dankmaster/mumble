@@ -190,6 +190,8 @@ public:
 	void activateModernShell();
 	void queueModernShellSnapshotSync();
 	void syncModernShellSnapshot();
+	void beginNativeWindowMoveOrResize();
+	void endNativeWindowMoveOrResize();
 	void updateServerNavigatorChrome();
 	void syncServerNavigatorUserMenu();
 	void positionServerNavigatorUserMenu();
@@ -224,6 +226,8 @@ public:
 		QString name;
 		QString description;
 	};
+
+	enum class RoomCreateType : unsigned char { Voice, Text };
 
 	struct PersistentChatPreview {
 		QString canonicalUrl;
@@ -295,6 +299,11 @@ public:
 											unsigned int lastReadMessageID, std::size_t unreadCount);
 	std::size_t totalCachedPersistentChatUnreadCount() const;
 	bool navigateToPersistentChatScope(MumbleProto::ChatScope scope, unsigned int scopeID);
+	bool canCreateVoiceRoom(Channel *channel) const;
+	bool canCreateAnyVoiceRoom() const;
+	bool voiceRoomCreationForcesTemporary(Channel *channel) const;
+	bool canCreateTextRoom() const;
+	void createRoom(RoomCreateType preferredType, Channel *preferredVoiceParent = nullptr);
 	bool canManagePersistentTextChannels() const;
 	std::optional< PersistentTextChannel > selectedPersistentTextChannel() const;
 	bool promptForPersistentTextChannel(PersistentTextChannel &textChannel, bool isNew);
@@ -542,11 +551,13 @@ protected:
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 	ModernShellHost *m_modernShellHost         = nullptr;
 	QObject *m_persistentChatPreviewSnapshotRenderer = nullptr;
+	bool m_modernShellSnapshotPendingAfterNativeMoveResize = false;
 #endif
 	bool m_shellLayoutInitialized            = false;
 	Settings::WindowLayout m_activeShellLayout = Settings::LayoutModern;
 	bool m_modernLayoutCompatibleServer      = false;
 	bool m_modernShellRuntimeDisabled        = false;
+	bool m_nativeWindowMoveResizeActive      = false;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
