@@ -548,6 +548,8 @@ protected:
 	int m_persistentChatPendingAnchorOffset    = 0;
 	std::optional< MumbleProto::ChatMessage > m_pendingPersistentChatReply;
 	QTimer *m_modernShellSyncTimer             = nullptr;
+	QTimer *m_nativeWindowMoveResizeRecoveryTimer = nullptr;
+	qint64 m_modernShellLastSnapshotSyncMs        = 0;
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 	ModernShellHost *m_modernShellHost         = nullptr;
 	QObject *m_persistentChatPreviewSnapshotRenderer = nullptr;

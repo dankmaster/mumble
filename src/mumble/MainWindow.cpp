@@ -178,7 +178,9 @@ constexpr int PersistentChatUnreadRole        = Qt::UserRole + 5;
 constexpr int LocalServerLogScope             = -1;
 constexpr int LocalDirectMessageScope         = -2;
 constexpr int PersistentChatBottomInsetHeight = 18;
-constexpr int ModernShellSnapshotCoalesceMs   = 16;
+constexpr int ModernShellSnapshotActiveCoalesceMs   = 100;
+constexpr int ModernShellSnapshotInactiveCoalesceMs = 350;
+constexpr int NativeWindowMoveResizeWatchdogMs      = 4000;
 
 bool modernShellMinimalSnapshotEnabled() {
 	static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_MODERN_SHELL_MINIMAL_SNAPSHOT") != 0;
@@ -4127,6 +4129,18 @@ void MainWindow::setupGui() {
 	m_modernShellSyncTimer->setTimerType(Qt::PreciseTimer);
 	connect(m_modernShellSyncTimer, &QTimer::timeout, this, &MainWindow::syncModernShellSnapshot);
 
+	m_nativeWindowMoveResizeRecoveryTimer = new QTimer(this);
+	m_nativeWindowMoveResizeRecoveryTimer->setSingleShot(true);
+	m_nativeWindowMoveResizeRecoveryTimer->setTimerType(Qt::CoarseTimer);
+	connect(m_nativeWindowMoveResizeRecoveryTimer, &QTimer::timeout, this, [this]() {
+		if (!m_nativeWindowMoveResizeActive) {
+			return;
+		}
+
+		appendModernShellConnectTrace(QStringLiteral("nativeWindowMoveResize watchdog-end"));
+		endNativeWindowMoveOrResize();
+	});
+
 	applyShellLayout();
 	setShowDockTitleBars((effectiveWindowLayout() == Settings::LayoutCustom) && !Global::get().s.bLockLayout);
 
@@ -5376,9 +5390,18 @@ void MainWindow::queueModernShellSnapshotSync() {
 		return;
 	}
 
-	appendModernShellConnectTrace(
-		QStringLiteral("queueModernShellSnapshotSync queued delay=%1").arg(ModernShellSnapshotCoalesceMs));
-	m_modernShellSyncTimer->start(ModernShellSnapshotCoalesceMs);
+	const int baseDelayMs = (isActiveWindow() && !isMinimized()) ? ModernShellSnapshotActiveCoalesceMs
+																 : ModernShellSnapshotInactiveCoalesceMs;
+	int delayMs = baseDelayMs;
+	if (m_modernShellLastSnapshotSyncMs > 0) {
+		const qint64 elapsedMs = QDateTime::currentMSecsSinceEpoch() - m_modernShellLastSnapshotSyncMs;
+		if (elapsedMs >= 0 && elapsedMs < baseDelayMs) {
+			delayMs = std::max(1, static_cast< int >(baseDelayMs - elapsedMs));
+		}
+	}
+
+	appendModernShellConnectTrace(QStringLiteral("queueModernShellSnapshotSync queued delay=%1").arg(delayMs));
+	m_modernShellSyncTimer->start(delayMs);
 #endif
 }
 
@@ -5408,16 +5431,22 @@ void MainWindow::syncModernShellSnapshot() {
 									  .arg(messages.size()));
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot before-setSnapshot"));
 	m_modernShellHost->bridge()->setSnapshot(snapshot);
+	m_modernShellLastSnapshotSyncMs = QDateTime::currentMSecsSinceEpoch();
 	appendModernShellConnectTrace(QStringLiteral("syncModernShellSnapshot after-setSnapshot"));
 #endif
 }
 
 void MainWindow::beginNativeWindowMoveOrResize() {
+	if (m_nativeWindowMoveResizeRecoveryTimer) {
+		m_nativeWindowMoveResizeRecoveryTimer->start(NativeWindowMoveResizeWatchdogMs);
+	}
+
 	if (m_nativeWindowMoveResizeActive) {
 		return;
 	}
 
 	m_nativeWindowMoveResizeActive = true;
+	appendModernShellConnectTrace(QStringLiteral("nativeWindowMoveResize begin"));
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 	if (m_modernShellSyncTimer && m_modernShellSyncTimer->isActive()) {
 		m_modernShellSyncTimer->stop();
@@ -5431,7 +5460,12 @@ void MainWindow::endNativeWindowMoveOrResize() {
 		return;
 	}
 
+	if (m_nativeWindowMoveResizeRecoveryTimer && m_nativeWindowMoveResizeRecoveryTimer->isActive()) {
+		m_nativeWindowMoveResizeRecoveryTimer->stop();
+	}
+
 	m_nativeWindowMoveResizeActive = false;
+	appendModernShellConnectTrace(QStringLiteral("nativeWindowMoveResize end"));
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
 	if (m_modernShellSnapshotPendingAfterNativeMoveResize) {
 		m_modernShellSnapshotPendingAfterNativeMoveResize = false;
@@ -13434,6 +13468,11 @@ bool MainWindow::nativeEvent(const QByteArray &, void *message, qintptr *) {
 		case WM_EXITSIZEMOVE:
 			endNativeWindowMoveOrResize();
 			break;
+		case WM_CANCELMODE:
+		case WM_CAPTURECHANGED:
+		case WM_ACTIVATEAPP:
+			endNativeWindowMoveOrResize();
+			break;
 		case WM_DEVICECHANGE:
 			if (msg->wParam == DBT_DEVNODES_CHANGED) {
 				uiNewHardware++;
@@ -17189,6 +17228,7 @@ void MainWindow::resolverError(QAbstractSocket::SocketError, QString reason) {
 }
 
 void MainWindow::showRaiseWindow() {
+	endNativeWindowMoveOrResize();
 	setWindowState(windowState() & ~Qt::WindowMinimized);
 	QTimer::singleShot(0, [this]() {
 		show();
