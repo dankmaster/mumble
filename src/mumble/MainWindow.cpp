@@ -169,15 +169,15 @@
 
 #include "widgets/EventFilters.h"
 namespace {
-constexpr int PersistentChatScopeRole         = Qt::UserRole;
-constexpr int PersistentChatScopeIDRole       = Qt::UserRole + 1;
-constexpr int PersistentChatThreadRole        = Qt::UserRole + 2;
-constexpr int PersistentChatMessageIDRole     = Qt::UserRole + 3;
-constexpr int PersistentChatLabelRole         = Qt::UserRole + 4;
-constexpr int PersistentChatUnreadRole        = Qt::UserRole + 5;
-constexpr int LocalServerLogScope             = -1;
-constexpr int LocalDirectMessageScope         = -2;
-constexpr int PersistentChatBottomInsetHeight = 18;
+constexpr int PersistentChatScopeRole               = Qt::UserRole;
+constexpr int PersistentChatScopeIDRole             = Qt::UserRole + 1;
+constexpr int PersistentChatThreadRole              = Qt::UserRole + 2;
+constexpr int PersistentChatMessageIDRole           = Qt::UserRole + 3;
+constexpr int PersistentChatLabelRole               = Qt::UserRole + 4;
+constexpr int PersistentChatUnreadRole              = Qt::UserRole + 5;
+constexpr int LocalServerLogScope                   = -1;
+constexpr int LocalDirectMessageScope               = -2;
+constexpr int PersistentChatBottomInsetHeight       = 18;
 constexpr int ModernShellSnapshotActiveCoalesceMs   = 100;
 constexpr int ModernShellSnapshotInactiveCoalesceMs = 350;
 constexpr int NativeWindowMoveResizeWatchdogMs      = 4000;
@@ -1793,8 +1793,8 @@ QString normalizedPersistentChatText(QString text) {
 	return text.replace(QLatin1String("\r\n"), QLatin1String("\n")).replace(QLatin1Char('\r'), QLatin1Char('\n'));
 }
 
-constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH  = 480;
-constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT = 320;
+constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_WIDTH                    = 480;
+constexpr int PERSISTENT_CHAT_INLINE_IMAGE_MAX_HEIGHT                   = 320;
 constexpr qint64 PERSISTENT_CHAT_INLINE_DATA_IMAGE_RAW_INLINE_MAX_BYTES = 64 * 1024;
 constexpr qint64 PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES  = 50 * 1024 * 1024;
 
@@ -2055,11 +2055,10 @@ QByteArray persistentChatInlineDataImageBytes(const QString &source, const Persi
 QImage persistentChatInlineDataImagePreviewImage(const QString &source, const PersistentChatInlineDataImageInfo &info) {
 	if (info.estimatedBytes > PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES) {
 		if (mumble::chatperf::enabled()) {
-			mumble::chatperf::recordNote(
-				"chat.inline_data_image.thumbnail_skipped",
-				QString::fromLatin1("estimated=%1 max=%2")
-					.arg(info.estimatedBytes)
-					.arg(PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES));
+			mumble::chatperf::recordNote("chat.inline_data_image.thumbnail_skipped",
+										 QString::fromLatin1("estimated=%1 max=%2")
+											 .arg(info.estimatedBytes)
+											 .arg(PERSISTENT_CHAT_INLINE_DATA_IMAGE_THUMBNAIL_MAX_BYTES));
 		}
 		return QImage();
 	}
@@ -4498,8 +4497,7 @@ void MainWindow::setupServerNavigator() {
 	});
 	connect(m_serverNavigatorTextChannelsMotdBody, &QLabel::linkActivated, this,
 			[this](const QString &link) { on_qteLog_anchorClicked(QUrl(link)); });
-	connect(m_serverNavigatorServerSettingsButton, &QToolButton::clicked, this,
-			&MainWindow::openServerSettingsDialog);
+	connect(m_serverNavigatorServerSettingsButton, &QToolButton::clicked, this, &MainWindow::openServerSettingsDialog);
 	connect(m_serverNavigatorCreateTextChannelButton, &QToolButton::clicked, this,
 			&MainWindow::createPersistentTextChannel);
 	const auto scheduleVoiceTreeHeightRefresh = [this]() {
@@ -5671,29 +5669,29 @@ ModernShellMenuSerializer::ActionDefinition
 			} else if (action == qaChannelScreenShareOpenWindow) {
 				definition.id = QStringLiteral("screenShareOpenWindow");
 			} else if (action == qaChannelAdd) {
-				definition.id = QStringLiteral("add");
+				definition.id    = QStringLiteral("add");
 				definition.label = tr("Create room...");
 			} else if (action == qaChannelACL) {
-				definition.id = QStringLiteral("acl");
+				definition.id    = QStringLiteral("acl");
 				definition.label = tr("Edit room ACL...");
 			} else if (action == qaChannelRemove) {
-				definition.id = QStringLiteral("remove");
+				definition.id    = QStringLiteral("remove");
 				definition.label = tr("Remove room...");
 				assignTone(QStringLiteral("danger"));
 			} else if (action == qaChannelLink) {
-				definition.id = QStringLiteral("link");
+				definition.id    = QStringLiteral("link");
 				definition.label = tr("Link room");
 			} else if (action == qaChannelUnlink) {
-				definition.id = QStringLiteral("unlink");
+				definition.id    = QStringLiteral("unlink");
 				definition.label = tr("Unlink room");
 			} else if (action == qaChannelUnlinkAll) {
-				definition.id = QStringLiteral("unlinkAll");
+				definition.id    = QStringLiteral("unlinkAll");
 				definition.label = tr("Unlink all rooms");
 			} else if (action == qaChannelCopyURL) {
-				definition.id = QStringLiteral("copyUrl");
+				definition.id    = QStringLiteral("copyUrl");
 				definition.label = tr("Copy room URL");
 			} else if (action == qaChannelSendMessage) {
-				definition.id = QStringLiteral("sendMessage");
+				definition.id    = QStringLiteral("sendMessage");
 				definition.label = tr("Send room message...");
 			} else if (action == qaChannelHide) {
 				definition.id = QStringLiteral("hide");
@@ -5911,9 +5909,9 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			} else if (!(Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write))) {
 				registrationHint = tr("The server is not allowing self-registration for this account.");
 			}
-			selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
-				QStringLiteral("self.register"), tr("Register on server"), qaSelfRegister->isEnabled(), false,
-				QString(), registrationHint));
+			selfMenuActions.push_back(
+				ModernShellMenuSerializer::actionItem(QStringLiteral("self.register"), tr("Register on server"),
+													  qaSelfRegister->isEnabled(), false, QString(), registrationHint));
 		} else {
 			selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
 				QStringLiteral("self.registrationStatus"), tr("Registered on server"), false, false, QString(),
@@ -6339,12 +6337,12 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			const QString roomLabel    = item->data(PersistentChatLabelRole).toString();
 			const qulonglong unreadRaw = item->data(PersistentChatUnreadRole).toULongLong();
 			const QString itemToolTip  = item->toolTip();
-			const bool selectedScope   = (target.serverLog && scopeValue == LocalServerLogScope)
-									   || (target.directMessage && target.user && scopeValue == LocalDirectMessageScope
-										   && target.user->uiSession == scopeID)
-									   || (!target.serverLog && !target.directMessage && target.valid
-										   && target.scopeID == scopeID
-										   && scopeValue == static_cast< int >(target.scope));
+			const bool selectedScope =
+				(target.serverLog && scopeValue == LocalServerLogScope)
+				|| (target.directMessage && target.user && scopeValue == LocalDirectMessageScope
+					&& target.user->uiSession == scopeID)
+				|| (!target.serverLog && !target.directMessage && target.valid && target.scopeID == scopeID
+					&& scopeValue == static_cast< int >(target.scope));
 
 			if (scopeValue == LocalServerLogScope || scopeValue == static_cast< int >(MumbleProto::TextChannel)
 				|| scopeValue == static_cast< int >(MumbleProto::ServerGlobal) || scopeValue == LocalDirectMessageScope
@@ -6488,8 +6486,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	const int activeScopeValue =
 		target.serverLog ? LocalServerLogScope
 						 : (target.directMessage ? LocalDirectMessageScope : static_cast< int >(target.scope));
-	const unsigned int activeScopeID =
-		target.directMessage && target.user ? target.user->uiSession : target.scopeID;
+	const unsigned int activeScopeID = target.directMessage && target.user ? target.user->uiSession : target.scopeID;
 	activeScope.insert(QStringLiteral("kindLabel"), kindLabel);
 	activeScope.insert(QStringLiteral("scopeToken"), modernShellScopeToken(activeScopeValue, activeScopeID));
 	activeScope.insert(QStringLiteral("label"), target.label.isEmpty() ? tr("No room selected") : target.label);
@@ -6601,28 +6598,27 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			} else if (deletedMessage) {
 				bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 			} else {
-				const auto buildModernInlineDataImageReplacement =
-					[this](const QString &source, const QString &altText,
-						   const PersistentChatInlineDataImageInfo &info) {
-						const QString token = registerPersistentChatInlineDataImageSource(source);
-						const QString openHref =
-							persistentChatInlineDataImageOpenUrl(token).toString(QUrl::FullyEncoded);
-						const QImage previewImage = persistentChatInlineDataImagePreviewImage(source, info);
-						if (previewImage.isNull()) {
-							mumble::chatperf::recordValue("chat.inline_data_image.modern_preview_failed", 1);
-							return persistentChatInlineDataImagePlaceholderHtml(info, altText, openHref);
-						}
+				const auto buildModernInlineDataImageReplacement = [this](
+																	   const QString &source, const QString &altText,
+																	   const PersistentChatInlineDataImageInfo &info) {
+					const QString token    = registerPersistentChatInlineDataImageSource(source);
+					const QString openHref = persistentChatInlineDataImageOpenUrl(token).toString(QUrl::FullyEncoded);
+					const QImage previewImage = persistentChatInlineDataImagePreviewImage(source, info);
+					if (previewImage.isNull()) {
+						mumble::chatperf::recordValue("chat.inline_data_image.modern_preview_failed", 1);
+						return persistentChatInlineDataImagePlaceholderHtml(info, altText, openHref);
+					}
 
-						const QString thumbnailSource = persistentChatInlineDataImageThumbnailSource(previewImage);
-						if (thumbnailSource.isEmpty()) {
-							mumble::chatperf::recordValue("chat.inline_data_image.modern_thumbnail_failed", 1);
-							return persistentChatInlineDataImagePlaceholderHtml(info, altText, openHref);
-						}
+					const QString thumbnailSource = persistentChatInlineDataImageThumbnailSource(previewImage);
+					if (thumbnailSource.isEmpty()) {
+						mumble::chatperf::recordValue("chat.inline_data_image.modern_thumbnail_failed", 1);
+						return persistentChatInlineDataImagePlaceholderHtml(info, altText, openHref);
+					}
 
-						mumble::chatperf::recordValue("chat.inline_data_image.modern_preview_ready", 1);
-						return persistentChatInlineDataImageThumbnailHtml(thumbnailSource, openHref, altText,
-																		  previewImage.size(), info.estimatedBytes);
-					};
+					mumble::chatperf::recordValue("chat.inline_data_image.modern_preview_ready", 1);
+					return persistentChatInlineDataImageThumbnailHtml(thumbnailSource, openHref, altText,
+																	  previewImage.size(), info.estimatedBytes);
+				};
 				bodyHtml = message.has_body_text()
 							   ? persistentChatMessageBodyHtml(message, buildModernInlineDataImageReplacement)
 							   : persistentChatContentHtml(persistentChatMessageRawBody(message),
@@ -6659,12 +6655,10 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			messageState.insert(QStringLiteral("own"), ownMessage);
 			messageState.insert(QStringLiteral("system"), systemMessage);
 			messageState.insert(QStringLiteral("deleted"), deletedMessage);
-			messageState.insert(QStringLiteral("canReply"),
-								activeScope.value(QStringLiteral("canReply")).toBool() && !systemMessage
-									&& !deletedMessage);
-			messageState.insert(QStringLiteral("canReact"),
-								activeScope.value(QStringLiteral("canReact")).toBool() && !systemMessage
-									&& !deletedMessage);
+			messageState.insert(QStringLiteral("canReply"), activeScope.value(QStringLiteral("canReply")).toBool()
+																&& !systemMessage && !deletedMessage);
+			messageState.insert(QStringLiteral("canReact"), activeScope.value(QStringLiteral("canReact")).toBool()
+																&& !systemMessage && !deletedMessage);
 			messageState.insert(QStringLiteral("canDelete"),
 								activeScope.value(QStringLiteral("canDeleteMessages")).toBool() && !systemMessage
 									&& !deletedMessage);
@@ -6967,8 +6961,7 @@ bool MainWindow::handleModernShellParticipantMessage(const qulonglong session) {
 		return false;
 	}
 
-	if (session == 0 || session > std::numeric_limits< unsigned int >::max()
-		|| session == Global::get().uiSession) {
+	if (session == 0 || session > std::numeric_limits< unsigned int >::max() || session == Global::get().uiSession) {
 		return false;
 	}
 
@@ -9886,7 +9879,7 @@ bool MainWindow::canCreateVoiceRoom(Channel *channel) const {
 	ChanACL::Permissions permissions = static_cast< ChanACL::Permissions >(channel->uiPermissions);
 	if (!permissions) {
 		Global::get().sh->requestChannelPermissions(channel->iId);
-		permissions = channel->iId == Mumble::ROOT_CHANNEL_ID ? Global::get().pPermissions : ChanACL::All;
+		permissions            = channel->iId == Mumble::ROOT_CHANNEL_ID ? Global::get().pPermissions : ChanACL::All;
 		channel->uiPermissions = permissions;
 	}
 
@@ -9989,7 +9982,7 @@ void MainWindow::createRoom(RoomCreateType preferredType, Channel *preferredVoic
 	QFormLayout *formLayout = new QFormLayout();
 	layout->addLayout(formLayout);
 
-	QComboBox *typeCombo = new QComboBox(&dialog);
+	QComboBox *typeCombo        = new QComboBox(&dialog);
 	QComboBox *voiceParentCombo = new QComboBox(&dialog);
 	for (Channel *channel : channels) {
 		if (!channel || !canCreateVoiceRoom(channel)) {
@@ -10026,12 +10019,12 @@ void MainWindow::createRoom(RoomCreateType preferredType, Channel *preferredVoic
 	advancedGroup->setCheckable(true);
 	advancedGroup->setChecked(false);
 	QVBoxLayout *advancedGroupLayout = new QVBoxLayout(advancedGroup);
-	QFrame *advancedFrame = new QFrame(advancedGroup);
-	QVBoxLayout *advancedLayout = new QVBoxLayout(advancedFrame);
+	QFrame *advancedFrame            = new QFrame(advancedGroup);
+	QVBoxLayout *advancedLayout      = new QVBoxLayout(advancedFrame);
 	advancedLayout->setContentsMargins(0, 0, 0, 0);
 	advancedGroupLayout->addWidget(advancedFrame);
 
-	QFrame *voiceAdvancedFrame = new QFrame(advancedFrame);
+	QFrame *voiceAdvancedFrame       = new QFrame(advancedFrame);
 	QFormLayout *voiceAdvancedLayout = new QFormLayout(voiceAdvancedFrame);
 	voiceAdvancedLayout->addRow(tr("Parent room"), voiceParentCombo);
 
@@ -10055,9 +10048,9 @@ void MainWindow::createRoom(RoomCreateType preferredType, Channel *preferredVoic
 	voiceMaxUsersSpin->setVisible(supportsVoiceMaxUsers);
 	advancedLayout->addWidget(voiceAdvancedFrame);
 
-	QFrame *textAdvancedFrame = new QFrame(advancedFrame);
+	QFrame *textAdvancedFrame       = new QFrame(advancedFrame);
 	QFormLayout *textAdvancedLayout = new QFormLayout(textAdvancedFrame);
-	QComboBox *textVisibilityCombo = new QComboBox(textAdvancedFrame);
+	QComboBox *textVisibilityCombo  = new QComboBox(textAdvancedFrame);
 	for (Channel *channel : channels) {
 		if (!channel) {
 			continue;
@@ -10092,7 +10085,7 @@ void MainWindow::createRoom(RoomCreateType preferredType, Channel *preferredVoic
 	};
 
 	auto syncVoicePermissionControls = [this, voiceParentCombo, voiceTemporaryCheck]() {
-		Channel *parent = Channel::get(voiceParentCombo->currentData().toUInt());
+		Channel *parent           = Channel::get(voiceParentCombo->currentData().toUInt());
 		const bool forceTemporary = voiceRoomCreationForcesTemporary(parent);
 		voiceTemporaryCheck->setEnabled(!forceTemporary);
 		if (forceTemporary) {
@@ -10262,9 +10255,9 @@ void MainWindow::openServerSettingsDialog() {
 	QVBoxLayout *layout = new QVBoxLayout(&dialog);
 	layout->setSpacing(10);
 
-	QGroupBox *chatGroup      = new QGroupBox(tr("Chat"), &dialog);
-	QFormLayout *chatForm     = new QFormLayout(chatGroup);
-	QPlainTextEdit *motdEdit  = new QPlainTextEdit(m_persistentChatWelcomeText, chatGroup);
+	QGroupBox *chatGroup     = new QGroupBox(tr("Chat"), &dialog);
+	QFormLayout *chatForm    = new QFormLayout(chatGroup);
+	QPlainTextEdit *motdEdit = new QPlainTextEdit(m_persistentChatWelcomeText, chatGroup);
 	motdEdit->setObjectName(QLatin1String("qpteServerSettingsWelcomeText"));
 	motdEdit->setMinimumHeight(92);
 	motdEdit->setPlaceholderText(tr("Welcome message shown after joining"));
@@ -10279,7 +10272,7 @@ void MainWindow::openServerSettingsDialog() {
 	chatForm->addRow(tr("Server-wide chat"), persistentGlobalCheck);
 	layout->addWidget(chatGroup);
 
-	const int spinMax = std::numeric_limits< int >::max();
+	const int spinMax   = std::numeric_limits< int >::max();
 	auto clampSpinValue = [spinMax](unsigned int value) {
 		return static_cast< int >(std::min(value, static_cast< unsigned int >(spinMax)));
 	};
@@ -10334,26 +10327,24 @@ void MainWindow::openServerSettingsDialog() {
 	screenShareWidthSpin->setRange(0, Mumble::ScreenShare::HARD_MAX_WIDTH);
 	screenShareWidthSpin->setSpecialValueText(tr("Server default"));
 	screenShareWidthSpin->setSuffix(tr(" px"));
-	screenShareWidthSpin->setValue(
-		static_cast< int >(Mumble::ScreenShare::sanitizeLimit(Global::get().uiScreenShareMaxWidth, 0,
-															  Mumble::ScreenShare::HARD_MAX_WIDTH)));
+	screenShareWidthSpin->setValue(static_cast< int >(Mumble::ScreenShare::sanitizeLimit(
+		Global::get().uiScreenShareMaxWidth, 0, Mumble::ScreenShare::HARD_MAX_WIDTH)));
 	screenShareForm->addRow(tr("Max width"), screenShareWidthSpin);
 
 	QSpinBox *screenShareHeightSpin = new QSpinBox(screenShareGroup);
 	screenShareHeightSpin->setRange(0, Mumble::ScreenShare::HARD_MAX_HEIGHT);
 	screenShareHeightSpin->setSpecialValueText(tr("Server default"));
 	screenShareHeightSpin->setSuffix(tr(" px"));
-	screenShareHeightSpin->setValue(
-		static_cast< int >(Mumble::ScreenShare::sanitizeLimit(Global::get().uiScreenShareMaxHeight, 0,
-															  Mumble::ScreenShare::HARD_MAX_HEIGHT)));
+	screenShareHeightSpin->setValue(static_cast< int >(Mumble::ScreenShare::sanitizeLimit(
+		Global::get().uiScreenShareMaxHeight, 0, Mumble::ScreenShare::HARD_MAX_HEIGHT)));
 	screenShareForm->addRow(tr("Max height"), screenShareHeightSpin);
 
 	QSpinBox *screenShareFpsSpin = new QSpinBox(screenShareGroup);
 	screenShareFpsSpin->setRange(0, Mumble::ScreenShare::HARD_MAX_FPS);
 	screenShareFpsSpin->setSpecialValueText(tr("Server default"));
 	screenShareFpsSpin->setSuffix(tr(" fps"));
-	screenShareFpsSpin->setValue(static_cast< int >(Mumble::ScreenShare::sanitizeLimit(
-		Global::get().uiScreenShareMaxFps, 0, Mumble::ScreenShare::HARD_MAX_FPS)));
+	screenShareFpsSpin->setValue(static_cast< int >(
+		Mumble::ScreenShare::sanitizeLimit(Global::get().uiScreenShareMaxFps, 0, Mumble::ScreenShare::HARD_MAX_FPS)));
 	screenShareForm->addRow(tr("Max frame rate"), screenShareFpsSpin);
 
 	QLineEdit *screenShareRelayEdit = new QLineEdit(Global::get().qsScreenShareRelayUrl, screenShareGroup);
@@ -12060,7 +12051,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 			for (const PersistentChatRender::PersistentChatRenderBubble &bubble : group.bubbles) {
 				const MumbleProto::ChatMessage &message = m_persistentChatMessages[bubble.messageIndex];
-				const bool deletedMessage = message.has_deleted_at() && message.deleted_at() > 0;
+				const bool deletedMessage               = message.has_deleted_at() && message.deleted_at() > 0;
 				QString bodyHtml;
 				QString messageMarkupSource;
 				QVector< QPair< QUrl, QImage > > bubbleImageResources;
@@ -12130,9 +12121,9 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				if (!deletedMessage && message.has_edited_at() && message.edited_at() > 0) {
 					bodyHtml += QString::fromLatin1(" <em>%1</em>").arg(tr("(edited)").toHtmlEscaped());
 				}
-				const QString messageSourceText = bubble.systemMessage
-													  ? persistentChatSystemMessageText(message).value_or(QString())
-													  : (deletedMessage ? QString() : persistentChatMessageSourceText(message));
+				const QString messageSourceText =
+					bubble.systemMessage ? persistentChatSystemMessageText(message).value_or(QString())
+										 : (deletedMessage ? QString() : persistentChatMessageSourceText(message));
 				if (messageSourceText.size() > 100000 || bodyHtml.size() > 10000) {
 					mumble::chatperf::recordNote(
 						"chat.inline_data_image.body_html",
@@ -12176,9 +12167,9 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 										  : persistentChatMessageSourceText(message);
 				bubbleSpec.systemMessage = bubble.systemMessage;
 				bubbleSpec.timeToolTip   = persistentChatTimestampToolTip(bubble.createdAt);
-				bubbleSpec.replyEnabled  = !bubble.systemMessage
-										  && (target.scope == MumbleProto::Aggregate || !deletedMessage);
-				bubbleSpec.deleteEnabled = canDeleteMessages && !bubble.systemMessage && !deletedMessage;
+				bubbleSpec.replyEnabled =
+					!bubble.systemMessage && (target.scope == MumbleProto::Aggregate || !deletedMessage);
+				bubbleSpec.deleteEnabled  = canDeleteMessages && !bubble.systemMessage && !deletedMessage;
 				bubbleSpec.readOnlyAction = target.scope == MumbleProto::Aggregate;
 				bubbleSpec.actionText     = bubble.systemMessage
 											? QString()
@@ -14933,9 +14924,8 @@ void MainWindow::qmUser_aboutToShow() {
 		qmUser->addAction(qaUserInformation);
 
 	const bool canOfferSelfRegister = isSelf && p && (p->iId < 0);
-	const bool canOfferUserRegister =
-		!isSelf && p && (p->iId < 0) && !p->qsHash.isEmpty()
-		&& (Global::get().pPermissions & (ChanACL::Register | ChanACL::Write));
+	const bool canOfferUserRegister = !isSelf && p && (p->iId < 0) && !p->qsHash.isEmpty()
+									  && (Global::get().pPermissions & (ChanACL::Register | ChanACL::Write));
 	if (canOfferSelfRegister || canOfferUserRegister) {
 		qmUser->addSeparator();
 		qaUserRegister->setEnabled(isSelf ? qaSelfRegister->isEnabled() : !p->qsHash.isEmpty());
@@ -17771,7 +17761,8 @@ void MainWindow::selfRegister() {
 		return;
 	}
 	if (!(Global::get().pPermissions & (ChanACL::SelfRegister | ChanACL::Write))) {
-		Global::get().l->log(Log::PermissionDenied, tr("The server is not allowing self-registration for this account."));
+		Global::get().l->log(Log::PermissionDenied,
+							 tr("The server is not allowing self-registration for this account."));
 		return;
 	}
 
