@@ -32,6 +32,7 @@
 	let messageListMutationObserver = null;
 	let dragState = null;
 	let imageViewerDragState = null;
+	let imageViewerDragFrame = 0;
 	let imageViewerResizeObserver = null;
 	let footerAlignmentResizeObserver = null;
 
@@ -606,13 +607,23 @@
 		return image;
 	}
 
+	function isInlineDataImageOpenHref(href) {
+		return /^mumble-chat:\/\/inline-data-image\//i.test(String(href || "").trim());
+	}
+
 	function handleAnchorActivation(event) {
 		const image = imageFromEvent(event);
-		if (image && anchorFromEvent(event)) {
+		const imageAnchor = image ? anchorFromEvent(event) : null;
+		if (image && imageAnchor) {
+			const imageHref = String(imageAnchor.getAttribute("href") || imageAnchor.href || "").trim();
 			event.preventDefault();
 			event.stopPropagation();
 			hideContextMenu();
 			hideSelfMenu();
+			if (isInlineDataImageOpenHref(imageHref) && modernBridge && typeof modernBridge.activateLink === "function") {
+				notifyBridge("activateLink", imageHref);
+				return;
+			}
 			openImageViewerFromElement(image);
 			return;
 		}
@@ -705,6 +716,37 @@
 		refs.imageViewerWindow.style.height = imageViewerState.height + "px";
 		refs.imageViewerWindow.style.left = imageViewerState.left + "px";
 		refs.imageViewerWindow.style.top = imageViewerState.top + "px";
+		if (!imageViewerDragState) {
+			refs.imageViewerWindow.style.transform = "";
+		}
+	}
+
+	function clearImageViewerDragFrame() {
+		if (!imageViewerDragFrame) {
+			return;
+		}
+
+		cancelAnimationFrame(imageViewerDragFrame);
+		imageViewerDragFrame = 0;
+	}
+
+	function applyImageViewerDragPreview() {
+		imageViewerDragFrame = 0;
+		if (!refs.imageViewerWindow || !imageViewerDragState) {
+			return;
+		}
+
+		const offsetLeft = Math.round(imageViewerDragState.currentLeft - imageViewerDragState.startLeft);
+		const offsetTop = Math.round(imageViewerDragState.currentTop - imageViewerDragState.startTop);
+		refs.imageViewerWindow.style.transform = "translate3d(" + offsetLeft + "px, " + offsetTop + "px, 0)";
+	}
+
+	function scheduleImageViewerDragPreview() {
+		if (imageViewerDragFrame) {
+			return;
+		}
+
+		imageViewerDragFrame = requestAnimationFrame(applyImageViewerDragPreview);
 	}
 
 	function stopObservingImageViewerSize() {
@@ -743,24 +785,32 @@
 		imageViewerResizeObserver.observe(refs.imageViewerWindow);
 	}
 
-	function cancelImageViewerDrag() {
+	function endImageViewerDrag(commitGeometry) {
 		if (!imageViewerDragState) {
-			return;
+			return false;
 		}
 
 		imageViewerDragState = null;
+		clearImageViewerDragFrame();
 		document.body.classList.remove("image-viewer-dragging");
 		window.removeEventListener("mousemove", trackImageViewerDrag, true);
 		window.removeEventListener("mouseup", finishImageViewerDrag, true);
+		if (commitGeometry) {
+			applyImageViewerGeometry();
+		} else if (refs.imageViewerWindow) {
+			refs.imageViewerWindow.style.transform = "";
+		}
+		return true;
+	}
+
+	function cancelImageViewerDrag() {
+		endImageViewerDrag(false);
 	}
 
 	function finishImageViewerDrag() {
-		if (!imageViewerDragState) {
-			return;
+		if (endImageViewerDrag(true)) {
+			persistImageViewerState();
 		}
-
-		cancelImageViewerDrag();
-		persistImageViewerState();
 	}
 
 	function trackImageViewerDrag(event) {
@@ -774,7 +824,10 @@
 			left: imageViewerDragState.startLeft + (event.clientX - imageViewerDragState.startX),
 			top: imageViewerDragState.startTop + (event.clientY - imageViewerDragState.startY)
 		});
-		applyImageViewerGeometry();
+		imageViewerDragState.currentLeft = imageViewerState.left;
+		imageViewerDragState.currentTop = imageViewerState.top;
+		scheduleImageViewerDragPreview();
+		event.preventDefault();
 	}
 
 	function beginImageViewerDrag(event) {
@@ -791,7 +844,9 @@
 			startX: event.clientX,
 			startY: event.clientY,
 			startLeft: rect.left,
-			startTop: rect.top
+			startTop: rect.top,
+			currentLeft: rect.left,
+			currentTop: rect.top
 		};
 		document.body.classList.add("image-viewer-dragging");
 		window.addEventListener("mousemove", trackImageViewerDrag, true);

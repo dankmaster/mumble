@@ -454,13 +454,13 @@
   </action>
   <action name="qaChannelAdd">
    <property name="text">
-    <string>&amp;Add...</string>
+    <string>&amp;Create room...</string>
    </property>
    <property name="toolTip">
-    <string>Add new channel</string>
+    <string>Create a voice room or text room</string>
    </property>
    <property name="whatsThis">
-    <string>This adds a new sub-channel to the currently selected channel.</string>
+    <string>This creates a new voice room below the selected room, or a persistent text room on this server.</string>
    </property>
   </action>
   <action name="qaChannelRemove">

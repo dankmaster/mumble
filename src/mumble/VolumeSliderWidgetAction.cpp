@@ -9,8 +9,10 @@
 #include "VolumeAdjustment.h"
 #include "widgets/EventFilters.h"
 
+#include <QCursor>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QToolTip>
 
@@ -55,6 +57,7 @@ VolumeSliderWidgetAction::VolumeSliderWidgetAction(QWidget *parent)
 	connect(m_volumeSlider, &QSlider::sliderReleased, this, [this]() {
 		m_volumeSlider->setFocus(Qt::TabFocusReason);
 		updateLabelValue(false);
+		QToolTip::hideText();
 	});
 
 	connect(m_volumeSlider, &QSlider::valueChanged, this, &VolumeSliderWidgetAction::on_VolumeSlider_valueChanged);
@@ -136,6 +139,7 @@ void VolumeSliderWidgetAction::updateLabelValue(bool checkMouseButtons) {
 
 void VolumeSliderWidgetAction::updateSliderValue(float value) {
 	int dbShift = VolumeAdjustment::toIntegerDBAdjustment(value);
+	const QSignalBlocker blocker(m_volumeSlider);
 	m_volumeSlider->setValue(dbShift);
 	updateTooltip(dbShift);
 	updateLabelValue(false);
@@ -149,7 +153,12 @@ void VolumeSliderWidgetAction::updateTooltip(int value) {
 }
 
 void VolumeSliderWidgetAction::displayTooltip(int value) {
+	if (!m_volumeSlider || !m_volumeSlider->isVisible() || !m_volumeSlider->isSliderDown()) {
+		return;
+	}
+
 	// ToolTip on drag
 	QString tooltipText = QString("%1%2 dB");
-	QToolTip::showText(QCursor::pos(), tooltipText.arg(value > 0 ? QString("+") : QString("")).arg(value), nullptr);
+	QToolTip::showText(QCursor::pos(), tooltipText.arg(value > 0 ? QString("+") : QString("")).arg(value),
+					   m_volumeSlider, m_volumeSlider->rect());
 }

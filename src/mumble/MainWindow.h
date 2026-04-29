@@ -6,20 +6,20 @@
 #ifndef MUMBLE_MUMBLE_MAINWINDOW_H_
 #define MUMBLE_MUMBLE_MAINWINDOW_H_
 
-#include <QtCore/QPointer>
-#include <QtCore/QtGlobal>
 #include <QtCore/QHash>
+#include <QtCore/QPointer>
 #include <QtCore/QSet>
 #include <QtCore/QStringList>
 #include <QtCore/QVariant>
+#include <QtCore/QtGlobal>
 #include <QtGui/QImage>
 #include <QtNetwork/QAbstractSocket>
 #include <QtWidgets/QMainWindow>
 
 #include "CustomElements.h"
 #include "Log.h"
-#include "ModernShellMenuSerializer.h"
 #include "MUComboBox.h"
+#include "ModernShellMenuSerializer.h"
 #include "Mumble.pb.h"
 #include "MumbleProtocol.h"
 #include "QtUtils.h"
@@ -190,6 +190,8 @@ public:
 	void activateModernShell();
 	void queueModernShellSnapshotSync();
 	void syncModernShellSnapshot();
+	void beginNativeWindowMoveOrResize();
+	void endNativeWindowMoveOrResize();
 	void updateServerNavigatorChrome();
 	void syncServerNavigatorUserMenu();
 	void positionServerNavigatorUserMenu();
@@ -203,15 +205,15 @@ public:
 	void syncPersistentChatGatewayHandler();
 
 	struct PersistentChatTarget {
-		bool valid          = false;
-		bool directMessage  = false;
-		bool legacyTextPath = false;
-		bool readOnly       = false;
-		bool serverLog      = false;
-		ClientUser *user    = nullptr;
-		Channel *channel    = nullptr;
+		bool valid                   = false;
+		bool directMessage           = false;
+		bool legacyTextPath          = false;
+		bool readOnly                = false;
+		bool serverLog               = false;
+		ClientUser *user             = nullptr;
+		Channel *channel             = nullptr;
 		MumbleProto::ChatScope scope = MumbleProto::Channel;
-		unsigned int scopeID = 0;
+		unsigned int scopeID         = 0;
 		QString label;
 		QString description;
 		QString statusMessage;
@@ -225,6 +227,8 @@ public:
 		QString description;
 	};
 
+	enum class RoomCreateType : unsigned char { Voice, Text };
+
 	struct PersistentChatPreview {
 		QString canonicalUrl;
 		QString title;
@@ -233,11 +237,11 @@ public:
 		QImage thumbnailImage;
 		QString openLabel;
 		unsigned int previewAssetID = 0;
-		bool metadataFinished = false;
-		bool thumbnailFinished = false;
-		bool failed           = false;
-		bool siteSnapshotRequested = false;
-		bool siteSnapshotFinished  = false;
+		bool metadataFinished       = false;
+		bool thumbnailFinished      = false;
+		bool failed                 = false;
+		bool siteSnapshotRequested  = false;
+		bool siteSnapshotFinished   = false;
 	};
 
 	struct PersistentChatAssetDownload {
@@ -250,7 +254,7 @@ public:
 
 	struct PersistentChatRenderRequest {
 		QString statusMessage;
-		bool scrollToBottom      = true;
+		bool scrollToBottom         = true;
 		bool preserveScrollPosition = false;
 	};
 
@@ -269,7 +273,8 @@ public:
 	void markPersistentChatAvailable(bool refreshUi = true);
 	void clearPersistentChatReplyTarget(bool refreshChatBar);
 	void setPersistentChatReplyTarget(const std::optional< MumbleProto::ChatMessage > &message);
-	std::optional< MumbleProto::ChatEmbedRef > persistentChatPrimaryEmbed(const MumbleProto::ChatMessage &message) const;
+	std::optional< MumbleProto::ChatEmbedRef >
+		persistentChatPrimaryEmbed(const MumbleProto::ChatMessage &message) const;
 	std::optional< QString > persistentChatPreviewKey(const MumbleProto::ChatMessage &message) const;
 	PersistentChatPreviewSpec persistentChatPreviewSpec(const QString &previewKey) const;
 	QString persistentChatScopeLabel(MumbleProto::ChatScope scope, unsigned int scopeID) const;
@@ -295,6 +300,11 @@ public:
 											unsigned int lastReadMessageID, std::size_t unreadCount);
 	std::size_t totalCachedPersistentChatUnreadCount() const;
 	bool navigateToPersistentChatScope(MumbleProto::ChatScope scope, unsigned int scopeID);
+	bool canCreateVoiceRoom(Channel *channel) const;
+	bool canCreateAnyVoiceRoom() const;
+	bool voiceRoomCreationForcesTemporary(Channel *channel) const;
+	bool canCreateTextRoom() const;
+	void createRoom(RoomCreateType preferredType, Channel *preferredVoiceParent = nullptr);
 	bool canManagePersistentTextChannels() const;
 	std::optional< PersistentTextChannel > selectedPersistentTextChannel() const;
 	bool promptForPersistentTextChannel(PersistentTextChannel &textChannel, bool isNew);
@@ -316,7 +326,7 @@ public:
 	QImage persistentChatInlineDataImageFromSource(const QString &source) const;
 	QImage persistentChatInlineDataImageFromUrl(const QUrl &url) const;
 	void setPersistentChatContentMode(bool showServerLog, bool preserveScrollPosition = false,
-									 bool showComposer = false);
+									  bool showComposer = false);
 	void renderLegacyActivityView(bool preserveScrollPosition = false);
 	void renderServerLogView(bool preserveScrollPosition = false);
 	void flushPersistentChatRender();
@@ -355,7 +365,7 @@ public:
 	bool handleModernShellVoiceJoin(const QString &scopeToken);
 	bool handleModernShellScopeAction(const QString &scopeToken, const QString &actionId);
 	bool handleModernShellScopeActionValueChanged(const QString &scopeToken, const QString &actionId, int value,
-												 bool final);
+												  bool final);
 	bool handleModernShellReplyStart(qulonglong messageID);
 	void handleModernShellReplyCancel();
 	bool handleModernShellReactionToggle(qulonglong messageID, const QString &emoji, bool active);
@@ -378,14 +388,13 @@ public:
 		Scope,
 		Listener
 	};
-	QVariantList serializeModernShellMenu(
-		QMenu *menu, ModernShellMenuContext context,
-		ModernShellMenuSerializer::ActionRegistry *registry = nullptr) const;
+	QVariantList serializeModernShellMenu(QMenu *menu, ModernShellMenuContext context,
+										  ModernShellMenuSerializer::ActionRegistry *registry = nullptr) const;
 	ModernShellMenuSerializer::ActionDefinition modernShellActionDefinition(ModernShellMenuContext context,
-																			 QAction *action) const;
+																			QAction *action) const;
 	bool triggerModernShellSerializedAction(const ModernShellMenuSerializer::ActionRegistry &registry,
-											 const QString &actionId, ClientUser *contextUser = nullptr,
-											 Channel *contextChannel = nullptr);
+											const QString &actionId, ClientUser *contextUser = nullptr,
+											Channel *contextChannel = nullptr);
 #endif
 	void triggerContextAction(const QString &actionData, ClientUser *user, Channel *channel);
 	void updateChatBar(bool forcePersistentChatReload = false);
@@ -433,12 +442,12 @@ protected:
 	MUComboBox *qcbTransmitMode;
 	QAction *qaTransmitMode;
 	QAction *qaTransmitModeSeparator;
-	QAction *qaUserRemoteSpeechCleanup = nullptr;
-	QAction *qaChannelScreenShareStart = nullptr;
-	QAction *qaChannelScreenShareStop = nullptr;
-	QAction *qaChannelScreenShareWatch = nullptr;
+	QAction *qaUserRemoteSpeechCleanup        = nullptr;
+	QAction *qaChannelScreenShareStart        = nullptr;
+	QAction *qaChannelScreenShareStop         = nullptr;
+	QAction *qaChannelScreenShareWatch        = nullptr;
 	QAction *qaChannelScreenShareStopWatching = nullptr;
-	QAction *qaChannelScreenShareOpenWindow = nullptr;
+	QAction *qaChannelScreenShareOpenWindow   = nullptr;
 
 	Search::SearchDialog *m_searchDialog = nullptr;
 
@@ -446,69 +455,69 @@ protected:
 	qt_unique_ptr< UserLocalVolumeSlider > m_userLocalVolumeSlider;
 	qt_unique_ptr< ListenerVolumeController > m_listenerVolumeController;
 	qt_unique_ptr< ListenerVolumeSlider > m_listenerVolumeSlider;
-	QWidget *m_serverNavigatorContainer = nullptr;
-	QFrame *m_serverNavigatorHeaderFrame = nullptr;
-	QFrame *m_serverNavigatorContentFrame = nullptr;
-	QFrame *m_serverNavigatorFooterFrame = nullptr;
-	QLabel *m_serverNavigatorEyebrow = nullptr;
-	QLabel *m_serverNavigatorTitle = nullptr;
-	QLabel *m_serverNavigatorSubtitle = nullptr;
-	QLabel *m_serverNavigatorVoiceSectionEyebrow = nullptr;
-	QLabel *m_serverNavigatorVoiceSectionSubtitle = nullptr;
-	QFrame *m_serverNavigatorTextChannelsFrame = nullptr;
-	QFrame *m_serverNavigatorTextChannelsDivider = nullptr;
-	QLabel *m_serverNavigatorTextChannelsEyebrow = nullptr;
-	QLabel *m_serverNavigatorTextChannelsTitle = nullptr;
-	QLabel *m_serverNavigatorTextChannelsSubtitle = nullptr;
-	QToolButton *m_serverNavigatorServerSettingsButton = nullptr;
-	QToolButton *m_serverNavigatorCreateTextChannelButton = nullptr;
-	QFrame *m_serverNavigatorTextChannelsMotdFrame = nullptr;
-	QLabel *m_serverNavigatorTextChannelsMotdTitle = nullptr;
-	QLabel *m_serverNavigatorTextChannelsMotdBody = nullptr;
+	QWidget *m_serverNavigatorContainer                        = nullptr;
+	QFrame *m_serverNavigatorHeaderFrame                       = nullptr;
+	QFrame *m_serverNavigatorContentFrame                      = nullptr;
+	QFrame *m_serverNavigatorFooterFrame                       = nullptr;
+	QLabel *m_serverNavigatorEyebrow                           = nullptr;
+	QLabel *m_serverNavigatorTitle                             = nullptr;
+	QLabel *m_serverNavigatorSubtitle                          = nullptr;
+	QLabel *m_serverNavigatorVoiceSectionEyebrow               = nullptr;
+	QLabel *m_serverNavigatorVoiceSectionSubtitle              = nullptr;
+	QFrame *m_serverNavigatorTextChannelsFrame                 = nullptr;
+	QFrame *m_serverNavigatorTextChannelsDivider               = nullptr;
+	QLabel *m_serverNavigatorTextChannelsEyebrow               = nullptr;
+	QLabel *m_serverNavigatorTextChannelsTitle                 = nullptr;
+	QLabel *m_serverNavigatorTextChannelsSubtitle              = nullptr;
+	QToolButton *m_serverNavigatorServerSettingsButton         = nullptr;
+	QToolButton *m_serverNavigatorCreateTextChannelButton      = nullptr;
+	QFrame *m_serverNavigatorTextChannelsMotdFrame             = nullptr;
+	QLabel *m_serverNavigatorTextChannelsMotdTitle             = nullptr;
+	QLabel *m_serverNavigatorTextChannelsMotdBody              = nullptr;
 	QToolButton *m_serverNavigatorTextChannelsMotdToggleButton = nullptr;
-	QLabel *m_serverNavigatorFooter = nullptr;
-	QPushButton *m_serverNavigatorFooterPresenceButton = nullptr;
-	QLabel *m_serverNavigatorFooterAvatar = nullptr;
-	QLabel *m_serverNavigatorFooterName = nullptr;
-	QLabel *m_serverNavigatorFooterPresence = nullptr;
+	QLabel *m_serverNavigatorFooter                            = nullptr;
+	QPushButton *m_serverNavigatorFooterPresenceButton         = nullptr;
+	QLabel *m_serverNavigatorFooterAvatar                      = nullptr;
+	QLabel *m_serverNavigatorFooterName                        = nullptr;
+	QLabel *m_serverNavigatorFooterPresence                    = nullptr;
 	QPointer< QWidget > m_serverNavigatorUserMenuPopup;
-	QWidget *m_persistentChatContainer = nullptr;
-	QWidget *m_logSurface = nullptr;
-	QWidget *m_persistentChatComposerInputRow = nullptr;
-	QFrame *m_persistentChatHeaderFrame = nullptr;
-	QLabel *m_persistentChatHeaderEyebrow = nullptr;
-	QLabel *m_persistentChatHeaderTitle = nullptr;
-	QLabel *m_persistentChatHeaderContext = nullptr;
-	QLabel *m_persistentChatHeaderSubtitle = nullptr;
-	QWidget *m_persistentChatSidebarContainer = nullptr;
-	QLabel *m_persistentChatSidebarEyebrow = nullptr;
-	QLabel *m_persistentChatChannelListLabel = nullptr;
-	QLabel *m_persistentChatSidebarSubtitle = nullptr;
-	QLabel *m_persistentChatSidebarFooter = nullptr;
-	QWidget *m_persistentChatChannelToolbar = nullptr;
-	QListWidget *m_persistentChatChannelList = nullptr;
-	QFrame *m_persistentChatDivider = nullptr;
-	QWidget *m_persistentChatConversationPanel = nullptr;
-	QWidget *m_persistentChatLogPanel = nullptr;
-	PersistentChatListWidget *m_persistentChatHistory = nullptr;
-	LogTextBrowser *m_persistentChatLogView = nullptr;
-	PersistentChatGateway *m_persistentChatGateway = nullptr;
-	PersistentChatController *m_persistentChatController = nullptr;
-	PersistentChatHistoryModel *m_persistentChatHistoryModel = nullptr;
+	QWidget *m_persistentChatContainer                             = nullptr;
+	QWidget *m_logSurface                                          = nullptr;
+	QWidget *m_persistentChatComposerInputRow                      = nullptr;
+	QFrame *m_persistentChatHeaderFrame                            = nullptr;
+	QLabel *m_persistentChatHeaderEyebrow                          = nullptr;
+	QLabel *m_persistentChatHeaderTitle                            = nullptr;
+	QLabel *m_persistentChatHeaderContext                          = nullptr;
+	QLabel *m_persistentChatHeaderSubtitle                         = nullptr;
+	QWidget *m_persistentChatSidebarContainer                      = nullptr;
+	QLabel *m_persistentChatSidebarEyebrow                         = nullptr;
+	QLabel *m_persistentChatChannelListLabel                       = nullptr;
+	QLabel *m_persistentChatSidebarSubtitle                        = nullptr;
+	QLabel *m_persistentChatSidebarFooter                          = nullptr;
+	QWidget *m_persistentChatChannelToolbar                        = nullptr;
+	QListWidget *m_persistentChatChannelList                       = nullptr;
+	QFrame *m_persistentChatDivider                                = nullptr;
+	QWidget *m_persistentChatConversationPanel                     = nullptr;
+	QWidget *m_persistentChatLogPanel                              = nullptr;
+	PersistentChatListWidget *m_persistentChatHistory              = nullptr;
+	LogTextBrowser *m_persistentChatLogView                        = nullptr;
+	PersistentChatGateway *m_persistentChatGateway                 = nullptr;
+	PersistentChatController *m_persistentChatController           = nullptr;
+	PersistentChatHistoryModel *m_persistentChatHistoryModel       = nullptr;
 	PersistentChatHistoryDelegate *m_persistentChatHistoryDelegate = nullptr;
-	QFrame *m_persistentChatComposerFrame = nullptr;
-	QFrame *m_persistentChatReplyFrame = nullptr;
-	QLabel *m_persistentChatReplyLabel = nullptr;
-	QLabel *m_persistentChatReplySnippet = nullptr;
-	QToolButton *m_persistentChatReplyCancelButton = nullptr;
-	QToolButton *m_persistentChatAttachButton = nullptr;
-	QToolButton *m_persistentChatSendButton = nullptr;
+	QFrame *m_persistentChatComposerFrame                          = nullptr;
+	QFrame *m_persistentChatReplyFrame                             = nullptr;
+	QLabel *m_persistentChatReplyLabel                             = nullptr;
+	QLabel *m_persistentChatReplySnippet                           = nullptr;
+	QToolButton *m_persistentChatReplyCancelButton                 = nullptr;
+	QToolButton *m_persistentChatAttachButton                      = nullptr;
+	QToolButton *m_persistentChatSendButton                        = nullptr;
 	QString m_persistentChatWelcomeText;
-	bool m_persistentChatMotdExpanded = false;
-	bool m_hasPersistentChatSupport = false;
+	bool m_persistentChatMotdExpanded        = false;
+	bool m_hasPersistentChatSupport          = false;
 	bool m_persistentChatTargetUsesVoiceTree = false;
 	std::optional< int > m_persistentChatSelectedScopeValue;
-	unsigned int m_persistentChatSelectedScopeID = 0;
+	unsigned int m_persistentChatSelectedScopeID  = 0;
 	unsigned int m_defaultPersistentTextChannelID = 0;
 	QHash< unsigned int, PersistentTextChannel > m_persistentTextChannels;
 	QHash< unsigned int, unsigned int > m_userIdleSeconds;
@@ -520,33 +529,37 @@ protected:
 	QHash< QString, int > m_persistentChatUnreadByScope;
 	std::optional< PersistentChatRenderRequest > m_pendingPersistentChatRender;
 	std::optional< MumbleProto::ChatScope > m_visiblePersistentChatScope;
-	unsigned int m_visiblePersistentChatScopeID = 0;
+	unsigned int m_visiblePersistentChatScopeID           = 0;
 	unsigned int m_visiblePersistentChatLastReadMessageID = 0;
-	unsigned int m_visiblePersistentChatOldestMessageID = 0;
-	bool m_visiblePersistentChatHasMore = false;
-	bool m_persistentChatLoadingOlder = false;
-	bool m_persistentChatRenderQueued = false;
-	QTimer *m_persistentChatResizeRenderTimer  = nullptr;
-	QTimer *m_persistentChatScrollIdleTimer    = nullptr;
-	QTimer *m_userPresenceRefreshTimer         = nullptr;
-	int m_pendingPersistentChatViewportWidth   = -1;
-	int m_lastPersistentChatViewportWidth      = -1;
-	int m_persistentChatBottomLockRendersRemaining = 0;
-	bool m_persistentChatPreviewRefreshPending = false;
-	bool m_persistentChatRestoreAnchorPending  = false;
-	bool m_persistentChatLogStickToBottom      = true;
+	unsigned int m_visiblePersistentChatOldestMessageID   = 0;
+	bool m_visiblePersistentChatHasMore                   = false;
+	bool m_persistentChatLoadingOlder                     = false;
+	bool m_persistentChatRenderQueued                     = false;
+	QTimer *m_persistentChatResizeRenderTimer             = nullptr;
+	QTimer *m_persistentChatScrollIdleTimer               = nullptr;
+	QTimer *m_userPresenceRefreshTimer                    = nullptr;
+	int m_pendingPersistentChatViewportWidth              = -1;
+	int m_lastPersistentChatViewportWidth                 = -1;
+	int m_persistentChatBottomLockRendersRemaining        = 0;
+	bool m_persistentChatPreviewRefreshPending            = false;
+	bool m_persistentChatRestoreAnchorPending             = false;
+	bool m_persistentChatLogStickToBottom                 = true;
 	QString m_persistentChatPendingAnchorRowId;
-	int m_persistentChatPendingAnchorOffset    = 0;
+	int m_persistentChatPendingAnchorOffset = 0;
 	std::optional< MumbleProto::ChatMessage > m_pendingPersistentChatReply;
-	QTimer *m_modernShellSyncTimer             = nullptr;
+	QTimer *m_modernShellSyncTimer                = nullptr;
+	QTimer *m_nativeWindowMoveResizeRecoveryTimer = nullptr;
+	qint64 m_modernShellLastSnapshotSyncMs        = 0;
 #if defined(MUMBLE_HAS_MODERN_LAYOUT)
-	ModernShellHost *m_modernShellHost         = nullptr;
-	QObject *m_persistentChatPreviewSnapshotRenderer = nullptr;
+	ModernShellHost *m_modernShellHost                     = nullptr;
+	QObject *m_persistentChatPreviewSnapshotRenderer       = nullptr;
+	bool m_modernShellSnapshotPendingAfterNativeMoveResize = false;
 #endif
-	bool m_shellLayoutInitialized            = false;
+	bool m_shellLayoutInitialized              = false;
 	Settings::WindowLayout m_activeShellLayout = Settings::LayoutModern;
-	bool m_modernLayoutCompatibleServer      = false;
-	bool m_modernShellRuntimeDisabled        = false;
+	bool m_modernLayoutCompatibleServer        = false;
+	bool m_modernShellRuntimeDisabled          = false;
+	bool m_nativeWindowMoveResizeActive        = false;
 
 	std::stack< unsigned int > m_previousChannels;
 	std::optional< unsigned int > m_movedBackFromChannel;
@@ -668,7 +681,7 @@ public slots:
 	void on_qteChat_ctrlSpacePressed();
 	void on_persistentChatScopeChanged(int index);
 	Q_INVOKABLE void on_qtvUsers_customContextMenuRequested(const QPoint &mpos,
-														 bool usePositionForGettingContext = true);
+															bool usePositionForGettingContext = true);
 	void showUsersContextMenu(const QPoint &mpos, bool usePositionForGettingContext = true);
 	void on_qteLog_customContextMenuRequested(const QPoint &pos);
 	void on_qteLog_anchorClicked(const QUrl &);
