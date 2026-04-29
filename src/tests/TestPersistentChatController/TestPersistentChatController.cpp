@@ -35,6 +35,9 @@ void PersistentChatGateway::toggleReaction(MumbleProto::ChatScope, unsigned int,
 										   const QString &, bool) {
 }
 
+void PersistentChatGateway::deleteMessage(MumbleProto::ChatScope, unsigned int, unsigned int, unsigned int) {
+}
+
 void PersistentChatGateway::markRead(MumbleProto::ChatScope, unsigned int, unsigned int) {
 }
 
@@ -134,6 +137,7 @@ private slots:
 	void appliesEmbedUpdatesToCachedMessages();
 	void preservesReplyMetadataFromHistory();
 	void appliesReactionUpdatesToCachedMessages();
+	void replacesCachedMessageWithDeletedTombstone();
 };
 
 void TestPersistentChatController::restoresCachedScopeSnapshots() {
@@ -259,6 +263,35 @@ void TestPersistentChatController::appliesReactionUpdatesToCachedMessages() {
 	QCOMPARE(QString::fromUtf8(snapshot.messages.front().reactions(1).emoji().c_str()), QString::fromUtf8("🎉"));
 	QCOMPARE(snapshot.messages.front().reactions(1).count(), 3U);
 	QCOMPARE(snapshot.messages.front().reactions(1).self_reacted(), false);
+}
+
+void TestPersistentChatController::replacesCachedMessageWithDeletedTombstone() {
+	PersistentChatGateway gateway;
+	PersistentChatController controller;
+	controller.setGateway(&gateway);
+	controller.setActiveScope(PersistentChatScopeKey::fromScope(MumbleProto::TextChannel, 66), false);
+
+	MumbleProto::ChatMessage original =
+		makeMessage(60, 6000, MumbleProto::TextChannel, 66, QStringLiteral("remove me"));
+	original.set_reply_to_message_id(59);
+	*original.add_reactions() = makeReaction(QString::fromUtf8("👍"), 1, true);
+	gateway.handleIncomingHistory(makeHistory(MumbleProto::TextChannel, 66, { original }, 0, 60, false));
+
+	MumbleProto::ChatMessage tombstone = original;
+	tombstone.clear_body_text();
+	tombstone.clear_reply_to_message_id();
+	tombstone.clear_reactions();
+	tombstone.set_message("");
+	tombstone.set_deleted_at(6100);
+	gateway.handleIncomingMessage(tombstone);
+
+	const PersistentChatScopeStateSnapshot snapshot = controller.activeSnapshot();
+	QCOMPARE(snapshot.messages.size(), 1);
+	QCOMPARE(snapshot.messages.front().message_id(), 60U);
+	QCOMPARE(static_cast< quint64 >(snapshot.messages.front().deleted_at()), 6100ULL);
+	QVERIFY(!snapshot.messages.front().has_body_text());
+	QVERIFY(!snapshot.messages.front().has_reply_to_message_id());
+	QCOMPARE(snapshot.messages.front().reactions_size(), 0);
 }
 
 QTEST_MAIN(TestPersistentChatController)

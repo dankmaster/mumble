@@ -28,6 +28,7 @@ namespace {
 								<< QString::number(static_cast< int >(bubble.displayMode)) << bubble.bodyHtml
 								<< bubble.transcriptActorLabel << bubble.transcriptTimeLabel << bubble.replyActor
 								<< bubble.replySnippet << bubble.actionText
+								<< (bubble.deleteEnabled ? QStringLiteral("1") : QStringLiteral("0"))
 								<< QString::number(static_cast< int >(bubble.previewSpec.kind));
 		}
 

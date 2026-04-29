@@ -520,6 +520,8 @@ QWidget *PersistentChatHistoryDelegate::createWidgetForRow(const PersistentChatH
 
 			connect(groupWidget, &PersistentChatMessageGroupWidget::replyRequested, this,
 					&PersistentChatHistoryDelegate::replyRequested);
+			connect(groupWidget, &PersistentChatMessageGroupWidget::deleteRequested, this,
+					&PersistentChatHistoryDelegate::deleteRequested);
 			connect(groupWidget, &PersistentChatMessageGroupWidget::scopeJumpRequested, this,
 					&PersistentChatHistoryDelegate::scopeJumpRequested);
 			connect(groupWidget, &PersistentChatMessageGroupWidget::logContextMenuRequested, this,

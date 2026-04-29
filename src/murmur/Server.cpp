@@ -473,6 +473,7 @@ void Server::readParams() {
 	m_dbWrapper.getConfigurationTo(iServerNum, "textmessagelength", iMaxTextMessageLength);
 	m_dbWrapper.getConfigurationTo(iServerNum, "imagemessagelength", iMaxImageMessageLength);
 	m_dbWrapper.getConfigurationTo(iServerNum, "allowhtml", bAllowHTML);
+	m_dbWrapper.getConfigurationTo(iServerNum, "allowrecording", allowRecording);
 	m_dbWrapper.getConfigurationTo(iServerNum, "persistentglobalchat", bPersistentGlobalChatEnabled);
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_enabled", bScreenShareEnabled);
 	m_dbWrapper.getConfigurationTo(iServerNum, "screen_share_recording_enabled", bScreenShareRecordingEnabled);
@@ -791,6 +792,14 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 			mpsc.set_allow_html(bAllowHTML);
 			sendAll(mpsc);
 		}
+	} else if (key == "allowrecording") {
+		bool allow = !v.isNull() ? QVariant(v).toBool() : Meta::mp->allowRecording;
+		if (allow != allowRecording) {
+			allowRecording = allow;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_recording_allowed(allowRecording);
+			sendAll(mpsc);
+		}
 	} else if (key == "chat_asset_storage_path") {
 		qsChatAssetStoragePath = !v.isNull() ? v.trimmed() : Meta::mp->qsChatAssetStoragePath;
 	} else if (key == "chat_asset_max_bytes") {
@@ -889,9 +898,7 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 		if (relayUrl != qsScreenShareRelayUrl) {
 			qsScreenShareRelayUrl = relayUrl;
 			MumbleProto::ServerConfig mpsc;
-			if (!qsScreenShareRelayUrl.isEmpty()) {
-				mpsc.set_screen_share_relay_url(u8(qsScreenShareRelayUrl));
-			}
+			mpsc.set_screen_share_relay_url(u8(qsScreenShareRelayUrl));
 			sendAll(mpsc);
 
 			const QList< QString > streamIDs = qhScreenShareStreams.keys();
@@ -935,6 +942,9 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 		QString text = !v.isNull() ? v : Meta::mp->qsWelcomeText;
 		if (text != qsWelcomeText) {
 			qsWelcomeText = text;
+			MumbleProto::ServerConfig mpsc;
+			mpsc.set_welcome_text(u8(qsWelcomeText));
+			sendAll(mpsc);
 		}
 	} else if (key == "registername") {
 		QString text = !v.isNull() ? v : Meta::mp->qsRegName;
@@ -970,8 +980,6 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 #endif
 	} else if (key == "allowping")
 		bAllowPing = !v.isNull() ? QVariant(v).toBool() : Meta::mp->bAllowPing;
-	else if (key == "allowrecording")
-		allowRecording = !v.isNull() ? QVariant(v).toBool() : Meta::mp->allowRecording;
 	else if (key == "rollingStatsWindow")
 		rollingStatsWindow = i ? static_cast< unsigned int >(i) : Meta::mp->rollingStatsWindow;
 	else if (key == "username")

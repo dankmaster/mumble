@@ -34,6 +34,7 @@ signals:
 	void loadOlderRequested();
 	void previewRequested(const QString &previewKey);
 	void replyRequested(unsigned int messageID);
+	void deleteRequested(unsigned int messageID);
 	void scopeJumpRequested(MumbleProto::ChatScope scope, unsigned int scopeID);
 	void logContextMenuRequested(LogTextBrowser *browser, const QPoint &position);
 	void logImageActivated(LogTextBrowser *browser, const QTextCursor &cursor);

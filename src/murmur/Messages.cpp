@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -1005,6 +1006,7 @@ namespace {
 													 const std::optional< std::string > &resolvedAuthorName = std::nullopt,
 													 std::optional< unsigned int > viewerUserID = std::nullopt,
 													 const std::optional< ChatReplyPreview > &replyPreview = std::nullopt) {
+		const bool deleted = message.deletedAt > std::chrono::system_clock::time_point();
 		MumbleProto::ChatMessage protoMessage;
 		protoMessage.set_scope(scope);
 		protoMessage.set_scope_id(scopeID);
@@ -1019,10 +1021,10 @@ namespace {
 		if (resolvedAuthorName && !resolvedAuthorName->empty()) {
 			protoMessage.set_actor_name(*resolvedAuthorName);
 		}
-		if (message.replyToMessageID) {
+		if (!deleted && message.replyToMessageID) {
 			protoMessage.set_reply_to_message_id(message.replyToMessageID.value());
 		}
-		if (replyPreview) {
+		if (!deleted && replyPreview) {
 			if (replyPreview->actorName && !replyPreview->actorName->empty()) {
 				protoMessage.set_reply_actor_name(replyPreview->actorName.value());
 			}
@@ -1030,19 +1032,27 @@ namespace {
 				protoMessage.set_reply_snippet(replyPreview->snippet.value());
 			}
 		}
-		protoMessage.set_body_text(message.bodyText);
-		protoMessage.set_body_format(protoBodyFormatFromDB(message.bodyFormat));
-		protoMessage.set_message(u8(structuredChatLegacyHtml(u8(message.bodyText), message.bodyFormat)));
-		for (const msdb::DBChatMessageAttachment &attachment : message.attachments) {
-			*protoMessage.add_attachments() = protoAssetRefFromDB(attachment);
+		if (deleted) {
+			protoMessage.set_message(std::string());
+		} else {
+			protoMessage.set_body_text(message.bodyText);
+			protoMessage.set_body_format(protoBodyFormatFromDB(message.bodyFormat));
+			protoMessage.set_message(u8(structuredChatLegacyHtml(u8(message.bodyText), message.bodyFormat)));
+			for (const msdb::DBChatMessageAttachment &attachment : message.attachments) {
+				*protoMessage.add_attachments() = protoAssetRefFromDB(attachment);
+			}
+			for (const msdb::DBChatMessageEmbed &embed : message.embeds) {
+				*protoMessage.add_embeds() = protoEmbedRefFromDB(embed);
+			}
+			appendProtoReactionAggregates(protoMessage.mutable_reactions(), message.reactions, viewerUserID);
 		}
-		for (const msdb::DBChatMessageEmbed &embed : message.embeds) {
-			*protoMessage.add_embeds() = protoEmbedRefFromDB(embed);
-		}
-		appendProtoReactionAggregates(protoMessage.mutable_reactions(), message.reactions, viewerUserID);
 		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
-		protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
-		protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
+		if (!deleted) {
+			protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
+		}
+		if (deleted) {
+			protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
+		}
 
 		return protoMessage;
 	}
@@ -1296,6 +1306,11 @@ void Server::applyChatEmbedFetchResult(unsigned int threadID, unsigned int messa
 									   unsigned int scopeID, unsigned int permissionChannelID,
 									   const ::msdb::DBChatMessageEmbed &embed) {
 	QMutexLocker qml(&qmCache);
+
+	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, messageID);
+	if (!message || message->deletedAt > std::chrono::system_clock::time_point()) {
+		return;
+	}
 
 	std::vector< ::msdb::DBChatMessageEmbed > embeds = m_dbWrapper.getChatMessageEmbeds(iServerNum, messageID);
 	bool replaced                                      = false;
@@ -3375,6 +3390,111 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 void Server::msgChatMessage(ServerUser *, MumbleProto::ChatMessage &) {
 }
 
+void Server::msgChatMessageDelete(ServerUser *uSource, MumbleProto::ChatMessageDelete &msg) {
+	ZoneScoped;
+
+	MSG_SETUP(ServerUser::Authenticated);
+	QMutexLocker qml(&qmCache);
+
+	RATELIMIT(uSource);
+
+	if (!clientSupportsPersistentChat(uSource)) {
+		inferPersistentChatSupport(uSource);
+	}
+
+	if (!msg.has_message_id() || msg.message_id() == 0) {
+		return;
+	}
+
+	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
+	if (!message) {
+		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
+		return;
+	}
+
+	if (msg.has_thread_id() && msg.thread_id() != message->threadID) {
+		sendPersistentChatTextDenied(this, uSource, tr("That delete target belongs to a different conversation."));
+		return;
+	}
+
+	if (message->deletedAt > std::chrono::system_clock::time_point()) {
+		return;
+	}
+
+	const ::msdb::DBChatThread thread = m_dbWrapper.getChatThread(iServerNum, message->threadID);
+	QHash< unsigned int, ::msdb::DBTextChannel > textChannelsByID;
+	for (const ::msdb::DBTextChannel &currentTextChannel : m_dbWrapper.getTextChannels(iServerNum)) {
+		textChannelsByID.insert(currentTextChannel.textChannelID, currentTextChannel);
+	}
+
+	MumbleProto::ChatScope scope = MumbleProto::Channel;
+	unsigned int scopeID         = 0;
+	Channel *permissionChannel   = nullptr;
+	if (!resolveStoredChatThread(thread, qhChannels, textChannelsByID, scope, scopeID, permissionChannel)
+		|| !permissionChannel) {
+		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
+		return;
+	}
+
+	if ((msg.has_scope() && msg.scope() != scope) || (msg.has_scope_id() && msg.scope_id() != scopeID)) {
+		sendPersistentChatTextDenied(this, uSource, tr("That delete target belongs to a different conversation."));
+		return;
+	}
+
+	if (scope == MumbleProto::ServerGlobal && !bPersistentGlobalChatEnabled) {
+		sendPersistentChatTextDenied(this, uSource, tr("Global chat is disabled by this server."));
+		return;
+	}
+
+	if (!ChanACL::hasPermission(uSource, permissionChannel, ChanACL::DeleteTextMessage, &acCache)) {
+		PERM_DENIED(uSource, permissionChannel, ChanACL::DeleteTextMessage);
+		return;
+	}
+
+	std::optional< ::msdb::DBChatMessage > deletedMessage =
+		m_dbWrapper.deleteChatMessage(iServerNum, message->messageID);
+	if (!deletedMessage) {
+		return;
+	}
+
+	const auto resolvedAuthorName = [this](const ::msdb::DBChatMessage &storedMessage) -> std::optional< std::string > {
+		if (storedMessage.authorName && !storedMessage.authorName->empty()) {
+			return storedMessage.authorName;
+		}
+
+		if (storedMessage.authorSession) {
+			ServerUser *currentUser = qhUsers.value(storedMessage.authorSession.value());
+			if (currentUser && !currentUser->qsName.isEmpty()) {
+				return u8(currentUser->qsName);
+			}
+		}
+
+		if (storedMessage.authorUserID
+			&& m_dbWrapper.registeredUserExists(iServerNum, storedMessage.authorUserID.value())) {
+			return m_dbWrapper.getUserName(iServerNum, storedMessage.authorUserID.value());
+		}
+
+		return std::nullopt;
+	};
+
+	const MumbleProto::ChatMessage protoMessage =
+		protoChatMessageFromDB(*deletedMessage, scope, scopeID, resolvedAuthorName(*deletedMessage), std::nullopt);
+
+	QSet< ServerUser * > persistentRecipients;
+	if (scope == MumbleProto::Channel) {
+		persistentRecipients = legacyChannelRecipients(qhUsers, m_channelListenerManager, permissionChannel);
+		persistentRecipients.insert(uSource);
+	} else {
+		persistentRecipients = recipientsWithTextAccess(qhUsers, permissionChannel, acCache);
+	}
+
+	for (ServerUser *currentUser : persistentRecipients) {
+		if (clientSupportsPersistentChat(currentUser)) {
+			sendMessage(currentUser, protoMessage);
+		}
+	}
+}
+
 void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistoryRequest &msg) {
 	ZoneScoped;
 
@@ -4145,6 +4265,10 @@ void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactio
 
 	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
 	if (!message || message->threadID != thread->threadID) {
+		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
+		return;
+	}
+	if (message->deletedAt > std::chrono::system_clock::time_point()) {
 		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
 		return;
 	}
@@ -5058,7 +5182,92 @@ void Server::msgRequestBlob(ServerUser *uSource, MumbleProto::RequestBlob &msg) 
 	}
 }
 
-void Server::msgServerConfig(ServerUser *, MumbleProto::ServerConfig &) {
+void Server::msgServerConfig(ServerUser *uSource, MumbleProto::ServerConfig &msg) {
+	MSG_SETUP(ServerUser::Authenticated);
+
+	Channel *rootChannel = qhChannels.value(Mumble::ROOT_CHANNEL_ID);
+	if (!rootChannel) {
+		return;
+	}
+
+	if (!hasPermission(uSource, rootChannel, ChanACL::Write)) {
+		PERM_DENIED(uSource, rootChannel, ChanACL::Write);
+		return;
+	}
+
+	auto applyConfig = [this](const char *key, const QString &value) {
+		if (value.trimmed().isEmpty()) {
+			m_dbWrapper.clearConfiguration(iServerNum, key);
+		} else {
+			m_dbWrapper.setConfiguration(iServerNum, key, u8(value));
+		}
+		setLiveConf(QLatin1String(key), value);
+	};
+	auto applyBoolConfig = [&applyConfig](const char *key, bool value) {
+		applyConfig(key, value ? QLatin1String("true") : QLatin1String("false"));
+	};
+	auto applyPositiveIntConfig = [&applyConfig](const char *key, unsigned int value) {
+		const unsigned int cappedValue = std::min(value, static_cast< unsigned int >(std::numeric_limits< int >::max()));
+		applyConfig(key, cappedValue > 0 ? QString::number(cappedValue) : QString());
+	};
+
+	if (msg.has_welcome_text()) {
+		applyConfig("welcometext", u8(msg.welcome_text()));
+	}
+	if (msg.has_max_bandwidth()) {
+		applyPositiveIntConfig("bandwidth", msg.max_bandwidth());
+	}
+	if (msg.has_allow_html()) {
+		applyBoolConfig("allowhtml", msg.allow_html());
+	}
+	if (msg.has_message_length()) {
+		applyPositiveIntConfig("textmessagelength", msg.message_length());
+	}
+	if (msg.has_image_message_length()) {
+		applyPositiveIntConfig("imagemessagelength", msg.image_message_length());
+	}
+	if (msg.has_max_users()) {
+		applyPositiveIntConfig("users", msg.max_users());
+	}
+	if (msg.has_recording_allowed()) {
+		applyBoolConfig("allowrecording", msg.recording_allowed());
+	}
+	if (msg.has_persistent_global_chat_enabled()) {
+		applyBoolConfig("persistentglobalchat", msg.persistent_global_chat_enabled());
+	}
+	if (msg.has_screen_share_enabled()) {
+		applyBoolConfig("screen_share_enabled", msg.screen_share_enabled());
+	}
+	if (msg.has_screen_share_recording_enabled()) {
+		applyBoolConfig("screen_share_recording_enabled", msg.screen_share_recording_enabled());
+	}
+	if (msg.has_screen_share_helper_required()) {
+		applyBoolConfig("screen_share_helper_required", msg.screen_share_helper_required());
+	}
+	if (msg.preferred_screen_share_codecs_size() > 0) {
+		QStringList codecTokens;
+		for (int i = 0; i < msg.preferred_screen_share_codecs_size(); ++i) {
+			const MumbleProto::ScreenShareCodec codec = msg.preferred_screen_share_codecs(i);
+			if (Mumble::ScreenShare::isValidCodec(codec)) {
+				codecTokens << Mumble::ScreenShare::codecToConfigToken(codec);
+			}
+		}
+		if (!codecTokens.isEmpty()) {
+			applyConfig("screen_share_codec_preferences", codecTokens.join(QLatin1Char(' ')));
+		}
+	}
+	if (msg.has_screen_share_max_width()) {
+		applyPositiveIntConfig("screen_share_max_width", msg.screen_share_max_width());
+	}
+	if (msg.has_screen_share_max_height()) {
+		applyPositiveIntConfig("screen_share_max_height", msg.screen_share_max_height());
+	}
+	if (msg.has_screen_share_max_fps()) {
+		applyPositiveIntConfig("screen_share_max_fps", msg.screen_share_max_fps());
+	}
+	if (msg.has_screen_share_relay_url()) {
+		applyConfig("screen_share_relay_url", u8(msg.screen_share_relay_url()).trimmed());
+	}
 }
 
 void Server::msgSuggestConfig(ServerUser *, MumbleProto::SuggestConfig &) {

@@ -298,6 +298,7 @@ public:
 	bool canManagePersistentTextChannels() const;
 	std::optional< PersistentTextChannel > selectedPersistentTextChannel() const;
 	bool promptForPersistentTextChannel(PersistentTextChannel &textChannel, bool isNew);
+	void openServerSettingsDialog();
 	void createPersistentTextChannel();
 	void editPersistentTextChannel();
 	void removePersistentTextChannel();
@@ -331,6 +332,8 @@ public:
 	void handlePersistentChatEmbedState(const MumbleProto::ChatEmbedState &msg);
 	void handlePersistentChatReactionState(const MumbleProto::ChatReactionState &msg);
 	bool canSendToPersistentChatTarget(const PersistentChatTarget &target, bool requestPermissions) const;
+	bool canDeletePersistentChatMessages(const PersistentChatTarget &target, bool requestPermissions) const;
+	bool deletePersistentChatMessage(unsigned int messageID);
 	void syncPersistentChatInputState(bool baseEnabled);
 	bool attachPersistentChatClipboardImage();
 	void attachPersistentChatImage(const QImage &image);
@@ -356,6 +359,7 @@ public:
 	bool handleModernShellReplyStart(qulonglong messageID);
 	void handleModernShellReplyCancel();
 	bool handleModernShellReactionToggle(qulonglong messageID, const QString &emoji, bool active);
+	bool handleModernShellMessageDelete(qulonglong messageID);
 	bool handleModernShellParticipantMessage(qulonglong session);
 	bool handleModernShellParticipantJoin(qulonglong session);
 	bool handleModernShellParticipantMove(qulonglong session, const QString &targetScopeToken);
@@ -400,6 +404,8 @@ protected:
 	QList< QAction * > qlServerActions;
 	QList< QAction * > qlChannelActions;
 	QList< QAction * > qlUserActions;
+	QAction *qaServerSettings = nullptr;
+	QAction *qaCreateTextRoom = nullptr;
 
 	QHash< ShortcutTarget, int > qmCurrentTargets;
 	/// A map that contains information about the currently active
@@ -454,6 +460,8 @@ protected:
 	QLabel *m_serverNavigatorTextChannelsEyebrow = nullptr;
 	QLabel *m_serverNavigatorTextChannelsTitle = nullptr;
 	QLabel *m_serverNavigatorTextChannelsSubtitle = nullptr;
+	QToolButton *m_serverNavigatorServerSettingsButton = nullptr;
+	QToolButton *m_serverNavigatorCreateTextChannelButton = nullptr;
 	QFrame *m_serverNavigatorTextChannelsMotdFrame = nullptr;
 	QLabel *m_serverNavigatorTextChannelsMotdTitle = nullptr;
 	QLabel *m_serverNavigatorTextChannelsMotdBody = nullptr;
@@ -583,6 +591,8 @@ public slots:
 	void on_qaServerBanList_triggered();
 	void on_qaServerUserList_triggered();
 	void on_qaServerInformation_triggered();
+	void on_qaServerSettings_triggered();
+	void on_qaCreateTextRoom_triggered();
 	void on_qaServerTexture_triggered();
 	void on_qaServerTextureRemove_triggered();
 	void on_qaServerTokens_triggered();

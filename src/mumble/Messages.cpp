@@ -1770,6 +1770,9 @@ void MainWindow::msgChatMessage(const MumbleProto::ChatMessage &msg) {
 	handlePersistentChatMessage(msg);
 }
 
+void MainWindow::msgChatMessageDelete(const MumbleProto::ChatMessageDelete &) {
+}
+
 void MainWindow::msgChatHistoryRequest(const MumbleProto::ChatHistoryRequest &) {
 }
 

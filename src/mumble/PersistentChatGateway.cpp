@@ -57,6 +57,15 @@ void PersistentChatGateway::toggleReaction(MumbleProto::ChatScope scope, unsigne
 	m_serverHandler->sendChatReactionToggle(scope, scopeID, threadID, messageID, emoji, active);
 }
 
+void PersistentChatGateway::deleteMessage(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+										  unsigned int messageID) {
+	if (!isReady() || messageID == 0) {
+		return;
+	}
+
+	m_serverHandler->sendChatMessageDelete(scope, scopeID, threadID, messageID);
+}
+
 void PersistentChatGateway::markRead(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int lastReadMessageID) {
 	if (!isReady() || lastReadMessageID == 0) {
 		return;

@@ -1486,6 +1486,15 @@ textarea:focus-visible {
 	color: var(--text-strong);
 }
 
+.bubble-toolbar-button.is-danger {
+	color: #f0b5b4;
+}
+
+.bubble-toolbar-button.is-danger:hover,
+.bubble-toolbar-button.is-danger:focus-visible {
+	color: #ffd1cf;
+}
+
 .reaction-picker {
 	display: flex;
 	flex-wrap: wrap;
@@ -2097,11 +2106,20 @@ textarea:focus-visible {
 	padding: 1px 8px 0 calc(28px + (var(--room-depth) * 11px));
 }
 
+.presence-entry {
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	min-width: 0;
+}
+
 .presence-row {
 	display: flex;
 	align-items: flex-start;
+	flex: 1 1 auto;
 	gap: 5px;
 	min-height: 20px;
+	min-width: 0;
 	width: 100%;
 	padding: 1px 0;
 	border: 0;
@@ -2113,6 +2131,43 @@ textarea:focus-visible {
 .presence-row.is-dragging,
 .rail-row.is-dragging {
 	opacity: 0.45;
+}
+
+.presence-action-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--text-faint);
+	cursor: pointer;
+	opacity: 0.72;
+	transition:
+		opacity 120ms ease,
+		color 120ms ease,
+		background 120ms ease;
+}
+
+.presence-action-button svg {
+	width: 14px;
+	height: 14px;
+	fill: currentColor;
+}
+
+.presence-entry:hover .presence-action-button,
+.presence-action-button:focus-visible {
+	opacity: 1;
+}
+
+.presence-action-button:hover,
+.presence-action-button:focus-visible {
+	background: rgba(255, 255, 255, 0.06);
+	color: var(--text-strong);
 }
 
 .presence-avatar {

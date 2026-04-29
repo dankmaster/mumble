@@ -1231,6 +1231,42 @@ std::optional< ::msdb::DBChatMessage > DBWrapper::getChatMessage(unsigned int se
 	WRAPPER_END
 }
 
+std::optional< ::msdb::DBChatMessage > DBWrapper::deleteChatMessage(unsigned int serverID, unsigned int messageID) {
+	WRAPPER_BEGIN
+
+	assertValidID(serverID);
+	assertValidID(messageID);
+
+	::mdb::TransactionHolder transaction = m_serverDB.ensureTransaction();
+
+	std::optional< ::msdb::DBChatMessage > message = m_serverDB.getChatMessageTable().getMessage(serverID, messageID);
+	if (!message) {
+		transaction.commit();
+		return std::nullopt;
+	}
+
+	const auto deletedAt = std::chrono::system_clock::now();
+	m_serverDB.getChatMessageAttachmentTable().clearAttachments(serverID, messageID);
+	m_serverDB.getChatMessageEmbedTable().clearEmbeds(serverID, messageID);
+	m_serverDB.getChatMessageReactionTable().clearReactions(serverID, messageID);
+	m_serverDB.getChatMessageTable().markMessageDeleted(serverID, messageID, deletedAt);
+	m_serverDB.getChatThreadTable().touchThread(serverID, message->threadID, deletedAt);
+
+	transaction.commit();
+
+	message->replyToMessageID.reset();
+	message->bodyText.clear();
+	message->bodyFormat = ::msdb::ChatMessageBodyFormat::PlainText;
+	message->attachments.clear();
+	message->embeds.clear();
+	message->reactions.clear();
+	message->editedAt  = std::chrono::system_clock::time_point();
+	message->deletedAt = deletedAt;
+	return message;
+
+	WRAPPER_END
+}
+
 ::msdb::DBChatAsset DBWrapper::addChatAsset(const ::msdb::DBChatAsset &asset) {
 	WRAPPER_BEGIN
 

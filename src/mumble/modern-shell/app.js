@@ -1439,11 +1439,66 @@
 		}
 	}
 
+	function participantContextMenuItems(participant, scopeToken) {
+		const items = [];
+		if (!participant) {
+			return items;
+		}
+
+		if (participant.entryKind !== "listener" && participant.canMessage) {
+			items.push({
+				label: "Open message",
+				enabled: true,
+				action: function() {
+					notifyBridge("messageParticipant", participant.session);
+				}
+			});
+		}
+		if (participant.entryKind !== "listener" && participant.canJoin) {
+			items.push({
+				label: "Join room",
+				enabled: true,
+				action: function() {
+					notifyBridge("joinParticipant", participant.session);
+				}
+			});
+		}
+
+		const participantActionItems = actionItemsFromActionStates(participant.actions, participant.entryKind === "listener"
+			? {
+				invokeAction: function(actionId) {
+					notifyBridge("invokeScopeAction", participant.scopeToken || scopeToken, actionId);
+				},
+				invokeValueChanged: function(actionId, value, final) {
+					notifyBridge("scopeActionValueChanged",
+						participant.scopeToken || scopeToken,
+						actionId,
+						value,
+						final);
+				}
+			}
+			: {
+				invokeAction: function(actionId) {
+					notifyBridge("invokeParticipantAction", participant.session, actionId);
+				},
+				invokeValueChanged: function(actionId, value, final) {
+					notifyBridge("participantActionValueChanged", participant.session, actionId, value, final);
+				}
+			});
+		if (items.length && participantActionItems.length) {
+			items.push({ separator: true });
+		}
+		return items.concat(participantActionItems);
+	}
+
 	function renderPresenceList(container, room, people) {
 		const list = document.createElement("div");
 		list.className = "presence-list";
 
 		(people || []).forEach(function(person) {
+			const entry = document.createElement("div");
+			entry.className = "presence-entry";
+
 			const row = document.createElement("button");
 			row.type = "button";
 			row.className = "presence-row"
@@ -1484,6 +1539,26 @@
 			row.appendChild(avatar);
 			row.appendChild(dot);
 			row.appendChild(label);
+			entry.appendChild(row);
+
+			if ((person.actions || []).length) {
+				const actionsButton = document.createElement("button");
+				actionsButton.type = "button";
+				actionsButton.className = "presence-action-button";
+				actionsButton.title = "More actions";
+				actionsButton.setAttribute("aria-label", "More actions for " + (person.label || "participant"));
+				actionsButton.innerHTML = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"5\" cy=\"12\" r=\"1.8\"></circle><circle cx=\"12\" cy=\"12\" r=\"1.8\"></circle><circle cx=\"19\" cy=\"12\" r=\"1.8\"></circle></svg>";
+				actionsButton.addEventListener("click", function(event) {
+					event.stopPropagation();
+					event.preventDefault();
+					const bounds = actionsButton.getBoundingClientRect();
+					showContextMenu(participantContextMenuItems(person, row.dataset.scopeToken),
+						Math.max(8, bounds.right - 4),
+						Math.max(8, bounds.bottom + 4));
+				});
+				entry.appendChild(actionsButton);
+			}
+
 			row.addEventListener("click", function(event) {
 				event.stopPropagation();
 				if (row.dataset.entryKind === "listener") {
@@ -1520,7 +1595,7 @@
 					element.classList.remove("is-drop-target");
 				});
 			});
-			list.appendChild(row);
+			list.appendChild(entry);
 		});
 
 		container.appendChild(list);
@@ -2236,11 +2311,21 @@
 		return picker;
 	}
 
+	function requestDeleteMessage(message) {
+		if (!message || !message.canDelete) {
+			return;
+		}
+
+		openReactionPickerMessageId = null;
+		notifyBridge("deleteMessage", message.messageId);
+	}
+
 	function renderMessageFooter(message) {
 		const reactions = (message && message.reactions) || [];
 		const canReply = !!(message && message.canReply);
 		const canReact = !!(message && message.canReact);
-		if (!reactions.length && !canReply && !canReact) {
+		const canDelete = !!(message && message.canDelete);
+		if (!reactions.length && !canReply && !canReact && !canDelete) {
 			return null;
 		}
 
@@ -2256,7 +2341,7 @@
 			footer.appendChild(reactionRow);
 		}
 
-		if (canReply || canReact) {
+		if (canReply || canReact || canDelete) {
 			const toolbar = document.createElement("div");
 			toolbar.className = "bubble-toolbar";
 
@@ -2291,6 +2376,19 @@
 					syncSnapshot();
 				});
 				toolbar.appendChild(reactionButton);
+			}
+
+			if (canDelete) {
+				const deleteButton = document.createElement("button");
+				deleteButton.type = "button";
+				deleteButton.className = "bubble-toolbar-button is-danger";
+				deleteButton.textContent = "Delete";
+				deleteButton.addEventListener("click", function(event) {
+					event.preventDefault();
+					event.stopPropagation();
+					requestDeleteMessage(message);
+				});
+				toolbar.appendChild(deleteButton);
 			}
 
 			footer.appendChild(toolbar);
@@ -3445,7 +3543,11 @@
 		const snapshot = getSnapshot();
 		const scope = snapshot.activeScope || {};
 		const roomRow = event.target.closest(".rail-row");
-		const presenceRow = event.target.closest(".presence-row");
+		const presenceActionButton = event.target.closest(".presence-action-button");
+		const presenceRow = event.target.closest(".presence-row")
+			|| (presenceActionButton && presenceActionButton.parentElement
+				? presenceActionButton.parentElement.querySelector(".presence-row")
+				: null);
 		const bubble = event.target.closest(".message-bubble");
 		const composer = event.target.closest("#composer-input");
 		const selfCard = event.target.closest("#self-card");
@@ -3513,53 +3615,7 @@
 
 		if (presenceRow) {
 			const participant = findParticipantState(snapshot, presenceRow.dataset.participantKey || presenceRow.dataset.session);
-			const items = [];
-			if (participant && participant.entryKind !== "listener" && participant.canMessage) {
-				items.push({
-					label: "Open message",
-					enabled: true,
-					action: function() {
-						notifyBridge("messageParticipant", participant.session);
-					}
-				});
-			}
-			if (participant && participant.entryKind !== "listener" && participant.canJoin) {
-				items.push({
-					label: "Join room",
-					enabled: true,
-					action: function() {
-						notifyBridge("joinParticipant", participant.session);
-					}
-				});
-			}
-
-			const participantActionItems = participant
-				? actionItemsFromActionStates(participant.actions, participant.entryKind === "listener"
-					? {
-						invokeAction: function(actionId) {
-							notifyBridge("invokeScopeAction", participant.scopeToken || presenceRow.dataset.scopeToken, actionId);
-						},
-						invokeValueChanged: function(actionId, value, final) {
-							notifyBridge("scopeActionValueChanged",
-								participant.scopeToken || presenceRow.dataset.scopeToken,
-								actionId,
-								value,
-								final);
-						}
-					}
-					: {
-						invokeAction: function(actionId) {
-							notifyBridge("invokeParticipantAction", participant.session, actionId);
-						},
-						invokeValueChanged: function(actionId, value, final) {
-							notifyBridge("participantActionValueChanged", participant.session, actionId, value, final);
-						}
-					})
-				: [];
-			if (items.length && participantActionItems.length) {
-				items.push({ separator: true });
-			}
-			return items.concat(participantActionItems);
+			return participantContextMenuItems(participant, presenceRow.dataset.scopeToken);
 		}
 
 		if (roomRow) {
@@ -3654,6 +3710,16 @@
 					}
 				});
 			}
+			if (message && message.canDelete) {
+				items.push({
+					label: "Delete message",
+					enabled: true,
+					tone: "danger",
+					action: function() {
+						requestDeleteMessage(message);
+					}
+				});
+			}
 			items.push(
 				{
 					separator: true
@@ -3707,6 +3773,7 @@
 
 	function showContextMenu(items, clientX, clientY) {
 		hideAppMenu();
+		hideSelfMenu();
 		const filteredItems = [];
 		(items || []).forEach(function(item) {
 			const kind = actionPanelItemKind(item);

@@ -1193,6 +1193,22 @@ void ServerHandler::sendChatReactionToggle(MumbleProto::ChatScope scope, unsigne
 	sendMessage(toggle);
 }
 
+void ServerHandler::sendChatMessageDelete(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+										  unsigned int messageID) {
+	if (messageID == 0) {
+		return;
+	}
+
+	MumbleProto::ChatMessageDelete messageDelete;
+	messageDelete.set_scope(scope);
+	messageDelete.set_scope_id(scopeID);
+	if (threadID > 0) {
+		messageDelete.set_thread_id(threadID);
+	}
+	messageDelete.set_message_id(messageID);
+	sendMessage(messageDelete);
+}
+
 void ServerHandler::upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
 									  unsigned int aclChannelID, unsigned int position, bool create) {
 	MumbleProto::TextChannelSync sync;

@@ -137,6 +137,14 @@ void ModernShellBridge::toggleReaction(const qulonglong messageId, const QString
 	emit reactionToggleRequested(messageId, trimmedEmoji, active);
 }
 
+void ModernShellBridge::deleteMessage(const qulonglong messageId) {
+	if (messageId == 0) {
+		return;
+	}
+
+	emit messageDeleteRequested(messageId);
+}
+
 void ModernShellBridge::messageParticipant(const qulonglong session) {
 	emit participantMessageRequested(session);
 }

@@ -814,7 +814,7 @@ namespace {
 			  m_actionScope(bubbleSpec.actionScope), m_actionScopeID(bubbleSpec.actionScopeID),
 			  m_baseStylesheet(baseStylesheet), m_laneMetrics(laneMetrics), m_displayMode(bubbleSpec.displayMode),
 			  m_copyText(bubbleSpec.copyText), m_systemMessage(bubbleSpec.systemMessage),
-			  m_actionText(bubbleSpec.actionText) {
+			  m_deleteEnabled(bubbleSpec.deleteEnabled), m_actionText(bubbleSpec.actionText) {
 			mumble::chatperf::ScopedDuration trace("chat.group.bubble_ctor");
 			const bool compactTranscript =
 				m_displayMode == PersistentChatDisplayMode::CompactTranscript && !bubbleSpec.systemMessage;
@@ -985,7 +985,9 @@ namespace {
 
 			m_outerLayout->addWidget(m_surface, 0, compactTranscript ? (Qt::AlignLeft | Qt::AlignTop) : bubbleItemAlignment);
 
-			if (!bubbleSpec.systemMessage && (!bubbleSpec.actionText.isEmpty() || !bubbleSpec.copyText.trimmed().isEmpty())) {
+			if (!bubbleSpec.systemMessage
+				&& (!bubbleSpec.actionText.isEmpty() || !bubbleSpec.copyText.trimmed().isEmpty()
+					|| bubbleSpec.deleteEnabled)) {
 				m_actions = new QWidget(this);
 				m_actions->setObjectName(QLatin1String("qwPersistentChatBubbleActions"));
 				m_actions->setAttribute(Qt::WA_StyledBackground, true);
@@ -1094,6 +1096,7 @@ namespace {
 		void activeChanged(bool active);
 		void contentSizeChanged();
 		void replyRequested(unsigned int messageID);
+		void deleteRequested(unsigned int messageID);
 		void scopeJumpRequested(MumbleProto::ChatScope scope, unsigned int scopeID);
 		void logContextMenuRequested(LogTextBrowser *browser, const QPoint &position);
 		void logImageActivated(LogTextBrowser *browser, const QTextCursor &cursor);
@@ -1145,6 +1148,7 @@ namespace {
 		int m_contentWidth       = 0;
 		QString m_copyText;
 		bool m_systemMessage     = false;
+		bool m_deleteEnabled     = false;
 		QString m_actionText;
 		bool m_active            = false;
 		QVBoxLayout *m_outerLayout = nullptr;
@@ -1423,11 +1427,15 @@ namespace {
 				primaryAction = menu.addAction(m_actionText);
 				primaryAction->setEnabled(m_actionButton->isEnabled());
 			}
+			QAction *deleteAction = nullptr;
+			if (m_messageID > 0 && m_deleteEnabled) {
+				deleteAction = menu.addAction(tr("Delete message"));
+			}
 			QAction *copyAction = nullptr;
 			if (!m_copyText.trimmed().isEmpty()) {
 				copyAction = menu.addAction(tr("Copy message"));
 			}
-			if (!primaryAction && !copyAction) {
+			if (!primaryAction && !deleteAction && !copyAction) {
 				return;
 			}
 
@@ -1441,6 +1449,11 @@ namespace {
 				if (m_actionButton) {
 					m_actionButton->click();
 				}
+				return;
+			}
+
+			if (selectedAction == deleteAction) {
+				emit deleteRequested(m_messageID);
 				return;
 			}
 
@@ -1655,6 +1668,8 @@ void PersistentChatMessageGroupWidget::addBubble(const PersistentChatBubbleSpec 
 		conversationLaneMetricsForWidth(std::max(1, width() > 0 ? width() : m_availableWidth)));
 	auto *bubble = new PersistentChatBubbleWidget(bubbleSpec, m_laneMetrics, m_baseStylesheet, this);
 	connect(bubble, &PersistentChatBubbleWidget::replyRequested, this, &PersistentChatMessageGroupWidget::replyRequested);
+	connect(bubble, &PersistentChatBubbleWidget::deleteRequested, this,
+			&PersistentChatMessageGroupWidget::deleteRequested);
 	connect(bubble, &PersistentChatBubbleWidget::scopeJumpRequested, this,
 			&PersistentChatMessageGroupWidget::scopeJumpRequested);
 	connect(bubble, &PersistentChatBubbleWidget::logContextMenuRequested, this,

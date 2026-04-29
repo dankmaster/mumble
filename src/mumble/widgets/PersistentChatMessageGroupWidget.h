@@ -72,6 +72,7 @@ struct PersistentChatBubbleSpec {
 	PersistentChatPreviewSpec previewSpec;
 	QString copyText;
 	bool systemMessage     = false;
+	bool deleteEnabled     = false;
 	bool hasReply          = false;
 	unsigned int replyMessageID = 0;
 	QString replyActor;
@@ -134,6 +135,7 @@ signals:
 	void measuredHeightChanged(int height);
 	void contentUpdated();
 	void replyRequested(unsigned int messageID);
+	void deleteRequested(unsigned int messageID);
 	void scopeJumpRequested(MumbleProto::ChatScope scope, unsigned int scopeID);
 	void logContextMenuRequested(LogTextBrowser *browser, const QPoint &position);
 	void logImageActivated(LogTextBrowser *browser, const QTextCursor &cursor);

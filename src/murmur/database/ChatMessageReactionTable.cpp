@@ -93,6 +93,20 @@ namespace server {
 			}
 		}
 
+		void ChatMessageReactionTable::clearReactions(unsigned int serverID, unsigned int messageID) {
+			try {
+				::mdb::TransactionHolder transaction = ensureTransaction();
+				m_sql << "DELETE FROM \"" << NAME << "\" WHERE \"" << column::server_id << "\" = :serverID AND \""
+					  << column::message_id << "\" = :messageID",
+					soci::use(serverID), soci::use(messageID);
+				transaction.commit();
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::AccessException("Failed at clearing chat reactions for message ID "
+															  + std::to_string(messageID) + " on server with ID "
+															  + std::to_string(serverID)));
+			}
+		}
+
 		std::vector< DBChatMessageReaction > ChatMessageReactionTable::getReactions(unsigned int serverID,
 																						unsigned int messageID) {
 			try {

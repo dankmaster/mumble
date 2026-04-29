@@ -54,6 +54,7 @@
 #include "QtWidgetUtils.h"
 #include "RichTextEditor.h"
 #include "Screen.h"
+#include "ScreenShare.h"
 #include "ScreenShareManager.h"
 #include "SearchDialog.h"
 #include "ServerHandler.h"
@@ -121,18 +122,21 @@
 #include <QtNetwork/QNetworkReply>
 #include <QtNetwork/QNetworkRequest>
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QCheckBox>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QFormLayout>
 #include <QtWidgets/QFrame>
+#include <QtWidgets/QGroupBox>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QInputDialog>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QListWidget>
 #include <QtWidgets/QMessageBox>
+#include <QtWidgets/QPlainTextEdit>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QScrollBar>
 #include <QtWidgets/QSizePolicy>
@@ -159,6 +163,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <optional>
 
 #include "widgets/EventFilters.h"
@@ -3532,6 +3537,14 @@ MainWindow::MainWindow(QWidget *p)
 
 	createActions();
 	setupUi(this);
+	qaServerSettings = new QAction(tr("Server Settings..."), this);
+	qaServerSettings->setToolTip(tr("Change server settings for connected clients"));
+	qaServerSettings->setWhatsThis(tr("This opens server settings that are applied live and saved on the server."));
+	connect(qaServerSettings, &QAction::triggered, this, &MainWindow::on_qaServerSettings_triggered);
+	qaCreateTextRoom = new QAction(tr("Create Text Room..."), this);
+	qaCreateTextRoom->setToolTip(tr("Create a persistent text room on this server"));
+	qaCreateTextRoom->setWhatsThis(tr("This creates a named text room and saves it on the server."));
+	connect(qaCreateTextRoom, &QAction::triggered, this, &MainWindow::on_qaCreateTextRoom_triggered);
 	qaUserRemoteSpeechCleanup = new QAction(tr("Remote Speech Cleanup"), this);
 	qaUserRemoteSpeechCleanup->setCheckable(true);
 	qaUserRemoteSpeechCleanup->setToolTip(tr("Clean up this user's incoming speech locally"));
@@ -4351,6 +4364,42 @@ void MainWindow::setupServerNavigator() {
 	m_serverNavigatorTextChannelsSubtitle->setTextInteractionFlags(Qt::NoTextInteraction);
 	m_serverNavigatorTextChannelsSubtitle->hide();
 
+	const QSize textChannelAdminIconSize(16, 16);
+	QIcon serverSettingsIcon;
+	SvgIcon::addSvgPixmapsToIcon(serverSettingsIcon, QLatin1String("skin:exported/config_basic.svg"));
+	m_serverNavigatorServerSettingsButton = new QToolButton(m_serverNavigatorTextChannelsFrame);
+	m_serverNavigatorServerSettingsButton->setObjectName(QLatin1String("qtbServerNavigatorServerSettings"));
+	m_serverNavigatorServerSettingsButton->setAutoRaise(true);
+	m_serverNavigatorServerSettingsButton->setToolTip(tr("Server settings"));
+	m_serverNavigatorServerSettingsButton->setAccessibleName(tr("Server settings"));
+	m_serverNavigatorServerSettingsButton->setIcon(serverSettingsIcon);
+	m_serverNavigatorServerSettingsButton->setIconSize(textChannelAdminIconSize);
+	m_serverNavigatorServerSettingsButton->setFixedSize(22, 22);
+	m_serverNavigatorServerSettingsButton->setCursor(Qt::PointingHandCursor);
+	m_serverNavigatorServerSettingsButton->setFocusPolicy(Qt::NoFocus);
+	m_serverNavigatorServerSettingsButton->hide();
+
+	QIcon createTextRoomIcon;
+	SvgIcon::addSvgPixmapsToIcon(createTextRoomIcon, QLatin1String("skin:document-new.svg"));
+	m_serverNavigatorCreateTextChannelButton = new QToolButton(m_serverNavigatorTextChannelsFrame);
+	m_serverNavigatorCreateTextChannelButton->setObjectName(QLatin1String("qtbServerNavigatorCreateTextRoom"));
+	m_serverNavigatorCreateTextChannelButton->setAutoRaise(true);
+	m_serverNavigatorCreateTextChannelButton->setToolTip(tr("Create text room"));
+	m_serverNavigatorCreateTextChannelButton->setAccessibleName(tr("Create text room"));
+	m_serverNavigatorCreateTextChannelButton->setIcon(createTextRoomIcon);
+	m_serverNavigatorCreateTextChannelButton->setIconSize(textChannelAdminIconSize);
+	m_serverNavigatorCreateTextChannelButton->setFixedSize(22, 22);
+	m_serverNavigatorCreateTextChannelButton->setCursor(Qt::PointingHandCursor);
+	m_serverNavigatorCreateTextChannelButton->setFocusPolicy(Qt::NoFocus);
+	m_serverNavigatorCreateTextChannelButton->hide();
+
+	QHBoxLayout *textChannelsTitleLayout = new QHBoxLayout();
+	textChannelsTitleLayout->setContentsMargins(0, 0, 0, 0);
+	textChannelsTitleLayout->setSpacing(4);
+	textChannelsTitleLayout->addWidget(m_serverNavigatorTextChannelsTitle, 1);
+	textChannelsTitleLayout->addWidget(m_serverNavigatorServerSettingsButton, 0, Qt::AlignTop);
+	textChannelsTitleLayout->addWidget(m_serverNavigatorCreateTextChannelButton, 0, Qt::AlignTop);
+
 	m_persistentChatChannelList = new QListWidget(m_serverNavigatorTextChannelsFrame);
 	m_persistentChatChannelList->setObjectName(QLatin1String("qlwPersistentTextChannels"));
 	m_persistentChatChannelList->setAccessibleName(tr("Conversations"));
@@ -4370,7 +4419,7 @@ void MainWindow::setupServerNavigator() {
 	m_persistentChatChannelList->setItemDelegate(new PersistentChatScopeListDelegate(m_persistentChatChannelList));
 
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsEyebrow);
-	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsTitle);
+	textChannelsLayout->addLayout(textChannelsTitleLayout);
 	textChannelsLayout->addWidget(m_serverNavigatorTextChannelsSubtitle);
 	textChannelsLayout->addWidget(m_persistentChatChannelList, 1);
 	m_serverNavigatorTextChannelsFrame->hide();
@@ -4452,6 +4501,10 @@ void MainWindow::setupServerNavigator() {
 	});
 	connect(m_serverNavigatorTextChannelsMotdBody, &QLabel::linkActivated, this,
 			[this](const QString &link) { on_qteLog_anchorClicked(QUrl(link)); });
+	connect(m_serverNavigatorServerSettingsButton, &QToolButton::clicked, this,
+			&MainWindow::openServerSettingsDialog);
+	connect(m_serverNavigatorCreateTextChannelButton, &QToolButton::clicked, this,
+			&MainWindow::createPersistentTextChannel);
 	const auto scheduleVoiceTreeHeightRefresh = [this]() {
 		QPointer< MainWindow > guardedThis(this);
 		QMetaObject::invokeMethod(
@@ -4855,6 +4908,8 @@ void MainWindow::setupPersistentChatDock() {
 					setPersistentChatReplyTarget(*message);
 				}
 			});
+	connect(m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::deleteRequested, this,
+			[this](unsigned int messageID) { deletePersistentChatMessage(messageID); });
 	connect(
 		m_persistentChatHistoryDelegate, &PersistentChatHistoryDelegate::scopeJumpRequested, this,
 		[this](MumbleProto::ChatScope scope, unsigned int scopeID) { navigateToPersistentChatScope(scope, scopeID); });
@@ -4878,6 +4933,13 @@ void MainWindow::setupPersistentChatDock() {
 				&& (!snapshot.key.valid || !snapshot.key.matches(*previousScope, previousScopeID)));
 		const bool wasAtBottom = m_persistentChatHistory ? m_persistentChatHistory->isScrolledToBottom() : true;
 		m_persistentChatMessages.assign(snapshot.messages.cbegin(), snapshot.messages.cend());
+		if (m_pendingPersistentChatReply) {
+			const MumbleProto::ChatMessage *replyTarget =
+				findPersistentChatMessageByID(m_persistentChatMessages, m_pendingPersistentChatReply->message_id());
+			if (replyTarget && replyTarget->has_deleted_at() && replyTarget->deleted_at() > 0) {
+				clearPersistentChatReplyTarget(false);
+			}
+		}
 		if (snapshot.key.valid) {
 			m_visiblePersistentChatScope   = snapshot.key.scope;
 			m_visiblePersistentChatScopeID = snapshot.key.scopeID;
@@ -5041,6 +5103,8 @@ void MainWindow::activateModernShell() {
 				&MainWindow::handleModernShellReplyCancel);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::reactionToggleRequested, this,
 				&MainWindow::handleModernShellReactionToggle);
+		connect(m_modernShellHost->bridge(), &ModernShellBridge::messageDeleteRequested, this,
+				&MainWindow::handleModernShellMessageDelete);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::participantMessageRequested, this,
 				&MainWindow::handleModernShellParticipantMessage);
 		connect(m_modernShellHost->bridge(), &ModernShellBridge::participantJoinRequested, this,
@@ -5768,6 +5832,11 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
 		QStringLiteral("self.toggleDeaf"), tr("Self deafen"), qaAudioDeaf->isEnabled(),
 		qaAudioDeaf->isCheckable() && qaAudioDeaf->isChecked()));
+	if (qaSelfRegister && qaSelfRegister->isEnabled()) {
+		selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
+		selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
+			QStringLiteral("self.register"), tr("Register on server"), true, false));
+	}
 	selfMenuActions.push_back(ModernShellMenuSerializer::separatorItem());
 	selfMenuActions.push_back(ModernShellMenuSerializer::actionItem(
 		QStringLiteral("configure.settings"), tr("Settings"), qaConfigDialog->isEnabled(), false));
@@ -6349,6 +6418,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 	activeScope.insert(QStringLiteral("canReact"), connected && target.valid && !target.readOnly && !target.serverLog
 													   && !target.directMessage && !target.legacyTextPath
 													   && canUsePersistedReactions);
+	activeScope.insert(QStringLiteral("canDeleteMessages"), canDeletePersistentChatMessages(target, true));
 	activeScope.insert(QStringLiteral("composerPlaceholder"), composerPlaceholder);
 	activeScope.insert(QStringLiteral("composerHint"), composerHint);
 	activeScope.insert(QStringLiteral("canAttachImages"), connected && target.valid && !target.readOnly
@@ -6423,6 +6493,7 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			const MumbleProto::ChatMessage &message   = m_persistentChatMessages[i];
 			const std::optional< QString > systemText = persistentChatSystemMessageText(message);
 			const bool systemMessage                  = systemText.has_value();
+			const bool deletedMessage                 = message.has_deleted_at() && message.deleted_at() > 0;
 			const bool ownMessage =
 				self
 				&& ((message.has_actor() && message.actor() == Global::get().uiSession)
@@ -6431,22 +6502,23 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			const ClientUser *messageUser =
 				ownMessage ? self : (message.has_actor() ? ClientUser::get(message.actor()) : nullptr);
 
-			QString bodyText = systemMessage ? *systemText : persistentChatMessageSourceText(message);
+			QString bodyText =
+				systemMessage ? *systemText : (deletedMessage ? QString() : persistentChatMessageSourceText(message));
 			QString bodyHtml;
 			if (systemMessage) {
 				bodyHtml = systemText->toHtmlEscaped();
-			} else if (message.has_deleted_at() && message.deleted_at() > 0) {
+			} else if (deletedMessage) {
 				bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 			} else {
 				bodyHtml = message.has_body_text() ? persistentChatMessageBodyHtml(message)
 												   : persistentChatContentHtml(persistentChatMessageRawBody(message));
 				bodyHtml = persistentChatCondensedBodyHtml(bodyHtml, bodyText);
 			}
-			if (message.has_edited_at() && message.edited_at() > 0) {
+			if (!deletedMessage && message.has_edited_at() && message.edited_at() > 0) {
 				bodyHtml += QString::fromLatin1(" <em>%1</em>").arg(tr("(edited)").toHtmlEscaped());
 			}
 			const std::optional< PersistentChatReplyReference > replyReference =
-				systemMessage
+				(systemMessage || deletedMessage)
 					? std::nullopt
 					: (message.has_body_text() ? resolvedPersistentChatReplyReference(m_persistentChatMessages, message)
 											   : extractPersistentChatReplyReference(bodyHtml, &bodyHtml));
@@ -6471,10 +6543,16 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 			messageState.insert(QStringLiteral("bodyHtml"), bodyHtml);
 			messageState.insert(QStringLiteral("own"), ownMessage);
 			messageState.insert(QStringLiteral("system"), systemMessage);
+			messageState.insert(QStringLiteral("deleted"), deletedMessage);
 			messageState.insert(QStringLiteral("canReply"),
-								activeScope.value(QStringLiteral("canReply")).toBool() && !systemMessage);
+								activeScope.value(QStringLiteral("canReply")).toBool() && !systemMessage
+									&& !deletedMessage);
 			messageState.insert(QStringLiteral("canReact"),
-								activeScope.value(QStringLiteral("canReact")).toBool() && !systemMessage);
+								activeScope.value(QStringLiteral("canReact")).toBool() && !systemMessage
+									&& !deletedMessage);
+			messageState.insert(QStringLiteral("canDelete"),
+								activeScope.value(QStringLiteral("canDeleteMessages")).toBool() && !systemMessage
+									&& !deletedMessage);
 			if (replyReference) {
 				messageState.insert(QStringLiteral("replyMessageId"),
 									static_cast< qulonglong >(replyReference->messageID));
@@ -6482,35 +6560,39 @@ QVariantMap MainWindow::buildModernShellSnapshot() {
 				messageState.insert(QStringLiteral("replySnippet"), replyReference->snippet);
 			}
 			QVariantList reactions;
-			for (int reactionIndex = 0; reactionIndex < message.reactions_size(); ++reactionIndex) {
-				const MumbleProto::ChatReactionAggregate &reaction = message.reactions(reactionIndex);
-				QVariantMap reactionState;
-				reactionState.insert(QStringLiteral("emoji"), u8(reaction.emoji()));
-				reactionState.insert(QStringLiteral("count"), static_cast< qulonglong >(reaction.count()));
-				reactionState.insert(QStringLiteral("selfReacted"), reaction.self_reacted());
-				reactions.push_back(reactionState);
+			if (!deletedMessage) {
+				for (int reactionIndex = 0; reactionIndex < message.reactions_size(); ++reactionIndex) {
+					const MumbleProto::ChatReactionAggregate &reaction = message.reactions(reactionIndex);
+					QVariantMap reactionState;
+					reactionState.insert(QStringLiteral("emoji"), u8(reaction.emoji()));
+					reactionState.insert(QStringLiteral("count"), static_cast< qulonglong >(reaction.count()));
+					reactionState.insert(QStringLiteral("selfReacted"), reaction.self_reacted());
+					reactions.push_back(reactionState);
+				}
 			}
 			messageState.insert(QStringLiteral("reactions"), reactions);
-			if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
-				ensurePersistentChatPreview(*previewKey);
-				if (const auto it = m_persistentChatPreviews.constFind(*previewKey);
-					it != m_persistentChatPreviews.cend()) {
-					const PersistentChatPreview &preview = it.value();
-					QVariantMap previewState;
-					previewState.insert(QStringLiteral("kind"), previewKey->startsWith(QLatin1String("image:"))
-																	? QStringLiteral("image")
-																	: QStringLiteral("link"));
-					previewState.insert(QStringLiteral("url"), preview.canonicalUrl);
-					previewState.insert(QStringLiteral("title"), preview.title);
-					previewState.insert(QStringLiteral("subtitle"), preview.subtitle);
-					previewState.insert(QStringLiteral("description"), preview.description);
-					previewState.insert(QStringLiteral("openLabel"), preview.openLabel);
-					previewState.insert(QStringLiteral("loading"),
-										!preview.metadataFinished || !preview.thumbnailFinished);
-					previewState.insert(QStringLiteral("failed"), preview.failed);
-					previewState.insert(QStringLiteral("thumbnailUrl"),
-										persistentChatInlineDataImageThumbnailSource(preview.thumbnailImage));
-					messageState.insert(QStringLiteral("preview"), previewState);
+			if (!deletedMessage) {
+				if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
+					ensurePersistentChatPreview(*previewKey);
+					if (const auto it = m_persistentChatPreviews.constFind(*previewKey);
+						it != m_persistentChatPreviews.cend()) {
+						const PersistentChatPreview &preview = it.value();
+						QVariantMap previewState;
+						previewState.insert(QStringLiteral("kind"), previewKey->startsWith(QLatin1String("image:"))
+																		? QStringLiteral("image")
+																		: QStringLiteral("link"));
+						previewState.insert(QStringLiteral("url"), preview.canonicalUrl);
+						previewState.insert(QStringLiteral("title"), preview.title);
+						previewState.insert(QStringLiteral("subtitle"), preview.subtitle);
+						previewState.insert(QStringLiteral("description"), preview.description);
+						previewState.insert(QStringLiteral("openLabel"), preview.openLabel);
+						previewState.insert(QStringLiteral("loading"),
+											!preview.metadataFinished || !preview.thumbnailFinished);
+						previewState.insert(QStringLiteral("failed"), preview.failed);
+						previewState.insert(QStringLiteral("thumbnailUrl"),
+											persistentChatInlineDataImageThumbnailSource(preview.thumbnailImage));
+						messageState.insert(QStringLiteral("preview"), previewState);
+					}
 				}
 			}
 			messages.push_back(messageState);
@@ -6751,6 +6833,14 @@ bool MainWindow::handleModernShellReactionToggle(const qulonglong messageID, con
 	}
 
 	return false;
+}
+
+bool MainWindow::handleModernShellMessageDelete(const qulonglong messageID) {
+	if (messageID == 0 || messageID > std::numeric_limits< unsigned int >::max()) {
+		return false;
+	}
+
+	return deletePersistentChatMessage(static_cast< unsigned int >(messageID));
 }
 
 bool MainWindow::handleModernShellParticipantMessage(const qulonglong session) {
@@ -7257,6 +7347,17 @@ void MainWindow::refreshServerNavigatorStyles() {
 											 " background: transparent;"
 											 " color: %8;"
 											 "}"
+											 "QToolButton#qtbServerNavigatorServerSettings,"
+											 "QToolButton#qtbServerNavigatorCreateTextRoom {"
+											 " border: none;"
+											 " border-radius: 4px;"
+											 " background: transparent;"
+											 " padding: 2px;"
+											 "}"
+											 "QToolButton#qtbServerNavigatorServerSettings:hover,"
+											 "QToolButton#qtbServerNavigatorCreateTextRoom:hover {"
+											 " background-color: %2;"
+											 "}"
 											 "QTreeView#qtvUsers,"
 											 "QWidget#qtvUsersViewport,"
 											 "QListWidget#qlwPersistentTextChannels {"
@@ -7469,6 +7570,17 @@ void MainWindow::refreshServerNavigatorStyles() {
 		" border-color: transparent;"
 		" background-color: transparent;"
 		" color: %4;"
+		"}"
+		"QToolButton#qtbServerNavigatorServerSettings,"
+		"QToolButton#qtbServerNavigatorCreateTextRoom {"
+		" border: none;"
+		" border-radius: 4px;"
+		" background: transparent;"
+		" padding: 2px;"
+		"}"
+		"QToolButton#qtbServerNavigatorServerSettings:hover,"
+		"QToolButton#qtbServerNavigatorCreateTextRoom:hover {"
+		" background-color: %8;"
 		"}"
 		"QTreeView#qtvUsers {"
 		" border: none;"
@@ -9731,6 +9843,161 @@ bool MainWindow::promptForPersistentTextChannel(PersistentTextChannel &textChann
 	return true;
 }
 
+void MainWindow::openServerSettingsDialog() {
+	if (!canManagePersistentTextChannels() || !Global::get().sh || !Global::get().sh->isRunning()) {
+		return;
+	}
+
+	QDialog dialog(this);
+	dialog.setWindowTitle(tr("Server settings"));
+
+	QVBoxLayout *layout = new QVBoxLayout(&dialog);
+	layout->setSpacing(10);
+
+	QGroupBox *chatGroup      = new QGroupBox(tr("Chat"), &dialog);
+	QFormLayout *chatForm     = new QFormLayout(chatGroup);
+	QPlainTextEdit *motdEdit  = new QPlainTextEdit(m_persistentChatWelcomeText, chatGroup);
+	motdEdit->setObjectName(QLatin1String("qpteServerSettingsWelcomeText"));
+	motdEdit->setMinimumHeight(92);
+	motdEdit->setPlaceholderText(tr("Welcome message shown after joining"));
+	chatForm->addRow(tr("Welcome text"), motdEdit);
+
+	QCheckBox *allowHtmlCheck = new QCheckBox(chatGroup);
+	allowHtmlCheck->setChecked(Global::get().bAllowHTML);
+	chatForm->addRow(tr("Allow HTML"), allowHtmlCheck);
+
+	QCheckBox *persistentGlobalCheck = new QCheckBox(chatGroup);
+	persistentGlobalCheck->setChecked(Global::get().bPersistentGlobalChatEnabled);
+	chatForm->addRow(tr("Server-wide chat"), persistentGlobalCheck);
+	layout->addWidget(chatGroup);
+
+	const int spinMax = std::numeric_limits< int >::max();
+	auto clampSpinValue = [spinMax](unsigned int value) {
+		return static_cast< int >(std::min(value, static_cast< unsigned int >(spinMax)));
+	};
+
+	QGroupBox *limitsGroup  = new QGroupBox(tr("Limits"), &dialog);
+	QFormLayout *limitsForm = new QFormLayout(limitsGroup);
+
+	QSpinBox *bandwidthSpin = new QSpinBox(limitsGroup);
+	bandwidthSpin->setRange(0, spinMax);
+	bandwidthSpin->setSpecialValueText(tr("Server default"));
+	bandwidthSpin->setSuffix(tr(" bit/s"));
+	bandwidthSpin->setValue(std::max(Global::get().iMaxBandwidth, 0));
+	limitsForm->addRow(tr("Audio bandwidth"), bandwidthSpin);
+
+	QSpinBox *maxUsersSpin = new QSpinBox(limitsGroup);
+	maxUsersSpin->setRange(0, spinMax);
+	maxUsersSpin->setSpecialValueText(tr("Server default"));
+	maxUsersSpin->setValue(clampSpinValue(Global::get().uiMaxUsers));
+	limitsForm->addRow(tr("Max users"), maxUsersSpin);
+
+	QSpinBox *textLengthSpin = new QSpinBox(limitsGroup);
+	textLengthSpin->setRange(0, spinMax);
+	textLengthSpin->setSpecialValueText(tr("Server default"));
+	textLengthSpin->setSuffix(tr(" bytes"));
+	textLengthSpin->setValue(clampSpinValue(Global::get().uiMessageLength));
+	limitsForm->addRow(tr("Text message length"), textLengthSpin);
+
+	QSpinBox *imageLengthSpin = new QSpinBox(limitsGroup);
+	imageLengthSpin->setRange(0, spinMax);
+	imageLengthSpin->setSpecialValueText(tr("Server default"));
+	imageLengthSpin->setSuffix(tr(" bytes"));
+	imageLengthSpin->setValue(clampSpinValue(Global::get().uiImageLength));
+	limitsForm->addRow(tr("Image message length"), imageLengthSpin);
+	layout->addWidget(limitsGroup);
+
+	QGroupBox *screenShareGroup  = new QGroupBox(tr("Screen sharing"), &dialog);
+	QFormLayout *screenShareForm = new QFormLayout(screenShareGroup);
+
+	QCheckBox *screenShareEnabledCheck = new QCheckBox(screenShareGroup);
+	screenShareEnabledCheck->setChecked(Global::get().bScreenShareEnabled);
+	screenShareForm->addRow(tr("Enabled"), screenShareEnabledCheck);
+
+	QCheckBox *screenShareRecordingCheck = new QCheckBox(screenShareGroup);
+	screenShareRecordingCheck->setChecked(Global::get().bScreenShareRecordingEnabled);
+	screenShareForm->addRow(tr("Recording allowed"), screenShareRecordingCheck);
+
+	QCheckBox *screenShareHelperCheck = new QCheckBox(screenShareGroup);
+	screenShareHelperCheck->setChecked(Global::get().bScreenShareHelperRequired);
+	screenShareForm->addRow(tr("Helper required"), screenShareHelperCheck);
+
+	QSpinBox *screenShareWidthSpin = new QSpinBox(screenShareGroup);
+	screenShareWidthSpin->setRange(0, Mumble::ScreenShare::HARD_MAX_WIDTH);
+	screenShareWidthSpin->setSpecialValueText(tr("Server default"));
+	screenShareWidthSpin->setSuffix(tr(" px"));
+	screenShareWidthSpin->setValue(
+		static_cast< int >(Mumble::ScreenShare::sanitizeLimit(Global::get().uiScreenShareMaxWidth, 0,
+															  Mumble::ScreenShare::HARD_MAX_WIDTH)));
+	screenShareForm->addRow(tr("Max width"), screenShareWidthSpin);
+
+	QSpinBox *screenShareHeightSpin = new QSpinBox(screenShareGroup);
+	screenShareHeightSpin->setRange(0, Mumble::ScreenShare::HARD_MAX_HEIGHT);
+	screenShareHeightSpin->setSpecialValueText(tr("Server default"));
+	screenShareHeightSpin->setSuffix(tr(" px"));
+	screenShareHeightSpin->setValue(
+		static_cast< int >(Mumble::ScreenShare::sanitizeLimit(Global::get().uiScreenShareMaxHeight, 0,
+															  Mumble::ScreenShare::HARD_MAX_HEIGHT)));
+	screenShareForm->addRow(tr("Max height"), screenShareHeightSpin);
+
+	QSpinBox *screenShareFpsSpin = new QSpinBox(screenShareGroup);
+	screenShareFpsSpin->setRange(0, Mumble::ScreenShare::HARD_MAX_FPS);
+	screenShareFpsSpin->setSpecialValueText(tr("Server default"));
+	screenShareFpsSpin->setSuffix(tr(" fps"));
+	screenShareFpsSpin->setValue(static_cast< int >(Mumble::ScreenShare::sanitizeLimit(
+		Global::get().uiScreenShareMaxFps, 0, Mumble::ScreenShare::HARD_MAX_FPS)));
+	screenShareForm->addRow(tr("Max frame rate"), screenShareFpsSpin);
+
+	QLineEdit *screenShareRelayEdit = new QLineEdit(Global::get().qsScreenShareRelayUrl, screenShareGroup);
+	screenShareRelayEdit->setPlaceholderText(tr("https://relay.example.com"));
+	screenShareForm->addRow(tr("Relay URL"), screenShareRelayEdit);
+
+	auto syncScreenShareControls = [screenShareEnabledCheck, screenShareRecordingCheck, screenShareHelperCheck,
+									screenShareWidthSpin, screenShareHeightSpin, screenShareFpsSpin,
+									screenShareRelayEdit]() {
+		const bool enabled = screenShareEnabledCheck->isChecked();
+		screenShareRecordingCheck->setEnabled(enabled);
+		screenShareHelperCheck->setEnabled(enabled);
+		screenShareWidthSpin->setEnabled(enabled);
+		screenShareHeightSpin->setEnabled(enabled);
+		screenShareFpsSpin->setEnabled(enabled);
+		screenShareRelayEdit->setEnabled(enabled);
+	};
+	connect(screenShareEnabledCheck, &QCheckBox::toggled, &dialog, syncScreenShareControls);
+	syncScreenShareControls();
+	layout->addWidget(screenShareGroup);
+
+	QDialogButtonBox *buttons =
+		new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &dialog);
+	if (QPushButton *applyButton = buttons->button(QDialogButtonBox::Ok)) {
+		applyButton->setText(tr("Apply"));
+	}
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addWidget(buttons);
+
+	if (dialog.exec() != QDialog::Accepted) {
+		return;
+	}
+
+	MumbleProto::ServerConfig config;
+	config.set_welcome_text(u8(motdEdit->toPlainText()));
+	config.set_max_bandwidth(static_cast< unsigned int >(bandwidthSpin->value()));
+	config.set_allow_html(allowHtmlCheck->isChecked());
+	config.set_message_length(static_cast< unsigned int >(textLengthSpin->value()));
+	config.set_image_message_length(static_cast< unsigned int >(imageLengthSpin->value()));
+	config.set_max_users(static_cast< unsigned int >(maxUsersSpin->value()));
+	config.set_persistent_global_chat_enabled(persistentGlobalCheck->isChecked());
+	config.set_screen_share_enabled(screenShareEnabledCheck->isChecked());
+	config.set_screen_share_recording_enabled(screenShareRecordingCheck->isChecked());
+	config.set_screen_share_helper_required(screenShareHelperCheck->isChecked());
+	config.set_screen_share_max_width(static_cast< unsigned int >(screenShareWidthSpin->value()));
+	config.set_screen_share_max_height(static_cast< unsigned int >(screenShareHeightSpin->value()));
+	config.set_screen_share_max_fps(static_cast< unsigned int >(screenShareFpsSpin->value()));
+	config.set_screen_share_relay_url(u8(screenShareRelayEdit->text().trimmed()));
+	Global::get().sh->sendMessage(config);
+}
+
 void MainWindow::createPersistentTextChannel() {
 	if (!canManagePersistentTextChannels()) {
 		return;
@@ -9934,6 +10201,16 @@ void MainWindow::showPersistentTextChannelContextMenu(const QPoint &position) {
 void MainWindow::updatePersistentTextChannelControls() {
 	if (!usesModernShell() || !m_persistentChatChannelList) {
 		return;
+	}
+
+	const bool canManage = canManagePersistentTextChannels();
+	if (m_serverNavigatorServerSettingsButton) {
+		m_serverNavigatorServerSettingsButton->setVisible(canManage);
+		m_serverNavigatorServerSettingsButton->setEnabled(canManage);
+	}
+	if (m_serverNavigatorCreateTextChannelButton) {
+		m_serverNavigatorCreateTextChannelButton->setVisible(canManage);
+		m_serverNavigatorCreateTextChannelButton->setEnabled(canManage);
 	}
 
 	m_persistentChatChannelList->viewport()->update();
@@ -11158,6 +11435,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 	const PersistentChatTarget target = currentPersistentChatTarget();
 	const bool showInlinePreviews     = Global::get().s.bEnableLinkPreviews && target.scope != MumbleProto::Aggregate;
+	const bool canDeleteMessages      = canDeletePersistentChatMessages(target, true);
 	m_persistentChatInlineDataImageSources.clear();
 	if (mumble::chatperf::enabled()) {
 		mumble::chatperf::recordNote(
@@ -11386,6 +11664,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 
 			for (const PersistentChatRender::PersistentChatRenderBubble &bubble : group.bubbles) {
 				const MumbleProto::ChatMessage &message = m_persistentChatMessages[bubble.messageIndex];
+				const bool deletedMessage = message.has_deleted_at() && message.deleted_at() > 0;
 				QString bodyHtml;
 				QString messageMarkupSource;
 				QVector< QPair< QUrl, QImage > > bubbleImageResources;
@@ -11411,7 +11690,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 								   "</table>")
 								   .arg(systemDividerColor.name(QColor::HexArgb), systemTextColor.name(QColor::HexArgb),
 										systemText);
-				} else if (message.has_deleted_at() && message.deleted_at() > 0) {
+				} else if (deletedMessage) {
 					bodyHtml = QString::fromLatin1("<em>%1</em>").arg(tr("[message deleted]").toHtmlEscaped());
 				} else {
 					QString rawBodyHtml = persistentChatMessageRawBody(message);
@@ -11452,12 +11731,12 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 								   : persistentChatContentHtml(rawBodyHtml, buildInlineDataImageReplacement);
 				}
 
-				if (message.has_edited_at() && message.edited_at() > 0) {
+				if (!deletedMessage && message.has_edited_at() && message.edited_at() > 0) {
 					bodyHtml += QString::fromLatin1(" <em>%1</em>").arg(tr("(edited)").toHtmlEscaped());
 				}
 				const QString messageSourceText = bubble.systemMessage
 													  ? persistentChatSystemMessageText(message).value_or(QString())
-													  : persistentChatMessageSourceText(message);
+													  : (deletedMessage ? QString() : persistentChatMessageSourceText(message));
 				if (messageSourceText.size() > 100000 || bodyHtml.size() > 10000) {
 					mumble::chatperf::recordNote(
 						"chat.inline_data_image.body_html",
@@ -11502,8 +11781,8 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 				bubbleSpec.systemMessage = bubble.systemMessage;
 				bubbleSpec.timeToolTip   = persistentChatTimestampToolTip(bubble.createdAt);
 				bubbleSpec.replyEnabled  = !bubble.systemMessage
-										  && (target.scope == MumbleProto::Aggregate || !message.has_deleted_at()
-											  || message.deleted_at() == 0);
+										  && (target.scope == MumbleProto::Aggregate || !deletedMessage);
+				bubbleSpec.deleteEnabled = canDeleteMessages && !bubble.systemMessage && !deletedMessage;
 				bubbleSpec.readOnlyAction = target.scope == MumbleProto::Aggregate;
 				bubbleSpec.actionText     = bubble.systemMessage
 											? QString()
@@ -11521,8 +11800,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 					bubbleSpec.replySnippet   = replyReference->snippet;
 				}
 
-				if (!bubble.systemMessage && (!message.has_deleted_at() || message.deleted_at() == 0)
-					&& showInlinePreviews) {
+				if (!bubble.systemMessage && !deletedMessage && showInlinePreviews) {
 					if (const std::optional< QString > previewKey = persistentChatPreviewKey(message); previewKey) {
 						bubbleSpec.previewKey  = *previewKey;
 						bubbleSpec.previewSpec = persistentChatPreviewSpec(*previewKey);
@@ -11537,6 +11815,7 @@ void MainWindow::renderPersistentChatViewImmediately(const QString &statusMessag
 									<< bubbleSpec.bodyHtml << bubbleSpec.transcriptActorLabel
 									<< bubbleSpec.transcriptTimeLabel << bubbleSpec.replyActor
 									<< bubbleSpec.replySnippet << bubbleSpec.actionText
+									<< (bubbleSpec.deleteEnabled ? QStringLiteral("1") : QStringLiteral("0"))
 									<< QString::number(static_cast< int >(bubbleSpec.previewSpec.kind));
 				groupRowSpec.bubbles.push_back(bubbleSpec);
 			}
@@ -12069,6 +12348,70 @@ bool MainWindow::canSendToPersistentChatTarget(const PersistentChatTarget &targe
 	}
 
 	return textPermissions & (ChanACL::Write | ChanACL::TextMessage);
+}
+
+bool MainWindow::canDeletePersistentChatMessages(const PersistentChatTarget &target, bool requestPermissions) const {
+	if (Global::get().uiSession == 0 || !target.valid || target.readOnly || target.serverLog || target.directMessage
+		|| target.legacyTextPath) {
+		return false;
+	}
+
+	if (target.scope == MumbleProto::ServerGlobal) {
+		return Global::get().bPersistentGlobalChatEnabled
+			   && (Global::get().pPermissions & (ChanACL::Write | ChanACL::DeleteTextMessage));
+	}
+
+	if (target.scope != MumbleProto::TextChannel && target.scope != MumbleProto::Channel) {
+		return false;
+	}
+
+	Channel *permissionChannel = target.channel;
+	if (!permissionChannel) {
+		return false;
+	}
+
+	ChanACL::Permissions textPermissions = static_cast< ChanACL::Permissions >(permissionChannel->uiPermissions);
+	if (!textPermissions && requestPermissions && Global::get().sh) {
+		Global::get().sh->requestChannelPermissions(permissionChannel->iId);
+		textPermissions                  = permissionChannel->iId == 0 ? Global::get().pPermissions : ChanACL::All;
+		permissionChannel->uiPermissions = textPermissions;
+	}
+
+	return textPermissions & (ChanACL::Write | ChanACL::DeleteTextMessage);
+}
+
+bool MainWindow::deletePersistentChatMessage(unsigned int messageID) {
+	if (!m_persistentChatGateway || messageID == 0) {
+		return false;
+	}
+
+	const PersistentChatTarget target = currentPersistentChatTarget();
+	if (!canDeletePersistentChatMessages(target, true)) {
+		return false;
+	}
+
+	const MumbleProto::ChatMessage *message = findPersistentChatMessageByID(m_persistentChatMessages, messageID);
+	if (!message || persistentChatSystemMessageText(*message).has_value()
+		|| (message->has_deleted_at() && message->deleted_at() > 0)) {
+		return false;
+	}
+
+	QMessageBox confirm(this);
+	confirm.setIcon(QMessageBox::Warning);
+	confirm.setWindowTitle(tr("Delete message"));
+	confirm.setText(tr("Delete this message from chat history?"));
+	confirm.setInformativeText(tr("The message body, attachments, link previews, and reactions will be removed."));
+	QPushButton *deleteButton = confirm.addButton(tr("Delete"), QMessageBox::DestructiveRole);
+	confirm.addButton(QMessageBox::Cancel);
+	confirm.setDefaultButton(QMessageBox::Cancel);
+	confirm.exec();
+	if (confirm.clickedButton() != deleteButton) {
+		return false;
+	}
+
+	syncPersistentChatGatewayHandler();
+	m_persistentChatGateway->deleteMessage(target.scope, target.scopeID, message->thread_id(), message->message_id());
+	return true;
 }
 
 void MainWindow::syncPersistentChatInputState(bool baseEnabled) {
@@ -14002,6 +14345,9 @@ void MainWindow::on_qmServer_aboutToShow() {
 	qmServer->addAction(qaServerTokens);
 	qmServer->addAction(qaServerUserList);
 	qmServer->addAction(qaServerBanList);
+	qmServer->addSeparator();
+	qmServer->addAction(qaCreateTextRoom);
+	qmServer->addAction(qaServerSettings);
 #ifndef Q_OS_MACOS
 	// On macOS, the "Quit" action is automatically placed in the application menu
 	// by Qt when the QAction's menuRole is set to QAction::QuitRole (see MainWindow.ui).
@@ -14016,6 +14362,12 @@ void MainWindow::on_qmServer_aboutToShow() {
 	qaServerInformation->setEnabled(Global::get().uiSession != 0);
 	updateFavoriteButton();
 	qaServerTokens->setEnabled(Global::get().uiSession != 0);
+	if (qaCreateTextRoom) {
+		qaCreateTextRoom->setEnabled(canManagePersistentTextChannels() && hasPersistentChatCapabilities());
+	}
+	if (qaServerSettings) {
+		qaServerSettings->setEnabled(canManagePersistentTextChannels());
+	}
 
 	if (!qlServerActions.isEmpty()) {
 		qmServer->addSeparator();
@@ -14039,6 +14391,14 @@ void MainWindow::on_qaServerUserList_triggered() {
 
 void MainWindow::on_qaServerInformation_triggered() {
 	openServerInformationDialog();
+}
+
+void MainWindow::on_qaServerSettings_triggered() {
+	openServerSettingsDialog();
+}
+
+void MainWindow::on_qaCreateTextRoom_triggered() {
+	createPersistentTextChannel();
 }
 
 void MainWindow::on_qaServerTexture_triggered() {

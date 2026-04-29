@@ -127,6 +127,7 @@ public:
 	std::vector< ::mumble::server::db::DBChatMessage > getChatMessagesBefore(unsigned int serverID, unsigned int threadID,
 																		  unsigned int beforeMessageID, unsigned int amount);
 	std::optional< ::mumble::server::db::DBChatMessage > getChatMessage(unsigned int serverID, unsigned int messageID);
+	std::optional< ::mumble::server::db::DBChatMessage > deleteChatMessage(unsigned int serverID, unsigned int messageID);
 	::mumble::server::db::DBChatAsset addChatAsset(const ::mumble::server::db::DBChatAsset &asset);
 	::mumble::server::db::DBChatAsset getChatAsset(unsigned int serverID, unsigned int assetID);
 	bool chatAssetExists(unsigned int serverID, unsigned int assetID);

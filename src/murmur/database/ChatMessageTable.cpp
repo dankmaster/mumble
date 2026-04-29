@@ -176,6 +176,33 @@ namespace server {
 			}
 		}
 
+		void ChatMessageTable::markMessageDeleted(unsigned int serverID, unsigned int messageID,
+												  const std::chrono::system_clock::time_point &deletedAt) {
+			try {
+				auto effectiveDeletedAt = deletedAt;
+				if (effectiveDeletedAt == std::chrono::system_clock::time_point()) {
+					effectiveDeletedAt = std::chrono::system_clock::now();
+				}
+
+				const std::size_t deletedAtEpoch = toEpochSeconds(effectiveDeletedAt);
+				const unsigned int bodyFormatValue = static_cast< unsigned int >(ChatMessageBodyFormat::PlainText);
+
+				::mdb::TransactionHolder transaction = ensureTransaction();
+				m_sql << "UPDATE \"" << NAME << "\" SET \"" << column::reply_to_message_id << "\" = NULL, \""
+					  << column::body_text << "\" = '', \"" << column::body_format << "\" = :bodyFormat, \""
+					  << column::edited_at << "\" = 0, \"" << column::deleted_at
+					  << "\" = :deletedAt WHERE \"" << column::server_id << "\" = :serverID AND \""
+					  << column::message_id << "\" = :messageID",
+					soci::use(bodyFormatValue), soci::use(deletedAtEpoch), soci::use(serverID), soci::use(messageID);
+				transaction.commit();
+			} catch (const soci::soci_error &) {
+				std::throw_with_nested(::mdb::AccessException("Failed at marking chat message with ID "
+															  + std::to_string(messageID)
+															  + " as deleted on server with ID "
+															  + std::to_string(serverID)));
+			}
+		}
+
 		std::optional< DBChatMessage > ChatMessageTable::getMessage(unsigned int serverID, unsigned int messageID) {
 			try {
 				soci::row row;

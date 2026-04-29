@@ -33,6 +33,7 @@ public:
 	Q_INVOKABLE void startReply(qulonglong messageId);
 	Q_INVOKABLE void cancelReply();
 	Q_INVOKABLE void toggleReaction(qulonglong messageId, const QString &emoji, bool active);
+	Q_INVOKABLE void deleteMessage(qulonglong messageId);
 	Q_INVOKABLE void messageParticipant(qulonglong session);
 	Q_INVOKABLE void joinParticipant(qulonglong session);
 	Q_INVOKABLE void moveParticipantToChannel(qulonglong session, const QString &scopeToken);
@@ -67,6 +68,7 @@ signals:
 	void replyStartRequested(qulonglong messageId);
 	void replyCancelRequested();
 	void reactionToggleRequested(qulonglong messageId, const QString &emoji, bool active);
+	void messageDeleteRequested(qulonglong messageId);
 	void participantMessageRequested(qulonglong session);
 	void participantJoinRequested(qulonglong session);
 	void participantMoveRequested(qulonglong session, const QString &scopeToken);

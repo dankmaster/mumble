@@ -194,6 +194,8 @@ public:
 						 std::optional< unsigned int > replyToMessageID = std::nullopt);
 	void sendChatReactionToggle(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
 								unsigned int messageID, const QString &emoji, bool active);
+	void sendChatMessageDelete(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+							   unsigned int messageID);
 	void upsertTextChannel(unsigned int textChannelID, const QString &name, const QString &description,
 						   unsigned int aclChannelID, unsigned int position, bool create);
 	void removeTextChannel(unsigned int textChannelID);

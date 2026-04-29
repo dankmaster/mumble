@@ -43,6 +43,7 @@ namespace server {
 
 			void setReactionActive(unsigned int serverID, unsigned int messageID, unsigned int actorUserID,
 								   const std::string &emoji, bool active);
+			void clearReactions(unsigned int serverID, unsigned int messageID);
 			std::vector< DBChatMessageReaction > getReactions(unsigned int serverID, unsigned int messageID);
 
 			void migrate(unsigned int fromSchemaVersion, unsigned int toSchemaVersion) override;

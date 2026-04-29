@@ -798,6 +798,14 @@ message ChatMessage {
 	optional string reply_snippet = 19;
 }
 
+// Sent by the client to delete a persistent chat message from history.
+message ChatMessageDelete {
+	optional ChatScope scope = 1 [default = Channel];
+	optional uint32 scope_id = 2 [default = 0];
+	optional uint32 thread_id = 3;
+	required uint32 message_id = 4;
+}
+
 // Sent by the client to request a paginated chunk of chat history.
 message ChatHistoryRequest {
 	optional ChatScope scope = 1 [default = Channel];

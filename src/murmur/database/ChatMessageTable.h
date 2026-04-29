@@ -11,6 +11,7 @@
 #include "database/Backend.h"
 #include "database/Table.h"
 
+#include <chrono>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -53,6 +54,8 @@ namespace server {
 			~ChatMessageTable() = default;
 
 			void addMessage(const DBChatMessage &message);
+			void markMessageDeleted(unsigned int serverID, unsigned int messageID,
+									const std::chrono::system_clock::time_point &deletedAt);
 			std::optional< DBChatMessage > getMessage(unsigned int serverID, unsigned int messageID);
 
 			std::vector< DBChatMessage >

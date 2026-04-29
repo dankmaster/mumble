@@ -226,8 +226,8 @@ QFlags< ChanACL::Perm > ChanACL::effectivePermissions(ServerUser *p, Channel *ch
 	}
 
 	if (granted & Write) {
-		granted |=
-			Traverse | Enter | MuteDeafen | Move | MakeChannel | LinkChannel | TextMessage | MakeTempChannel | Listen;
+		granted |= Traverse | Enter | MuteDeafen | Move | MakeChannel | LinkChannel | TextMessage | MakeTempChannel
+				   | Listen | DeleteTextMessage;
 		if (chan->iId == 0)
 			granted |= Kick | Ban | ResetUserContent | Register | SelfRegister;
 	}
@@ -301,6 +301,8 @@ QString ChanACL::whatsThis(Perm p) {
 				"privilege in both channels to create a link, but just in either channel to remove it.");
 		case TextMessage:
 			return tr("This represents the permission to write text messages to other users in this channel.");
+		case DeleteTextMessage:
+			return tr("This represents the permission to delete persistent text messages from this channel's history.");
 		case Kick:
 			return tr("This represents the permission to forcibly remove users from the server.");
 		case Ban:
@@ -357,6 +359,8 @@ QString ChanACL::permName(Perm p) {
 			return tr("Link channel");
 		case TextMessage:
 			return tr("Text message");
+		case DeleteTextMessage:
+			return tr("Delete text messages");
 		case Kick:
 			return tr("Kick");
 		case Ban:

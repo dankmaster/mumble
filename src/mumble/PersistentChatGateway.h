@@ -34,6 +34,8 @@ public:
 			  std::optional< unsigned int > replyToMessageID = std::nullopt);
 	void toggleReaction(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
 						unsigned int messageID, const QString &emoji, bool active);
+	void deleteMessage(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int threadID,
+					   unsigned int messageID);
 	void markRead(MumbleProto::ChatScope scope, unsigned int scopeID, unsigned int lastReadMessageID);
 
 	void handleIncomingHistory(const MumbleProto::ChatHistoryResponse &response);
