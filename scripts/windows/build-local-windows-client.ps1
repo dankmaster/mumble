@@ -162,16 +162,14 @@ function Invoke-ProcessWithTimeout {
 		[int]$TimeoutSeconds = 180
 	)
 
-	$escapedArguments = foreach ($argument in $Arguments) {
-		if ($argument -notmatch '[\s"]') {
-			$argument
-		} else {
-			$escapedArgument = $argument -replace '(\\*)"', '$1$1\"'
-			$escapedArgument = $escapedArgument -replace '(\\+)$', '$1$1'
-			'"' + $escapedArgument + '"'
-		}
+	function ConvertTo-CmdQuotedArgument {
+		param(
+			[Parameter(Mandatory = $true)]
+			[string]$Value
+		)
+
+		return '"' + ($Value -replace '"', '\"') + '"'
 	}
-	$argumentLine = $escapedArguments -join ' '
 
 	$tempRoot = if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
 		$env:RUNNER_TEMP
@@ -184,17 +182,44 @@ function Invoke-ProcessWithTimeout {
 	$stdoutPath = Join-Path $tempRoot "$outputToken.stdout.log"
 	$stderrPath = Join-Path $tempRoot "$outputToken.stderr.log"
 
+	$quotedArguments = foreach ($argument in $Arguments) {
+		ConvertTo-CmdQuotedArgument -Value $argument
+	}
+	$commandLine = @(
+		(ConvertTo-CmdQuotedArgument -Value $FilePath),
+		($quotedArguments -join ' '),
+		"1>",
+		(ConvertTo-CmdQuotedArgument -Value $stdoutPath),
+		"2>",
+		(ConvertTo-CmdQuotedArgument -Value $stderrPath)
+	) -join ' '
+
+	$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+	$startInfo.FileName = if (-not [string]::IsNullOrWhiteSpace($env:ComSpec)) {
+		$env:ComSpec
+	} else {
+		"cmd.exe"
+	}
+	$startInfo.Arguments = '/D /S /C "' + $commandLine + '"'
+	$startInfo.UseShellExecute = $false
+	$startInfo.RedirectStandardOutput = $false
+	$startInfo.RedirectStandardError = $false
+	$startInfo.CreateNoWindow = $true
+
+	$process = [System.Diagnostics.Process]::new()
+	$process.StartInfo = $startInfo
+
 	Write-Host "$Description timeout: $TimeoutSeconds seconds"
 
 	try {
-		$process = Start-Process -FilePath $FilePath -ArgumentList $argumentLine -NoNewWindow -PassThru `
-			-RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+		[void]$process.Start()
 
 		if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
 			& taskkill.exe /PID $process.Id /T /F *> $null
 			throw "$Description timed out after $TimeoutSeconds seconds."
 		}
 
+		$process.Refresh()
 		[string]$stdout = ""
 		[string]$stderr = ""
 		if (Test-Path -LiteralPath $stdoutPath) {
@@ -217,6 +242,7 @@ function Invoke-ProcessWithTimeout {
 		}
 	} finally {
 		Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+		$process.Dispose()
 	}
 }
 
