@@ -42,6 +42,8 @@ namespace ScreenShare {
 	bool isValidCodec(MumbleProto::ScreenShareCodec codec);
 	QString codecToConfigToken(MumbleProto::ScreenShareCodec codec);
 	QList< int > defaultCodecPreferenceList();
+	QList< int > webRtcRelayCodecPreferenceList();
+	QList< int > browserWebRtcCodecPreferenceList();
 	QList< int > sanitizeCodecList(const QList< int > &codecs);
 	QList< int > parseCodecPreferenceString(const QString &codecList, const QList< int > &fallback = {});
 	QString codecPreferenceString(const QList< int > &codecs);
@@ -59,6 +61,7 @@ namespace ScreenShare {
 	QString relayRoleToConfigToken(MumbleProto::ScreenShareRelayRole relayRole);
 	bool relayTransportRequiresSignaling(MumbleProto::ScreenShareRelayTransport relayTransport);
 	bool isDirectRelayTransport(MumbleProto::ScreenShareRelayTransport relayTransport);
+	bool isWebRtcRelayTransport(MumbleProto::ScreenShareRelayTransport relayTransport);
 	QString normalizeRelayUrl(const QString &relayUrl);
 	bool isValidRelayUrl(const QString &relayUrl);
 

@@ -34,6 +34,7 @@ screen_share_enabled=true
 screen_share_relay_url="wss://relay.example.com/mumble-screen"
 screen_share_relay_api_key="your-livekit-api-key"
 screen_share_relay_api_secret="your-livekit-api-secret"
+screen_share_codec_preferences="vp8 h264 av1 vp9"
 screen_share_diagnostics_logging=true
 ```
 
@@ -61,11 +62,19 @@ The helper appends query parameters like:
 - `stream_id`
 - `relay_role`
 - `codec`
+- `requested_codec`
 - `transport`
 - `width`
 - `height`
 - `fps`
 - `bitrate_kbps`
+
+For the browser WebRTC runtime, current clients request VP8 because it is the
+most reliable baseline across the bundled Qt WebEngine path and external
+browser fallback. The relay page publishes one VP8 low-latency stream with
+LiveKit backup codec publishing disabled. Direct helper transports remain
+H.264-first by default and can still negotiate H.264, AV1, VP9, or explicit VP8
+when the host ffmpeg runtime supports the selected encoder.
 
 The sensitive `relay_token` is passed as a fragment parameter, for example
 `#relay_token=...`. The hosted page accepts the old query form for compatibility
@@ -75,8 +84,10 @@ The hosted page should treat those as ephemeral session inputs and should not
 persist them.
 
 While video is attached, the hosted page samples WebRTC stats and reports a
-compact bitrate, frame-rate, RTT, jitter, loss, and repair summary back through
-the in-app Qt bridge when diagnostics are enabled.
+compact bitrate, frame-rate, RTT, jitter, loss, repair, and actual codec summary
+back through the in-app Qt bridge when diagnostics are enabled. The page logs
+requested codec, negotiated session codec, and actual WebRTC stats codec; a
+requested/actual mismatch is logged as a warning once per session.
 
 ### LiveKit Token Contract
 
@@ -97,6 +108,29 @@ Viewer grant:
 - `roomJoin=true`
 - `canPublish=false`
 - `canSubscribe=true`
+
+Rotate any proof-of-concept LiveKit API secret before exposing a real relay.
+Deploy the new Murmur config and LiveKit key/secret together, then restart
+Murmur so newly minted screen-share tokens are signed with the new secret. Old
+join tokens are intentionally short-lived and should expire without manual
+cleanup.
+
+### Relay Hardening Checklist
+
+- Serve the relay app and LiveKit WebSocket over TLS from the public
+  `screen_share_relay_url`; do not expose the internal LiveKit API port directly
+  without a reverse proxy or load balancer.
+- Keep `7881/tcp` exposed for WebRTC-over-TCP fallback and either expose
+  `7882/udp` when using LiveKit UDP mux or the configured UDP port range when
+  not using mux.
+- Monitor the relay process, TLS endpoint, WebSocket upgrade path, and LiveKit
+  Prometheus metrics if `prometheus_port` is enabled in the LiveKit config.
+- Keep Murmur `screen_share_diagnostics_logging=true` during rollout so codec
+  negotiation and relay connection failures are visible, then reduce verbosity
+  after the relay has been stable.
+- Verify each deploy with one publisher and one viewer: requested codec VP8,
+  negotiated session codec VP8, actual stats codec VP8, stable frame rate, and
+  no fallback request.
 
 ### UX Expectation
 

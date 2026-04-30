@@ -18,6 +18,7 @@ parameters such as:
 - `stream_id`
 - `relay_role`
 - `codec`
+- `requested_codec`
 - `transport`
 - `width`
 - `height`
@@ -31,12 +32,14 @@ of normal static-host request logs and scrub it from the visible URL after
 startup.
 
 The in-app relay currently clamps browser capture to a 1280x720 @ 30 fps
-low-latency profile and uses a single primary screen-share stream while keeping
-LiveKit's compatibility backup codec available. This keeps the viewer out of
-adaptive simulcast layers without building large encoder or relay queues.
+low-latency profile, uses VP8 as the browser-managed WebRTC codec, disables
+LiveKit backup codec publishing, and publishes a single screen-share stream.
+This keeps the viewer out of adaptive simulcast layers without building large
+encoder or relay queues.
 
 The page also samples browser WebRTC stats while video is attached and reports a
-compact bitrate/frame-rate/loss/repair summary to the in-app Qt bridge for
-diagnostics.
+compact bitrate/frame-rate/loss/repair/actual-codec summary to the in-app Qt
+bridge for diagnostics. It logs requested, negotiated, and actual WebRTC codecs
+so codec negotiation drift is visible during rollout.
 
 Users should never type or copy those URLs manually.

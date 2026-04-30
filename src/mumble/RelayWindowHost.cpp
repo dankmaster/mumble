@@ -336,13 +336,23 @@ void RelayWindowHost::handleBridgeCloseRequested(const QString &reason) {
 	emit closeRequested(m_session.streamID);
 }
 
-void RelayWindowHost::handleBridgeStatsReported(const QString &summary) {
+void RelayWindowHost::handleBridgeStatsReported(const QString &summary, const QString &actualCodec) {
 	if (m_closingFromManager || !Global::get().s.bScreenShareDiagnostics) {
 		return;
 	}
 
-	qInfo().noquote() << QStringLiteral("RelayWindowHost: stream=%1 role=%2 stats=%3")
+	const QString requestedCodec =
+		m_session.codecFallbackOrder.isEmpty()
+			? Mumble::ScreenShare::codecToConfigToken(m_session.codec)
+			: Mumble::ScreenShare::codecToConfigToken(
+				static_cast< MumbleProto::ScreenShareCodec >(m_session.codecFallbackOrder.first()));
+	const QString negotiatedCodec = Mumble::ScreenShare::codecToConfigToken(m_session.codec);
+	qInfo().noquote() << QStringLiteral("RelayWindowHost: stream=%1 role=%2 requested_codec=%3 negotiated_codec=%4 "
+										"actual_codec=%5 stats=%6")
 							 .arg(m_session.streamID.isEmpty() ? QStringLiteral("-") : m_session.streamID, roleLabel(),
+								  requestedCodec.isEmpty() ? QStringLiteral("-") : requestedCodec,
+								  negotiatedCodec.isEmpty() ? QStringLiteral("-") : negotiatedCodec,
+								  actualCodec.trimmed().isEmpty() ? QStringLiteral("-") : actualCodec.trimmed(),
 								  summary);
 }
 
@@ -366,6 +376,11 @@ QUrl RelayWindowHost::buildPageUrl() const {
 	query.addQueryItem(QStringLiteral("stream_id"), m_session.streamID);
 	query.addQueryItem(QStringLiteral("relay_role"), Mumble::ScreenShare::relayRoleToConfigToken(m_session.relayRole));
 	query.addQueryItem(QStringLiteral("codec"), Mumble::ScreenShare::codecToConfigToken(m_session.codec));
+	if (!m_session.codecFallbackOrder.isEmpty()) {
+		query.addQueryItem(QStringLiteral("requested_codec"),
+						   Mumble::ScreenShare::codecToConfigToken(
+							   static_cast< MumbleProto::ScreenShareCodec >(m_session.codecFallbackOrder.first())));
+	}
 	query.addQueryItem(QStringLiteral("transport"),
 					   Mumble::ScreenShare::relayTransportToConfigToken(m_session.relayTransport));
 	query.addQueryItem(QStringLiteral("width"), QString::number(qMax(0U, m_session.width)));
@@ -411,6 +426,12 @@ void RelayWindowHost::requestFallbackOnce(const QString &reason) {
 	}
 
 	m_fallbackIssued = true;
+	if (Global::get().s.bScreenShareDiagnostics) {
+		qWarning().noquote() << QStringLiteral("RelayWindowHost: stream=%1 role=%2 fallback=%3")
+									.arg(m_session.streamID.isEmpty() ? QStringLiteral("-") : m_session.streamID,
+										 roleLabel(),
+										 reason.trimmed().isEmpty() ? QStringLiteral("-") : reason.trimmed());
+	}
 	emit fallbackRequested(reason);
 }
 

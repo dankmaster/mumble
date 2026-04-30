@@ -61,7 +61,7 @@ private slots:
 	void handleBridgeBootReady();
 	void handleBridgeFallbackRequested(const QString &reason);
 	void handleBridgeCloseRequested(const QString &reason);
-	void handleBridgeStatsReported(const QString &summary);
+	void handleBridgeStatsReported(const QString &summary, const QString &actualCodec);
 	void handleBootTimeout();
 
 private:

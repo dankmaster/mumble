@@ -67,7 +67,7 @@ bool tokenExpired(const quint64 expiresAt, const qint64 skewMsec = 5000) {
 }
 
 bool isWebRtcRelayTransport(const MumbleProto::ScreenShareRelayTransport transport) {
-	return transport == MumbleProto::ScreenShareRelayTransportWebRTC;
+	return Mumble::ScreenShare::isWebRtcRelayTransport(transport);
 }
 } // namespace
 
@@ -311,9 +311,12 @@ void ScreenShareManager::requestStartChannelShare(unsigned int channelID) {
 	if (channelID != 0) {
 		msg.set_scope_id(channelID);
 	}
-	const QList< int > availableCodecs = capabilities.supportedCodecs.isEmpty()
-											 ? Mumble::ScreenShare::defaultCodecPreferenceList()
-											 : capabilities.supportedCodecs;
+	QList< int > availableCodecs = capabilities.supportedCodecs.isEmpty()
+									   ? Mumble::ScreenShare::defaultCodecPreferenceList()
+									   : capabilities.supportedCodecs;
+	if (isWebRtcRelayTransport(relayTransport)) {
+		availableCodecs = Mumble::ScreenShare::browserWebRtcCodecPreferenceList();
+	}
 	const QList< int > preferredCodecs = Global::get().qlPreferredScreenShareCodecs.isEmpty()
 											 ? availableCodecs
 											 : Global::get().qlPreferredScreenShareCodecs;

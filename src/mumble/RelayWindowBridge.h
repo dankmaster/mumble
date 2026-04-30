@@ -22,13 +22,13 @@ public:
 	Q_INVOKABLE void ready();
 	Q_INVOKABLE void requestFallback(const QString &reason = QString());
 	Q_INVOKABLE void requestClose(const QString &reason = QString());
-	Q_INVOKABLE void reportStats(const QString &summary);
+	Q_INVOKABLE void reportStats(const QString &summary, const QString &actualCodec = QString());
 
 signals:
 	void bootReady();
 	void fallbackRequested(const QString &reason);
 	void closeRequested(const QString &reason);
-	void statsReported(const QString &summary);
+	void statsReported(const QString &summary, const QString &actualCodec);
 };
 
 #endif // defined(MUMBLE_HAS_MODERN_LAYOUT)

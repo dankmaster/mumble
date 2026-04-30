@@ -20,9 +20,9 @@
 #include "Version.h"
 #include "crypto/CryptState.h"
 
+#include "murmur/database/ChronoUtils.h"
 #include "murmur/database/DBChatMessage.h"
 #include "murmur/database/DBChatReadState.h"
-#include "murmur/database/ChronoUtils.h"
 #include "murmur/database/UserProperty.h"
 
 #include <algorithm>
@@ -34,13 +34,13 @@
 #include <set>
 #include <unordered_map>
 
-#include <QtCore/QDateTime>
 #include <QtCore/QBuffer>
 #include <QtCore/QCryptographicHash>
+#include <QtCore/QDateTime>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
-#include <QtCore/QRegularExpressionMatchIterator>
 #include <QtCore/QRandomGenerator>
+#include <QtCore/QRegularExpressionMatchIterator>
 #include <QtCore/QStack>
 #include <QtCore/QTimeZone>
 #include <QtCore/QUuid>
@@ -178,947 +178,935 @@ public:
 };
 
 namespace {
-	std::optional< unsigned int > persistedUserID(const ServerUser *user) {
-		if (!user || user->iId < 0) {
-			return std::nullopt;
-		}
-
-		return static_cast< unsigned int >(user->iId);
+std::optional< unsigned int > persistedUserID(const ServerUser *user) {
+	if (!user || user->iId < 0) {
+		return std::nullopt;
 	}
 
-	std::string chatScopeKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
-		switch (scope) {
-			case MumbleProto::Channel:
-				return "channel:" + std::to_string(scopeID);
-			case MumbleProto::ServerGlobal:
-				return "global";
-			case MumbleProto::Aggregate:
-				return {};
-			case MumbleProto::TextChannel:
-				return "text:" + std::to_string(scopeID);
-		}
+	return static_cast< unsigned int >(user->iId);
+}
 
-		return {};
+std::string chatScopeKey(MumbleProto::ChatScope scope, unsigned int scopeID) {
+	switch (scope) {
+		case MumbleProto::Channel:
+			return "channel:" + std::to_string(scopeID);
+		case MumbleProto::ServerGlobal:
+			return "global";
+		case MumbleProto::Aggregate:
+			return {};
+		case MumbleProto::TextChannel:
+			return "text:" + std::to_string(scopeID);
 	}
 
-	std::optional< unsigned int > scopeIDFromPrefixedScopeKey(const std::string &scopeKey, const QString &prefix) {
-		const QString key = QString::fromStdString(scopeKey);
-		if (!key.startsWith(prefix)) {
-			return std::nullopt;
-		}
+	return {};
+}
 
-		bool ok = false;
-		const unsigned int scopeID = key.mid(prefix.size()).toUInt(&ok);
-		if (!ok) {
-			return std::nullopt;
-		}
-
-		return scopeID;
+std::optional< unsigned int > scopeIDFromPrefixedScopeKey(const std::string &scopeKey, const QString &prefix) {
+	const QString key = QString::fromStdString(scopeKey);
+	if (!key.startsWith(prefix)) {
+		return std::nullopt;
 	}
 
-	std::optional< unsigned int > channelIDFromScopeKey(const std::string &scopeKey) {
-		return scopeIDFromPrefixedScopeKey(scopeKey, QStringLiteral("channel:"));
+	bool ok                    = false;
+	const unsigned int scopeID = key.mid(prefix.size()).toUInt(&ok);
+	if (!ok) {
+		return std::nullopt;
 	}
 
-	std::optional< unsigned int > textChannelIDFromScopeKey(const std::string &scopeKey) {
-		return scopeIDFromPrefixedScopeKey(scopeKey, QStringLiteral("text:"));
-	}
+	return scopeID;
+}
 
-	bool resolveStoredChatThread(const ::msdb::DBChatThread &thread, const QHash< unsigned int, Channel * > &channels,
-								 const QHash< unsigned int, ::msdb::DBTextChannel > &textChannels,
-								 MumbleProto::ChatScope &scope, unsigned int &scopeID, Channel *&permissionChannel) {
-		switch (thread.scope) {
-			case ::msdb::ChatThreadScope::Channel: {
-				std::optional< unsigned int > channelID = channelIDFromScopeKey(thread.scopeKey);
-				if (!channelID) {
-					return false;
-				}
+std::optional< unsigned int > channelIDFromScopeKey(const std::string &scopeKey) {
+	return scopeIDFromPrefixedScopeKey(scopeKey, QStringLiteral("channel:"));
+}
 
-				scope             = MumbleProto::Channel;
-				scopeID           = channelID.value();
-				permissionChannel = channels.value(scopeID);
-				return permissionChannel != nullptr;
-			}
-			case ::msdb::ChatThreadScope::ServerGlobal:
-				scope             = MumbleProto::ServerGlobal;
-				scopeID           = 0;
-				permissionChannel = channels.value(Mumble::ROOT_CHANNEL_ID);
-				return permissionChannel != nullptr;
-			case ::msdb::ChatThreadScope::Private:
+std::optional< unsigned int > textChannelIDFromScopeKey(const std::string &scopeKey) {
+	return scopeIDFromPrefixedScopeKey(scopeKey, QStringLiteral("text:"));
+}
+
+bool resolveStoredChatThread(const ::msdb::DBChatThread &thread, const QHash< unsigned int, Channel * > &channels,
+							 const QHash< unsigned int, ::msdb::DBTextChannel > &textChannels,
+							 MumbleProto::ChatScope &scope, unsigned int &scopeID, Channel *&permissionChannel) {
+	switch (thread.scope) {
+		case ::msdb::ChatThreadScope::Channel: {
+			std::optional< unsigned int > channelID = channelIDFromScopeKey(thread.scopeKey);
+			if (!channelID) {
 				return false;
-			case ::msdb::ChatThreadScope::TextChannel: {
-				std::optional< unsigned int > textChannelID = textChannelIDFromScopeKey(thread.scopeKey);
-				if (!textChannelID) {
-					return false;
-				}
-
-				const auto it = textChannels.constFind(textChannelID.value());
-				if (it == textChannels.cend()) {
-					return false;
-				}
-
-				scope             = MumbleProto::TextChannel;
-				scopeID           = textChannelID.value();
-				permissionChannel = channels.value(it->aclChannelID);
-				return permissionChannel != nullptr;
 			}
-		}
 
+			scope             = MumbleProto::Channel;
+			scopeID           = channelID.value();
+			permissionChannel = channels.value(scopeID);
+			return permissionChannel != nullptr;
+		}
+		case ::msdb::ChatThreadScope::ServerGlobal:
+			scope             = MumbleProto::ServerGlobal;
+			scopeID           = 0;
+			permissionChannel = channels.value(Mumble::ROOT_CHANNEL_ID);
+			return permissionChannel != nullptr;
+		case ::msdb::ChatThreadScope::Private:
+			return false;
+		case ::msdb::ChatThreadScope::TextChannel: {
+			std::optional< unsigned int > textChannelID = textChannelIDFromScopeKey(thread.scopeKey);
+			if (!textChannelID) {
+				return false;
+			}
+
+			const auto it = textChannels.constFind(textChannelID.value());
+			if (it == textChannels.cend()) {
+				return false;
+			}
+
+			scope             = MumbleProto::TextChannel;
+			scopeID           = textChannelID.value();
+			permissionChannel = channels.value(it->aclChannelID);
+			return permissionChannel != nullptr;
+		}
+	}
+
+	return false;
+}
+
+QSet< ServerUser * > recipientsWithTextAccess(const QHash< unsigned int, ServerUser * > &connectedUsers,
+											  Channel *channel, ChanACL::ACLCache &cache) {
+	QSet< ServerUser * > recipients;
+
+	for (ServerUser *currentUser : connectedUsers) {
+		if (currentUser && ChanACL::hasPermission(currentUser, channel, ChanACL::TextMessage, &cache)) {
+			recipients.insert(currentUser);
+		}
+	}
+
+	return recipients;
+}
+
+std::optional< unsigned int > configuredDefaultTextChannelID(DBWrapper &dbWrapper, unsigned int serverID) {
+	unsigned int configuredTextChannelID = 0;
+	dbWrapper.getConfigurationTo(serverID, "defaulttextchannel", configuredTextChannelID);
+	if (configuredTextChannelID == 0) {
+		return std::nullopt;
+	}
+
+	return configuredTextChannelID;
+}
+
+void storeDefaultTextChannelID(DBWrapper &dbWrapper, unsigned int serverID,
+							   std::optional< unsigned int > textChannelID) {
+	if (textChannelID && *textChannelID > 0) {
+		dbWrapper.setConfiguration(serverID, "defaulttextchannel", std::to_string(*textChannelID));
+	} else {
+		dbWrapper.clearConfiguration(serverID, "defaulttextchannel");
+	}
+}
+
+bool sortTextChannelsForPresentation(const ::msdb::DBTextChannel &lhs, const ::msdb::DBTextChannel &rhs) {
+	if (lhs.position != rhs.position) {
+		return lhs.position < rhs.position;
+	}
+
+	if (lhs.name != rhs.name) {
+		return lhs.name < rhs.name;
+	}
+
+	return lhs.textChannelID < rhs.textChannelID;
+}
+
+std::optional< unsigned int > firstTextChannelID(const std::vector<::msdb::DBTextChannel > &textChannels) {
+	if (textChannels.empty()) {
+		return std::nullopt;
+	}
+
+	const auto firstTextChannel =
+		std::min_element(textChannels.cbegin(), textChannels.cend(), sortTextChannelsForPresentation);
+	return firstTextChannel != textChannels.cend() ? std::optional< unsigned int >(firstTextChannel->textChannelID)
+												   : std::nullopt;
+}
+
+bool containsTextChannelID(const std::vector<::msdb::DBTextChannel > &textChannels, unsigned int textChannelID) {
+	return std::find_if(textChannels.cbegin(), textChannels.cend(),
+						[textChannelID](const ::msdb::DBTextChannel &textChannel) {
+							return textChannel.textChannelID == textChannelID;
+						})
+		   != textChannels.cend();
+}
+
+bool clientSupportsPersistentChat(const ServerUser *user) {
+	return user && user->bSupportsPersistentChat;
+}
+
+QList< int > screenShareCodecListFromVersion(const MumbleProto::Version &msg) {
+	QList< int > codecs;
+	codecs.reserve(msg.supported_screen_share_codecs_size());
+	for (int i = 0; i < msg.supported_screen_share_codecs_size(); ++i) {
+		codecs.append(static_cast< int >(msg.supported_screen_share_codecs(i)));
+	}
+
+	return Mumble::ScreenShare::sanitizeCodecList(codecs);
+}
+
+void inferPersistentChatSupport(ServerUser *user) {
+	if (user) {
+		user->bSupportsPersistentChat = true;
+	}
+}
+
+QList< int > screenShareCodecListFromCreate(const MumbleProto::ScreenShareCreate &msg) {
+	QList< int > codecs;
+	codecs.reserve(msg.requested_codecs_size());
+	for (int i = 0; i < msg.requested_codecs_size(); ++i) {
+		codecs.append(static_cast< int >(msg.requested_codecs(i)));
+	}
+
+	return Mumble::ScreenShare::sanitizeCodecList(codecs);
+}
+
+constexpr quint64 MESSAGE_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
+
+QString randomMessageRelayCredential() {
+	return QUuid::createUuid().toString(QUuid::WithoutBraces) + QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+
+QSet< ServerUser * > legacyChannelRecipients(const QHash< unsigned int, ServerUser * > &connectedUsers,
+											 const ChannelListenerManager &channelListenerManager,
+											 const Channel *channel) {
+	QSet< ServerUser * > recipients;
+	if (!channel) {
+		return recipients;
+	}
+
+	for (User *currentUser : channel->qlUsers) {
+		if (currentUser) {
+			recipients.insert(static_cast< ServerUser * >(currentUser));
+		}
+	}
+
+	for (unsigned int session : channelListenerManager.getListenersForChannel(channel->iId)) {
+		ServerUser *currentUser = connectedUsers.value(session);
+		if (currentUser) {
+			recipients.insert(currentUser);
+		}
+	}
+
+	return recipients;
+}
+
+struct AggregateChatEntry {
+	::msdb::DBChatMessage message;
+	MumbleProto::ChatScope scope = MumbleProto::Channel;
+	unsigned int scopeID         = 0;
+};
+
+bool newerAggregateEntry(const AggregateChatEntry &lhs, const AggregateChatEntry &rhs) {
+	const std::size_t lhsCreatedAt = ::msdb::toEpochSeconds(lhs.message.createdAt);
+	const std::size_t rhsCreatedAt = ::msdb::toEpochSeconds(rhs.message.createdAt);
+	if (lhsCreatedAt != rhsCreatedAt) {
+		return lhsCreatedAt > rhsCreatedAt;
+	}
+	if (lhs.message.messageID != rhs.message.messageID) {
+		return lhs.message.messageID > rhs.message.messageID;
+	}
+
+	return lhs.message.threadID > rhs.message.threadID;
+}
+
+msdb::ChatMessageBodyFormat dbBodyFormatFromProto(MumbleProto::ChatBodyFormat format) {
+	switch (format) {
+		case MumbleProto::ChatBodyFormatMarkdownLite:
+			return msdb::ChatMessageBodyFormat::MarkdownLite;
+		case MumbleProto::ChatBodyFormatPlainText:
+		default:
+			return msdb::ChatMessageBodyFormat::PlainText;
+	}
+}
+
+MumbleProto::ChatBodyFormat protoBodyFormatFromDB(msdb::ChatMessageBodyFormat format) {
+	switch (format) {
+		case msdb::ChatMessageBodyFormat::MarkdownLite:
+			return MumbleProto::ChatBodyFormatMarkdownLite;
+		case msdb::ChatMessageBodyFormat::PlainText:
+		default:
+			return MumbleProto::ChatBodyFormatPlainText;
+	}
+}
+
+MumbleProto::ChatAssetKind protoAssetKindFromDB(msdb::ChatAssetKind kind) {
+	switch (kind) {
+		case msdb::ChatAssetKind::Image:
+			return MumbleProto::ChatAssetKindImage;
+		case msdb::ChatAssetKind::Video:
+			return MumbleProto::ChatAssetKindVideo;
+		case msdb::ChatAssetKind::Document:
+			return MumbleProto::ChatAssetKindDocument;
+		case msdb::ChatAssetKind::Binary:
+			return MumbleProto::ChatAssetKindBinary;
+		case msdb::ChatAssetKind::Unknown:
+		default:
+			return MumbleProto::ChatAssetKindUnknown;
+	}
+}
+
+msdb::ChatAssetKind dbAssetKindFromProto(MumbleProto::ChatAssetKind kind) {
+	switch (kind) {
+		case MumbleProto::ChatAssetKindImage:
+			return msdb::ChatAssetKind::Image;
+		case MumbleProto::ChatAssetKindVideo:
+			return msdb::ChatAssetKind::Video;
+		case MumbleProto::ChatAssetKindDocument:
+			return msdb::ChatAssetKind::Document;
+		case MumbleProto::ChatAssetKindBinary:
+			return msdb::ChatAssetKind::Binary;
+		case MumbleProto::ChatAssetKindUnknown:
+		default:
+			return msdb::ChatAssetKind::Unknown;
+	}
+}
+
+MumbleProto::ChatAssetTransferState protoTransferStateFromInt(MumbleProto::ChatAssetTransferState state) {
+	return state;
+}
+
+MumbleProto::ChatEmbedStatus protoEmbedStatusFromDB(msdb::ChatEmbedStatus status) {
+	switch (status) {
+		case msdb::ChatEmbedStatus::Ready:
+			return MumbleProto::ChatEmbedStatusReady;
+		case msdb::ChatEmbedStatus::Blocked:
+			return MumbleProto::ChatEmbedStatusBlocked;
+		case msdb::ChatEmbedStatus::Failed:
+			return MumbleProto::ChatEmbedStatusFailed;
+		case msdb::ChatEmbedStatus::Pending:
+		default:
+			return MumbleProto::ChatEmbedStatusPending;
+	}
+}
+
+QString structuredChatLegacyHtml(const QString &bodyText, msdb::ChatMessageBodyFormat bodyFormat) {
+	Q_UNUSED(bodyFormat);
+	return bodyText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
+}
+
+MumbleProto::ChatAssetRef protoAssetRefFromDB(const msdb::DBChatMessageAttachment &attachment) {
+	MumbleProto::ChatAssetRef protoAttachment;
+	protoAttachment.set_asset_id(attachment.assetID);
+	if (!attachment.filename.empty()) {
+		protoAttachment.set_filename(attachment.filename);
+	}
+	if (!attachment.mime.empty()) {
+		protoAttachment.set_mime(attachment.mime);
+	}
+	protoAttachment.set_byte_size(attachment.byteSize);
+	protoAttachment.set_kind(protoAssetKindFromDB(attachment.kind));
+	if (attachment.width > 0) {
+		protoAttachment.set_width(attachment.width);
+	}
+	if (attachment.height > 0) {
+		protoAttachment.set_height(attachment.height);
+	}
+	if (attachment.durationMs > 0) {
+		protoAttachment.set_duration_ms(attachment.durationMs);
+	}
+	protoAttachment.set_inline_safe(attachment.inlineSafe);
+	if (attachment.previewAssetID) {
+		protoAttachment.set_preview_asset_id(attachment.previewAssetID.value());
+	}
+	return protoAttachment;
+}
+
+MumbleProto::ChatEmbedRef protoEmbedRefFromDB(const msdb::DBChatMessageEmbed &embed) {
+	MumbleProto::ChatEmbedRef protoEmbed;
+	protoEmbed.set_canonical_url(embed.canonicalUrl);
+	protoEmbed.set_status(protoEmbedStatusFromDB(embed.status));
+	if (!embed.title.empty()) {
+		protoEmbed.set_title(embed.title);
+	}
+	if (!embed.description.empty()) {
+		protoEmbed.set_description(embed.description);
+	}
+	if (!embed.siteName.empty()) {
+		protoEmbed.set_site_name(embed.siteName);
+	}
+	if (embed.previewAssetID) {
+		protoEmbed.set_preview_asset_id(embed.previewAssetID.value());
+	}
+	if (!embed.errorCode.empty()) {
+		protoEmbed.set_error_code(embed.errorCode);
+	}
+	return protoEmbed;
+}
+
+MumbleProto::ChatAssetRef protoAssetRefFromAsset(const msdb::DBChatAsset &asset, const QString &filename,
+												 bool inlineSafe) {
+	MumbleProto::ChatAssetRef ref;
+	ref.set_asset_id(asset.assetID);
+	if (!filename.isEmpty()) {
+		ref.set_filename(u8(filename));
+	}
+	ref.set_mime(asset.mime);
+	ref.set_byte_size(asset.byteSize);
+	ref.set_kind(protoAssetKindFromDB(asset.kind));
+	if (asset.width > 0) {
+		ref.set_width(asset.width);
+	}
+	if (asset.height > 0) {
+		ref.set_height(asset.height);
+	}
+	if (asset.durationMs > 0) {
+		ref.set_duration_ms(asset.durationMs);
+	}
+	ref.set_inline_safe(inlineSafe);
+	if (asset.previewAssetID) {
+		ref.set_preview_asset_id(asset.previewAssetID.value());
+	}
+	return ref;
+}
+
+struct ChatReactionAggregateState {
+	unsigned int count = 0;
+	bool selfReacted   = false;
+};
+
+struct ChatReplyPreview {
+	std::optional< std::string > actorName;
+	std::optional< std::string > snippet;
+};
+
+std::vector< std::pair< std::string, ChatReactionAggregateState > >
+	aggregateChatReactions(const std::vector< msdb::DBChatMessageReaction > &reactions,
+						   std::optional< unsigned int > viewerUserID) {
+	std::map< std::string, ChatReactionAggregateState > grouped;
+	for (const msdb::DBChatMessageReaction &reaction : reactions) {
+		ChatReactionAggregateState &aggregate = grouped[reaction.emoji];
+		aggregate.count++;
+		if (viewerUserID && reaction.actorUserID == viewerUserID.value()) {
+			aggregate.selfReacted = true;
+		}
+	}
+
+	std::vector< std::pair< std::string, ChatReactionAggregateState > > ordered(grouped.begin(), grouped.end());
+	std::sort(ordered.begin(), ordered.end(), [](const auto &lhs, const auto &rhs) {
+		if (lhs.second.count != rhs.second.count) {
+			return lhs.second.count > rhs.second.count;
+		}
+		return lhs.first < rhs.first;
+	});
+	return ordered;
+}
+
+void appendProtoReactionAggregates(google::protobuf::RepeatedPtrField< MumbleProto::ChatReactionAggregate > *target,
+								   const std::vector< msdb::DBChatMessageReaction > &reactions,
+								   std::optional< unsigned int > viewerUserID) {
+	if (!target) {
+		return;
+	}
+
+	for (const auto &aggregate : aggregateChatReactions(reactions, viewerUserID)) {
+		MumbleProto::ChatReactionAggregate *protoReaction = target->Add();
+		protoReaction->set_emoji(aggregate.first);
+		protoReaction->set_count(aggregate.second.count);
+		protoReaction->set_self_reacted(aggregate.second.selfReacted);
+	}
+}
+
+QString chatReplySnippetText(const QString &text) {
+	QString normalized = text;
+	normalized.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+	normalized.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+	normalized.replace(QLatin1Char('\n'), QLatin1Char(' '));
+	normalized = normalized.simplified();
+	if (normalized.size() > 140) {
+		normalized = normalized.left(137).trimmed() + QLatin1String("...");
+	}
+	return normalized;
+}
+
+template< typename AuthorResolver >
+std::optional< ChatReplyPreview > resolveReplyPreview(DBWrapper &dbWrapper, unsigned int serverID,
+													  const ::msdb::DBChatMessage &message,
+													  const AuthorResolver &resolveAuthorName) {
+	if (!message.replyToMessageID) {
+		return std::nullopt;
+	}
+
+	const std::optional<::msdb::DBChatMessage > replyTarget =
+		dbWrapper.getChatMessage(serverID, message.replyToMessageID.value());
+	if (!replyTarget || replyTarget->deletedAt > std::chrono::system_clock::time_point()) {
+		return std::nullopt;
+	}
+
+	ChatReplyPreview preview;
+	preview.actorName = resolveAuthorName(*replyTarget);
+
+	const QString snippetText = chatReplySnippetText(u8(replyTarget->bodyText));
+	if (!snippetText.isEmpty()) {
+		preview.snippet = u8(snippetText);
+	}
+
+	return preview;
+}
+
+QString normalizedMime(const QString &mime) {
+	return mime.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
+}
+
+msdb::ChatAssetKind inferredAssetKind(const QString &mime) {
+	if (mime.startsWith(QLatin1String("image/"))) {
+		return msdb::ChatAssetKind::Image;
+	}
+	if (mime.startsWith(QLatin1String("video/"))) {
+		return msdb::ChatAssetKind::Video;
+	}
+	if (mime == QLatin1String("application/pdf") || mime.startsWith(QLatin1String("text/"))) {
+		return msdb::ChatAssetKind::Document;
+	}
+	return msdb::ChatAssetKind::Binary;
+}
+
+bool isAllowedChatAssetMime(msdb::ChatAssetKind kind, const QString &mime) {
+	static const QSet< QString > imageMimes = {
+		QStringLiteral("image/png"), QStringLiteral("image/jpeg"), QStringLiteral("image/webp"),
+		QStringLiteral("image/gif"), QStringLiteral("image/bmp"),
+	};
+	static const QSet< QString > videoMimes = {
+		QStringLiteral("video/mp4"),
+		QStringLiteral("video/webm"),
+		QStringLiteral("video/quicktime"),
+	};
+	static const QSet< QString > documentMimes = {
+		QStringLiteral("application/pdf"),
+		QStringLiteral("text/plain"),
+		QStringLiteral("text/markdown"),
+	};
+	static const QSet< QString > binaryMimes = {
+		QStringLiteral("application/octet-stream"),
+		QStringLiteral("application/zip"),
+	};
+
+	switch (kind) {
+		case msdb::ChatAssetKind::Image:
+			return imageMimes.contains(mime);
+		case msdb::ChatAssetKind::Video:
+			return videoMimes.contains(mime);
+		case msdb::ChatAssetKind::Document:
+			return documentMimes.contains(mime);
+		case msdb::ChatAssetKind::Binary:
+			return binaryMimes.contains(mime);
+		case msdb::ChatAssetKind::Unknown:
+		default:
+			return false;
+	}
+}
+
+bool isInlineSafeAsset(msdb::ChatAssetKind kind, const QString &mime, bool requestInline) {
+	if (!requestInline) {
 		return false;
 	}
 
-	QSet< ServerUser * > recipientsWithTextAccess(const QHash< unsigned int, ServerUser * > &connectedUsers,
-												  Channel *channel, ChanACL::ACLCache &cache) {
-		QSet< ServerUser * > recipients;
+	return kind == msdb::ChatAssetKind::Image && mime != QLatin1String("image/svg+xml")
+		   && mime != QLatin1String("image/svg");
+}
 
-		for (ServerUser *currentUser : connectedUsers) {
-			if (currentUser && ChanACL::hasPermission(currentUser, channel, ChanACL::TextMessage, &cache)) {
-				recipients.insert(currentUser);
-			}
-		}
-
-		return recipients;
+bool isValidSha256Hex(const QString &sha256) {
+	if (sha256.size() != 64) {
+		return false;
 	}
 
-	std::optional< unsigned int > configuredDefaultTextChannelID(DBWrapper &dbWrapper, unsigned int serverID) {
-		unsigned int configuredTextChannelID = 0;
-		dbWrapper.getConfigurationTo(serverID, "defaulttextchannel", configuredTextChannelID);
-		if (configuredTextChannelID == 0) {
-			return std::nullopt;
-		}
-
-		return configuredTextChannelID;
-	}
-
-	void storeDefaultTextChannelID(DBWrapper &dbWrapper, unsigned int serverID,
-								   std::optional< unsigned int > textChannelID) {
-		if (textChannelID && *textChannelID > 0) {
-			dbWrapper.setConfiguration(serverID, "defaulttextchannel", std::to_string(*textChannelID));
-		} else {
-			dbWrapper.clearConfiguration(serverID, "defaulttextchannel");
-		}
-	}
-
-	bool sortTextChannelsForPresentation(const ::msdb::DBTextChannel &lhs, const ::msdb::DBTextChannel &rhs) {
-		if (lhs.position != rhs.position) {
-			return lhs.position < rhs.position;
-		}
-
-		if (lhs.name != rhs.name) {
-			return lhs.name < rhs.name;
-		}
-
-		return lhs.textChannelID < rhs.textChannelID;
-	}
-
-	std::optional< unsigned int > firstTextChannelID(const std::vector< ::msdb::DBTextChannel > &textChannels) {
-		if (textChannels.empty()) {
-			return std::nullopt;
-		}
-
-		const auto firstTextChannel =
-			std::min_element(textChannels.cbegin(), textChannels.cend(), sortTextChannelsForPresentation);
-		return firstTextChannel != textChannels.cend() ? std::optional< unsigned int >(firstTextChannel->textChannelID)
-													   : std::nullopt;
-	}
-
-	bool containsTextChannelID(const std::vector< ::msdb::DBTextChannel > &textChannels, unsigned int textChannelID) {
-		return std::find_if(textChannels.cbegin(), textChannels.cend(),
-							[textChannelID](const ::msdb::DBTextChannel &textChannel) {
-								return textChannel.textChannelID == textChannelID;
-							})
-			   != textChannels.cend();
-	}
-
-	bool clientSupportsPersistentChat(const ServerUser *user) {
-		return user && user->bSupportsPersistentChat;
-	}
-
-	QList< int > screenShareCodecListFromVersion(const MumbleProto::Version &msg) {
-		QList< int > codecs;
-		codecs.reserve(msg.supported_screen_share_codecs_size());
-		for (int i = 0; i < msg.supported_screen_share_codecs_size(); ++i) {
-			codecs.append(static_cast< int >(msg.supported_screen_share_codecs(i)));
-		}
-
-		return Mumble::ScreenShare::sanitizeCodecList(codecs);
-	}
-
-	void inferPersistentChatSupport(ServerUser *user) {
-		if (user) {
-			user->bSupportsPersistentChat = true;
-		}
-	}
-
-	QList< int > screenShareCodecListFromCreate(const MumbleProto::ScreenShareCreate &msg) {
-		QList< int > codecs;
-		codecs.reserve(msg.requested_codecs_size());
-		for (int i = 0; i < msg.requested_codecs_size(); ++i) {
-			codecs.append(static_cast< int >(msg.requested_codecs(i)));
-		}
-
-		return Mumble::ScreenShare::sanitizeCodecList(codecs);
-	}
-
-	constexpr quint64 MESSAGE_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC = 5ULL * 60ULL * 1000ULL;
-
-	QString randomMessageRelayCredential() {
-		return QUuid::createUuid().toString(QUuid::WithoutBraces)
-			+ QUuid::createUuid().toString(QUuid::WithoutBraces);
-	}
-
-	QSet< ServerUser * > legacyChannelRecipients(const QHash< unsigned int, ServerUser * > &connectedUsers,
-												 const ChannelListenerManager &channelListenerManager,
-												 const Channel *channel) {
-		QSet< ServerUser * > recipients;
-		if (!channel) {
-			return recipients;
-		}
-
-		for (User *currentUser : channel->qlUsers) {
-			if (currentUser) {
-				recipients.insert(static_cast< ServerUser * >(currentUser));
-			}
-		}
-
-		for (unsigned int session : channelListenerManager.getListenersForChannel(channel->iId)) {
-			ServerUser *currentUser = connectedUsers.value(session);
-			if (currentUser) {
-				recipients.insert(currentUser);
-			}
-		}
-
-		return recipients;
-	}
-
-	struct AggregateChatEntry {
-		::msdb::DBChatMessage message;
-		MumbleProto::ChatScope scope = MumbleProto::Channel;
-		unsigned int scopeID         = 0;
-	};
-
-	bool newerAggregateEntry(const AggregateChatEntry &lhs, const AggregateChatEntry &rhs) {
-		const std::size_t lhsCreatedAt = ::msdb::toEpochSeconds(lhs.message.createdAt);
-		const std::size_t rhsCreatedAt = ::msdb::toEpochSeconds(rhs.message.createdAt);
-		if (lhsCreatedAt != rhsCreatedAt) {
-			return lhsCreatedAt > rhsCreatedAt;
-		}
-		if (lhs.message.messageID != rhs.message.messageID) {
-			return lhs.message.messageID > rhs.message.messageID;
-		}
-
-		return lhs.message.threadID > rhs.message.threadID;
-	}
-
-	msdb::ChatMessageBodyFormat dbBodyFormatFromProto(MumbleProto::ChatBodyFormat format) {
-		switch (format) {
-			case MumbleProto::ChatBodyFormatMarkdownLite:
-				return msdb::ChatMessageBodyFormat::MarkdownLite;
-			case MumbleProto::ChatBodyFormatPlainText:
-			default:
-				return msdb::ChatMessageBodyFormat::PlainText;
-		}
-	}
-
-	MumbleProto::ChatBodyFormat protoBodyFormatFromDB(msdb::ChatMessageBodyFormat format) {
-		switch (format) {
-			case msdb::ChatMessageBodyFormat::MarkdownLite:
-				return MumbleProto::ChatBodyFormatMarkdownLite;
-			case msdb::ChatMessageBodyFormat::PlainText:
-			default:
-				return MumbleProto::ChatBodyFormatPlainText;
-		}
-	}
-
-	MumbleProto::ChatAssetKind protoAssetKindFromDB(msdb::ChatAssetKind kind) {
-		switch (kind) {
-			case msdb::ChatAssetKind::Image:
-				return MumbleProto::ChatAssetKindImage;
-			case msdb::ChatAssetKind::Video:
-				return MumbleProto::ChatAssetKindVideo;
-			case msdb::ChatAssetKind::Document:
-				return MumbleProto::ChatAssetKindDocument;
-			case msdb::ChatAssetKind::Binary:
-				return MumbleProto::ChatAssetKindBinary;
-			case msdb::ChatAssetKind::Unknown:
-			default:
-				return MumbleProto::ChatAssetKindUnknown;
-		}
-	}
-
-	msdb::ChatAssetKind dbAssetKindFromProto(MumbleProto::ChatAssetKind kind) {
-		switch (kind) {
-			case MumbleProto::ChatAssetKindImage:
-				return msdb::ChatAssetKind::Image;
-			case MumbleProto::ChatAssetKindVideo:
-				return msdb::ChatAssetKind::Video;
-			case MumbleProto::ChatAssetKindDocument:
-				return msdb::ChatAssetKind::Document;
-			case MumbleProto::ChatAssetKindBinary:
-				return msdb::ChatAssetKind::Binary;
-			case MumbleProto::ChatAssetKindUnknown:
-			default:
-				return msdb::ChatAssetKind::Unknown;
-		}
-	}
-
-	MumbleProto::ChatAssetTransferState protoTransferStateFromInt(MumbleProto::ChatAssetTransferState state) {
-		return state;
-	}
-
-	MumbleProto::ChatEmbedStatus protoEmbedStatusFromDB(msdb::ChatEmbedStatus status) {
-		switch (status) {
-			case msdb::ChatEmbedStatus::Ready:
-				return MumbleProto::ChatEmbedStatusReady;
-			case msdb::ChatEmbedStatus::Blocked:
-				return MumbleProto::ChatEmbedStatusBlocked;
-			case msdb::ChatEmbedStatus::Failed:
-				return MumbleProto::ChatEmbedStatusFailed;
-			case msdb::ChatEmbedStatus::Pending:
-			default:
-				return MumbleProto::ChatEmbedStatusPending;
-		}
-	}
-
-	QString structuredChatLegacyHtml(const QString &bodyText, msdb::ChatMessageBodyFormat bodyFormat) {
-		Q_UNUSED(bodyFormat);
-		return bodyText.toHtmlEscaped().replace(QLatin1Char('\n'), QLatin1String("<br/>"));
-	}
-
-	MumbleProto::ChatAssetRef protoAssetRefFromDB(const msdb::DBChatMessageAttachment &attachment) {
-		MumbleProto::ChatAssetRef protoAttachment;
-		protoAttachment.set_asset_id(attachment.assetID);
-		if (!attachment.filename.empty()) {
-			protoAttachment.set_filename(attachment.filename);
-		}
-		if (!attachment.mime.empty()) {
-			protoAttachment.set_mime(attachment.mime);
-		}
-		protoAttachment.set_byte_size(attachment.byteSize);
-		protoAttachment.set_kind(protoAssetKindFromDB(attachment.kind));
-		if (attachment.width > 0) {
-			protoAttachment.set_width(attachment.width);
-		}
-		if (attachment.height > 0) {
-			protoAttachment.set_height(attachment.height);
-		}
-		if (attachment.durationMs > 0) {
-			protoAttachment.set_duration_ms(attachment.durationMs);
-		}
-		protoAttachment.set_inline_safe(attachment.inlineSafe);
-		if (attachment.previewAssetID) {
-			protoAttachment.set_preview_asset_id(attachment.previewAssetID.value());
-		}
-		return protoAttachment;
-	}
-
-	MumbleProto::ChatEmbedRef protoEmbedRefFromDB(const msdb::DBChatMessageEmbed &embed) {
-		MumbleProto::ChatEmbedRef protoEmbed;
-		protoEmbed.set_canonical_url(embed.canonicalUrl);
-		protoEmbed.set_status(protoEmbedStatusFromDB(embed.status));
-		if (!embed.title.empty()) {
-			protoEmbed.set_title(embed.title);
-		}
-		if (!embed.description.empty()) {
-			protoEmbed.set_description(embed.description);
-		}
-		if (!embed.siteName.empty()) {
-			protoEmbed.set_site_name(embed.siteName);
-		}
-		if (embed.previewAssetID) {
-			protoEmbed.set_preview_asset_id(embed.previewAssetID.value());
-		}
-		if (!embed.errorCode.empty()) {
-			protoEmbed.set_error_code(embed.errorCode);
-		}
-		return protoEmbed;
-	}
-
-	MumbleProto::ChatAssetRef protoAssetRefFromAsset(const msdb::DBChatAsset &asset, const QString &filename,
-													 bool inlineSafe) {
-		MumbleProto::ChatAssetRef ref;
-		ref.set_asset_id(asset.assetID);
-		if (!filename.isEmpty()) {
-			ref.set_filename(u8(filename));
-		}
-		ref.set_mime(asset.mime);
-		ref.set_byte_size(asset.byteSize);
-		ref.set_kind(protoAssetKindFromDB(asset.kind));
-		if (asset.width > 0) {
-			ref.set_width(asset.width);
-		}
-		if (asset.height > 0) {
-			ref.set_height(asset.height);
-		}
-		if (asset.durationMs > 0) {
-			ref.set_duration_ms(asset.durationMs);
-		}
-		ref.set_inline_safe(inlineSafe);
-		if (asset.previewAssetID) {
-			ref.set_preview_asset_id(asset.previewAssetID.value());
-		}
-		return ref;
-	}
-
-	struct ChatReactionAggregateState {
-		unsigned int count = 0;
-		bool selfReacted   = false;
-	};
-
-	struct ChatReplyPreview {
-		std::optional< std::string > actorName;
-		std::optional< std::string > snippet;
-	};
-
-	std::vector< std::pair< std::string, ChatReactionAggregateState > >
-		aggregateChatReactions(const std::vector< msdb::DBChatMessageReaction > &reactions,
-							   std::optional< unsigned int > viewerUserID) {
-		std::map< std::string, ChatReactionAggregateState > grouped;
-		for (const msdb::DBChatMessageReaction &reaction : reactions) {
-			ChatReactionAggregateState &aggregate = grouped[reaction.emoji];
-			aggregate.count++;
-			if (viewerUserID && reaction.actorUserID == viewerUserID.value()) {
-				aggregate.selfReacted = true;
-			}
-		}
-
-		std::vector< std::pair< std::string, ChatReactionAggregateState > > ordered(grouped.begin(), grouped.end());
-		std::sort(ordered.begin(), ordered.end(),
-				  [](const auto &lhs, const auto &rhs) {
-					  if (lhs.second.count != rhs.second.count) {
-						  return lhs.second.count > rhs.second.count;
-					  }
-					  return lhs.first < rhs.first;
-				  });
-		return ordered;
-	}
-
-	void appendProtoReactionAggregates(google::protobuf::RepeatedPtrField< MumbleProto::ChatReactionAggregate > *target,
-									   const std::vector< msdb::DBChatMessageReaction > &reactions,
-									   std::optional< unsigned int > viewerUserID) {
-		if (!target) {
-			return;
-		}
-
-		for (const auto &aggregate : aggregateChatReactions(reactions, viewerUserID)) {
-			MumbleProto::ChatReactionAggregate *protoReaction = target->Add();
-			protoReaction->set_emoji(aggregate.first);
-			protoReaction->set_count(aggregate.second.count);
-			protoReaction->set_self_reacted(aggregate.second.selfReacted);
-		}
-	}
-
-	QString chatReplySnippetText(const QString &text) {
-		QString normalized = text;
-		normalized.replace(QLatin1String("\r\n"), QLatin1String("\n"));
-		normalized.replace(QLatin1Char('\r'), QLatin1Char('\n'));
-		normalized.replace(QLatin1Char('\n'), QLatin1Char(' '));
-		normalized = normalized.simplified();
-		if (normalized.size() > 140) {
-			normalized = normalized.left(137).trimmed() + QLatin1String("...");
-		}
-		return normalized;
-	}
-
-	template< typename AuthorResolver >
-	std::optional< ChatReplyPreview > resolveReplyPreview(DBWrapper &dbWrapper, unsigned int serverID,
-														  const ::msdb::DBChatMessage &message,
-														  const AuthorResolver &resolveAuthorName) {
-		if (!message.replyToMessageID) {
-			return std::nullopt;
-		}
-
-		const std::optional< ::msdb::DBChatMessage > replyTarget =
-			dbWrapper.getChatMessage(serverID, message.replyToMessageID.value());
-		if (!replyTarget || replyTarget->deletedAt > std::chrono::system_clock::time_point()) {
-			return std::nullopt;
-		}
-
-		ChatReplyPreview preview;
-		preview.actorName = resolveAuthorName(*replyTarget);
-
-		const QString snippetText = chatReplySnippetText(u8(replyTarget->bodyText));
-		if (!snippetText.isEmpty()) {
-			preview.snippet = u8(snippetText);
-		}
-
-		return preview;
-	}
-
-	QString normalizedMime(const QString &mime) {
-		return mime.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
-	}
-
-	msdb::ChatAssetKind inferredAssetKind(const QString &mime) {
-		if (mime.startsWith(QLatin1String("image/"))) {
-			return msdb::ChatAssetKind::Image;
-		}
-		if (mime.startsWith(QLatin1String("video/"))) {
-			return msdb::ChatAssetKind::Video;
-		}
-		if (mime == QLatin1String("application/pdf") || mime.startsWith(QLatin1String("text/"))) {
-			return msdb::ChatAssetKind::Document;
-		}
-		return msdb::ChatAssetKind::Binary;
-	}
-
-	bool isAllowedChatAssetMime(msdb::ChatAssetKind kind, const QString &mime) {
-		static const QSet< QString > imageMimes = {
-			QStringLiteral("image/png"),
-			QStringLiteral("image/jpeg"),
-			QStringLiteral("image/webp"),
-			QStringLiteral("image/gif"),
-			QStringLiteral("image/bmp"),
-		};
-		static const QSet< QString > videoMimes = {
-			QStringLiteral("video/mp4"),
-			QStringLiteral("video/webm"),
-			QStringLiteral("video/quicktime"),
-		};
-		static const QSet< QString > documentMimes = {
-			QStringLiteral("application/pdf"),
-			QStringLiteral("text/plain"),
-			QStringLiteral("text/markdown"),
-		};
-		static const QSet< QString > binaryMimes = {
-			QStringLiteral("application/octet-stream"),
-			QStringLiteral("application/zip"),
-		};
-
-		switch (kind) {
-			case msdb::ChatAssetKind::Image:
-				return imageMimes.contains(mime);
-			case msdb::ChatAssetKind::Video:
-				return videoMimes.contains(mime);
-			case msdb::ChatAssetKind::Document:
-				return documentMimes.contains(mime);
-			case msdb::ChatAssetKind::Binary:
-				return binaryMimes.contains(mime);
-			case msdb::ChatAssetKind::Unknown:
-			default:
-				return false;
-		}
-	}
-
-	bool isInlineSafeAsset(msdb::ChatAssetKind kind, const QString &mime, bool requestInline) {
-		if (!requestInline) {
+	for (const QChar ch : sha256) {
+		if (!ch.isDigit() && (ch.toLower() < QLatin1Char('a') || ch.toLower() > QLatin1Char('f'))) {
 			return false;
 		}
-
-		return kind == msdb::ChatAssetKind::Image
-			   && mime != QLatin1String("image/svg+xml")
-			   && mime != QLatin1String("image/svg");
 	}
 
-	bool isValidSha256Hex(const QString &sha256) {
-		if (sha256.size() != 64) {
-			return false;
-		}
+	return true;
+}
 
-		for (const QChar ch : sha256) {
-			if (!ch.isDigit() && (ch.toLower() < QLatin1Char('a') || ch.toLower() > QLatin1Char('f'))) {
-				return false;
-			}
-		}
+constexpr int CHAT_PREVIEW_TIMEOUT_MSEC        = 8000;
+constexpr qint64 CHAT_PREVIEW_MAX_PAGE_BYTES   = 512 * 1024;
+constexpr qint64 CHAT_PREVIEW_MAX_IMAGE_BYTES  = 4 * 1024 * 1024;
+constexpr int CHAT_PREVIEW_MAX_REDIRECTS       = 3;
+constexpr int CHAT_PREVIEW_MAX_CONCURRENT_HOST = 2;
+constexpr int CHAT_PREVIEW_THUMBNAIL_WIDTH     = 640;
+constexpr int CHAT_PREVIEW_THUMBNAIL_HEIGHT    = 480;
+static const QByteArray s_chatPreviewBrowserUserAgent =
+	QByteArrayLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+					  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36");
+static const QByteArray s_chatPreviewAcceptHeader =
+	QByteArrayLiteral("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8");
+static const QByteArray s_chatPreviewAcceptLanguageHeader = QByteArrayLiteral("en-US,en;q=0.9");
 
+void prepareChatPreviewRequest(QNetworkRequest &request) {
+	request.setRawHeader(QByteArrayLiteral("User-Agent"), s_chatPreviewBrowserUserAgent);
+	request.setRawHeader(QByteArrayLiteral("Accept"), s_chatPreviewAcceptHeader);
+	request.setRawHeader(QByteArrayLiteral("Accept-Language"), s_chatPreviewAcceptLanguageHeader);
+}
+
+bool previewContentTypeLooksHtml(const QString &contentType) {
+	return contentType.isEmpty() || contentType.contains(QLatin1String("html"))
+		   || contentType.contains(QLatin1String("xml"));
+}
+
+QString previewImageMetaTag(const QHash< QString, QString > &metaTags) {
+	static const QStringList preferredKeys = {
+		QStringLiteral("og:image"),      QStringLiteral("og:image:url"),      QStringLiteral("og:image:secure_url"),
+		QStringLiteral("twitter:image"), QStringLiteral("twitter:image:src"),
+	};
+
+	for (const QString &key : preferredKeys) {
+		const QString value = metaTags.value(key).trimmed();
+		if (!value.isEmpty()) {
+			return value;
+		}
+	}
+
+	return QString();
+}
+
+bool isSanitizableImageMime(const QString &mime) {
+	return mime == QLatin1String("image/png") || mime == QLatin1String("image/jpeg")
+		   || mime == QLatin1String("image/webp") || mime == QLatin1String("image/gif")
+		   || mime == QLatin1String("image/bmp");
+}
+
+bool isDirectImageUrl(const QUrl &url) {
+	const QString path = url.path().toLower();
+	return path.endsWith(QLatin1String(".png")) || path.endsWith(QLatin1String(".jpg"))
+		   || path.endsWith(QLatin1String(".jpeg")) || path.endsWith(QLatin1String(".webp"))
+		   || path.endsWith(QLatin1String(".gif")) || path.endsWith(QLatin1String(".bmp"));
+}
+
+QImage decodeChatImage(const QByteArray &bytes) {
+	QBuffer buffer;
+	buffer.setData(bytes);
+	if (!buffer.open(QIODevice::ReadOnly)) {
+		return QImage();
+	}
+
+	QImageReader reader(&buffer);
+	reader.setAutoTransform(true);
+	return reader.read();
+}
+
+QByteArray encodeChatImage(const QImage &image, const char *format, int quality = -1) {
+	QByteArray encoded;
+	QBuffer buffer(&encoded);
+	if (!buffer.open(QIODevice::WriteOnly)) {
+		return QByteArray();
+	}
+
+	QImageWriter writer(&buffer, format);
+	writer.setQuality(quality);
+	if (!writer.write(image)) {
+		return QByteArray();
+	}
+
+	return encoded;
+}
+
+struct SanitizedChatImage {
+	QByteArray bytes;
+	QString mime;
+	unsigned int width  = 0;
+	unsigned int height = 0;
+};
+
+std::optional< SanitizedChatImage > sanitizeChatImageBytes(const QByteArray &bytes, bool thumbnailOnly = false) {
+	const QImage image = decodeChatImage(bytes);
+	if (image.isNull()) {
+		return std::nullopt;
+	}
+
+	QImage normalized = thumbnailOnly ? image.scaled(CHAT_PREVIEW_THUMBNAIL_WIDTH, CHAT_PREVIEW_THUMBNAIL_HEIGHT,
+													 Qt::KeepAspectRatio, Qt::SmoothTransformation)
+									  : image;
+	SanitizedChatImage result;
+	result.width  = static_cast< unsigned int >(normalized.width());
+	result.height = static_cast< unsigned int >(normalized.height());
+
+	if (normalized.hasAlphaChannel()) {
+		result.bytes = encodeChatImage(normalized, "PNG");
+		result.mime  = QStringLiteral("image/png");
+	} else {
+		result.bytes = encodeChatImage(normalized, "JPEG", 90);
+		result.mime  = QStringLiteral("image/jpeg");
+	}
+
+	if (result.bytes.isEmpty()) {
+		return std::nullopt;
+	}
+
+	return result;
+}
+
+bool isBlockedPreviewAddress(const QHostAddress &address) {
+	if (address.isNull() || address.isLoopback() || address.isBroadcast() || address.isMulticast()) {
 		return true;
 	}
 
-	constexpr int CHAT_PREVIEW_TIMEOUT_MSEC        = 8000;
-	constexpr qint64 CHAT_PREVIEW_MAX_PAGE_BYTES   = 512 * 1024;
-	constexpr qint64 CHAT_PREVIEW_MAX_IMAGE_BYTES  = 4 * 1024 * 1024;
-	constexpr int CHAT_PREVIEW_MAX_REDIRECTS       = 3;
-	constexpr int CHAT_PREVIEW_MAX_CONCURRENT_HOST = 2;
-	constexpr int CHAT_PREVIEW_THUMBNAIL_WIDTH     = 640;
-	constexpr int CHAT_PREVIEW_THUMBNAIL_HEIGHT    = 480;
-	static const QByteArray s_chatPreviewBrowserUserAgent =
-		QByteArrayLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-						  "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36");
-	static const QByteArray s_chatPreviewAcceptHeader =
-		QByteArrayLiteral("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/*,*/*;q=0.8");
-	static const QByteArray s_chatPreviewAcceptLanguageHeader = QByteArrayLiteral("en-US,en;q=0.9");
-
-	void prepareChatPreviewRequest(QNetworkRequest &request) {
-		request.setRawHeader(QByteArrayLiteral("User-Agent"), s_chatPreviewBrowserUserAgent);
-		request.setRawHeader(QByteArrayLiteral("Accept"), s_chatPreviewAcceptHeader);
-		request.setRawHeader(QByteArrayLiteral("Accept-Language"), s_chatPreviewAcceptLanguageHeader);
-	}
-
-	bool previewContentTypeLooksHtml(const QString &contentType) {
-		return contentType.isEmpty() || contentType.contains(QLatin1String("html"))
-			   || contentType.contains(QLatin1String("xml"));
-	}
-
-	QString previewImageMetaTag(const QHash< QString, QString > &metaTags) {
-		static const QStringList preferredKeys = {
-			QStringLiteral("og:image"),
-			QStringLiteral("og:image:url"),
-			QStringLiteral("og:image:secure_url"),
-			QStringLiteral("twitter:image"),
-			QStringLiteral("twitter:image:src"),
-		};
-
-		for (const QString &key : preferredKeys) {
-			const QString value = metaTags.value(key).trimmed();
-			if (!value.isEmpty()) {
-				return value;
-			}
-		}
-
-		return QString();
-	}
-
-	bool isSanitizableImageMime(const QString &mime) {
-		return mime == QLatin1String("image/png") || mime == QLatin1String("image/jpeg")
-			   || mime == QLatin1String("image/webp") || mime == QLatin1String("image/gif")
-			   || mime == QLatin1String("image/bmp");
-	}
-
-	bool isDirectImageUrl(const QUrl &url) {
-		const QString path = url.path().toLower();
-		return path.endsWith(QLatin1String(".png")) || path.endsWith(QLatin1String(".jpg"))
-			   || path.endsWith(QLatin1String(".jpeg")) || path.endsWith(QLatin1String(".webp"))
-			   || path.endsWith(QLatin1String(".gif")) || path.endsWith(QLatin1String(".bmp"));
-	}
-
-	QImage decodeChatImage(const QByteArray &bytes) {
-		QBuffer buffer;
-		buffer.setData(bytes);
-		if (!buffer.open(QIODevice::ReadOnly)) {
-			return QImage();
-		}
-
-		QImageReader reader(&buffer);
-		reader.setAutoTransform(true);
-		return reader.read();
-	}
-
-	QByteArray encodeChatImage(const QImage &image, const char *format, int quality = -1) {
-		QByteArray encoded;
-		QBuffer buffer(&encoded);
-		if (!buffer.open(QIODevice::WriteOnly)) {
-			return QByteArray();
-		}
-
-		QImageWriter writer(&buffer, format);
-		writer.setQuality(quality);
-		if (!writer.write(image)) {
-			return QByteArray();
-		}
-
-		return encoded;
-	}
-
-	struct SanitizedChatImage {
-		QByteArray bytes;
-		QString mime;
-		unsigned int width = 0;
-		unsigned int height = 0;
-	};
-
-	std::optional< SanitizedChatImage > sanitizeChatImageBytes(const QByteArray &bytes, bool thumbnailOnly = false) {
-		const QImage image = decodeChatImage(bytes);
-		if (image.isNull()) {
-			return std::nullopt;
-		}
-
-		QImage normalized =
-			thumbnailOnly
-				? image.scaled(CHAT_PREVIEW_THUMBNAIL_WIDTH, CHAT_PREVIEW_THUMBNAIL_HEIGHT, Qt::KeepAspectRatio,
-							   Qt::SmoothTransformation)
-				: image;
-		SanitizedChatImage result;
-		result.width  = static_cast< unsigned int >(normalized.width());
-		result.height = static_cast< unsigned int >(normalized.height());
-
-		if (normalized.hasAlphaChannel()) {
-			result.bytes = encodeChatImage(normalized, "PNG");
-			result.mime  = QStringLiteral("image/png");
-		} else {
-			result.bytes = encodeChatImage(normalized, "JPEG", 90);
-			result.mime  = QStringLiteral("image/jpeg");
-		}
-
-		if (result.bytes.isEmpty()) {
-			return std::nullopt;
-		}
-
-		return result;
-	}
-
-	bool isBlockedPreviewAddress(const QHostAddress &address) {
-		if (address.isNull() || address.isLoopback() || address.isBroadcast() || address.isMulticast()) {
+	if (address.protocol() == QAbstractSocket::IPv4Protocol) {
+		const quint32 ip          = address.toIPv4Address();
+		const quint32 firstOctet  = (ip >> 24) & 0xffU;
+		const quint32 secondOctet = (ip >> 16) & 0xffU;
+		if (firstOctet == 0 || firstOctet == 10 || firstOctet == 127) {
 			return true;
 		}
-
-		if (address.protocol() == QAbstractSocket::IPv4Protocol) {
-			const quint32 ip = address.toIPv4Address();
-			const quint32 firstOctet = (ip >> 24) & 0xffU;
-			const quint32 secondOctet = (ip >> 16) & 0xffU;
-			if (firstOctet == 0 || firstOctet == 10 || firstOctet == 127) {
-				return true;
-			}
-			if (firstOctet == 169 && secondOctet == 254) {
-				return true;
-			}
-			if (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
-				return true;
-			}
-			if (firstOctet == 192 && secondOctet == 168) {
-				return true;
-			}
-			if (firstOctet == 100 && secondOctet >= 64 && secondOctet <= 127) {
-				return true;
-			}
-			return false;
-		}
-
-		const Q_IPV6ADDR ipv6 = address.toIPv6Address();
-		if ((ipv6[0] & 0xfeU) == 0xfcU) {
+		if (firstOctet == 169 && secondOctet == 254) {
 			return true;
 		}
-		if (ipv6[0] == 0xfeU && (ipv6[1] & 0xc0U) == 0x80U) {
+		if (firstOctet == 172 && secondOctet >= 16 && secondOctet <= 31) {
 			return true;
 		}
-		if (ipv6[0] == 0xfeU && (ipv6[1] & 0xc0U) == 0xc0U) {
+		if (firstOctet == 192 && secondOctet == 168) {
 			return true;
 		}
-		return address == QHostAddress::AnyIPv6 || address == QHostAddress::Any;
+		if (firstOctet == 100 && secondOctet >= 64 && secondOctet <= 127) {
+			return true;
+		}
+		return false;
 	}
 
-	bool isSafePreviewUrl(const QUrl &url) {
-		if (!url.isValid() || url.scheme() != QLatin1String("https") || url.host().trimmed().isEmpty()) {
-			return false;
-		}
-
-		const QHostAddress directAddress(url.host());
-		if (!directAddress.isNull()) {
-			return !isBlockedPreviewAddress(directAddress);
-		}
-
-		const QHostInfo resolved = QHostInfo::fromName(url.host());
-		if (resolved.error() != QHostInfo::NoError || resolved.addresses().isEmpty()) {
-			return false;
-		}
-
-		for (const QHostAddress &address : resolved.addresses()) {
-			if (isBlockedPreviewAddress(address)) {
-				return false;
-			}
-		}
-
+	const Q_IPV6ADDR ipv6 = address.toIPv6Address();
+	if ((ipv6[0] & 0xfeU) == 0xfcU) {
 		return true;
 	}
+	if (ipv6[0] == 0xfeU && (ipv6[1] & 0xc0U) == 0x80U) {
+		return true;
+	}
+	if (ipv6[0] == 0xfeU && (ipv6[1] & 0xc0U) == 0xc0U) {
+		return true;
+	}
+	return address == QHostAddress::AnyIPv6 || address == QHostAddress::Any;
+}
 
-	QList< QUrl > extractPreviewableUrls(const QString &text) {
-		static const QRegularExpression urlPattern(
-			QStringLiteral(R"((https://[^\s<>()\[\]{}"']+))"),
-			QRegularExpression::CaseInsensitiveOption);
-		QList< QUrl > urls;
-		QRegularExpressionMatchIterator it = urlPattern.globalMatch(text);
-		while (it.hasNext()) {
-			const QRegularExpressionMatch match = it.next();
-			const QUrl url(match.captured(1));
-			if (!url.isValid()) {
-				continue;
-			}
-			urls.append(url);
-		}
-		return urls;
+bool isSafePreviewUrl(const QUrl &url) {
+	if (!url.isValid() || url.scheme() != QLatin1String("https") || url.host().trimmed().isEmpty()) {
+		return false;
 	}
 
-	QString decodeHtmlEntityPreviewText(QString text) {
-		text.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
-		text.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
-		text.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
-		text.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
-		text.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
-		return text.trimmed();
+	const QHostAddress directAddress(url.host());
+	if (!directAddress.isNull()) {
+		return !isBlockedPreviewAddress(directAddress);
 	}
 
-	QString extractHtmlTitle(const QString &html) {
-		static const QRegularExpression titlePattern(
-			QStringLiteral(R"(<title[^>]*>(.*?)</title>)"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-		const QRegularExpressionMatch match = titlePattern.match(html);
-		return match.hasMatch() ? decodeHtmlEntityPreviewText(match.captured(1)) : QString();
+	const QHostInfo resolved = QHostInfo::fromName(url.host());
+	if (resolved.error() != QHostInfo::NoError || resolved.addresses().isEmpty()) {
+		return false;
 	}
 
-	QHash< QString, QString > extractMetaTags(const QString &html) {
-		QHash< QString, QString > tags;
-		static const QRegularExpression metaPattern(
-			QStringLiteral(R"(<meta\b([^>]+)>)"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-		static const QRegularExpression attrPattern(
-			QStringLiteral(R"(([A-Za-z_:.-]+)\s*=\s*(['"])(.*?)\2)"),
-			QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
-
-		QRegularExpressionMatchIterator metaIt = metaPattern.globalMatch(html);
-		while (metaIt.hasNext()) {
-			const QString attrs = metaIt.next().captured(1);
-			QHash< QString, QString > parsedAttrs;
-			QRegularExpressionMatchIterator attrIt = attrPattern.globalMatch(attrs);
-			while (attrIt.hasNext()) {
-				const QRegularExpressionMatch attr = attrIt.next();
-				parsedAttrs.insert(attr.captured(1).toLower(), decodeHtmlEntityPreviewText(attr.captured(3)));
-			}
-
-			const QString key = parsedAttrs.value(QStringLiteral("property"), parsedAttrs.value(QStringLiteral("name"))).toLower();
-			const QString content = parsedAttrs.value(QStringLiteral("content"));
-			if (!key.isEmpty() && !content.isEmpty()) {
-				tags.insert(key, content);
-			}
+	for (const QHostAddress &address : resolved.addresses()) {
+		if (isBlockedPreviewAddress(address)) {
+			return false;
 		}
-
-		return tags;
 	}
 
-	quint64 randomUploadID(const QHash< quint64, Server::PendingChatAssetUpload > &pendingUploads) {
-		quint64 uploadID = 0;
-		do {
-			uploadID = QRandomGenerator::global()->generate64();
-		} while (uploadID == 0 || pendingUploads.contains(uploadID));
+	return true;
+}
 
-		return uploadID;
+QList< QUrl > extractPreviewableUrls(const QString &text) {
+	static const QRegularExpression urlPattern(QStringLiteral(R"((https://[^\s<>()\[\]{}"']+))"),
+											   QRegularExpression::CaseInsensitiveOption);
+	QList< QUrl > urls;
+	QRegularExpressionMatchIterator it = urlPattern.globalMatch(text);
+	while (it.hasNext()) {
+		const QRegularExpressionMatch match = it.next();
+		const QUrl url(match.captured(1));
+		if (!url.isValid()) {
+			continue;
+		}
+		urls.append(url);
+	}
+	return urls;
+}
+
+QString decodeHtmlEntityPreviewText(QString text) {
+	text.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+	text.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+	text.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
+	text.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+	text.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+	return text.trimmed();
+}
+
+QString extractHtmlTitle(const QString &html) {
+	static const QRegularExpression titlePattern(QStringLiteral(R"(<title[^>]*>(.*?)</title>)"),
+												 QRegularExpression::CaseInsensitiveOption
+													 | QRegularExpression::DotMatchesEverythingOption);
+	const QRegularExpressionMatch match = titlePattern.match(html);
+	return match.hasMatch() ? decodeHtmlEntityPreviewText(match.captured(1)) : QString();
+}
+
+QHash< QString, QString > extractMetaTags(const QString &html) {
+	QHash< QString, QString > tags;
+	static const QRegularExpression metaPattern(QStringLiteral(R"(<meta\b([^>]+)>)"),
+												QRegularExpression::CaseInsensitiveOption
+													| QRegularExpression::DotMatchesEverythingOption);
+	static const QRegularExpression attrPattern(QStringLiteral(R"(([A-Za-z_:.-]+)\s*=\s*(['"])(.*?)\2)"),
+												QRegularExpression::CaseInsensitiveOption
+													| QRegularExpression::DotMatchesEverythingOption);
+
+	QRegularExpressionMatchIterator metaIt = metaPattern.globalMatch(html);
+	while (metaIt.hasNext()) {
+		const QString attrs = metaIt.next().captured(1);
+		QHash< QString, QString > parsedAttrs;
+		QRegularExpressionMatchIterator attrIt = attrPattern.globalMatch(attrs);
+		while (attrIt.hasNext()) {
+			const QRegularExpressionMatch attr = attrIt.next();
+			parsedAttrs.insert(attr.captured(1).toLower(), decodeHtmlEntityPreviewText(attr.captured(3)));
+		}
+
+		const QString key =
+			parsedAttrs.value(QStringLiteral("property"), parsedAttrs.value(QStringLiteral("name"))).toLower();
+		const QString content = parsedAttrs.value(QStringLiteral("content"));
+		if (!key.isEmpty() && !content.isEmpty()) {
+			tags.insert(key, content);
+		}
 	}
 
-	void sendChatAssetState(Server *server, ServerUser *recipient, quint64 uploadID,
-							MumbleProto::ChatAssetTransferState state, const QString &reason = QString(),
-							quint64 acceptedByteSize = 0,
-							const std::optional< MumbleProto::ChatAssetRef > &asset = std::nullopt) {
-		MumbleProto::ChatAssetState response;
-		response.set_upload_id(uploadID);
-		response.set_state(protoTransferStateFromInt(state));
-		if (!reason.isEmpty()) {
-			response.set_reason(u8(reason));
+	return tags;
+}
+
+quint64 randomUploadID(const QHash< quint64, Server::PendingChatAssetUpload > &pendingUploads) {
+	quint64 uploadID = 0;
+	do {
+		uploadID = QRandomGenerator::global()->generate64();
+	} while (uploadID == 0 || pendingUploads.contains(uploadID));
+
+	return uploadID;
+}
+
+void sendChatAssetState(Server *server, ServerUser *recipient, quint64 uploadID,
+						MumbleProto::ChatAssetTransferState state, const QString &reason = QString(),
+						quint64 acceptedByteSize                                = 0,
+						const std::optional< MumbleProto::ChatAssetRef > &asset = std::nullopt) {
+	MumbleProto::ChatAssetState response;
+	response.set_upload_id(uploadID);
+	response.set_state(protoTransferStateFromInt(state));
+	if (!reason.isEmpty()) {
+		response.set_reason(u8(reason));
+	}
+	if (acceptedByteSize > 0) {
+		response.set_accepted_byte_size(acceptedByteSize);
+	}
+	if (asset) {
+		*response.mutable_asset() = asset.value();
+	}
+	server->sendMessage(recipient, response);
+}
+
+MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
+												unsigned int scopeID,
+												const std::optional< std::string > &resolvedAuthorName = std::nullopt,
+												std::optional< unsigned int > viewerUserID             = std::nullopt,
+												const std::optional< ChatReplyPreview > &replyPreview  = std::nullopt) {
+	const bool deleted = message.deletedAt > std::chrono::system_clock::time_point();
+	MumbleProto::ChatMessage protoMessage;
+	protoMessage.set_scope(scope);
+	protoMessage.set_scope_id(scopeID);
+	protoMessage.set_thread_id(message.threadID);
+	protoMessage.set_message_id(message.messageID);
+	if (message.authorSession) {
+		protoMessage.set_actor(message.authorSession.value());
+	}
+	if (message.authorUserID) {
+		protoMessage.set_actor_user_id(message.authorUserID.value());
+	}
+	if (resolvedAuthorName && !resolvedAuthorName->empty()) {
+		protoMessage.set_actor_name(*resolvedAuthorName);
+	}
+	if (!deleted && message.replyToMessageID) {
+		protoMessage.set_reply_to_message_id(message.replyToMessageID.value());
+	}
+	if (!deleted && replyPreview) {
+		if (replyPreview->actorName && !replyPreview->actorName->empty()) {
+			protoMessage.set_reply_actor_name(replyPreview->actorName.value());
 		}
-		if (acceptedByteSize > 0) {
-			response.set_accepted_byte_size(acceptedByteSize);
+		if (replyPreview->snippet && !replyPreview->snippet->empty()) {
+			protoMessage.set_reply_snippet(replyPreview->snippet.value());
 		}
-		if (asset) {
-			*response.mutable_asset() = asset.value();
+	}
+	if (deleted) {
+		protoMessage.set_message(std::string());
+	} else {
+		protoMessage.set_body_text(message.bodyText);
+		protoMessage.set_body_format(protoBodyFormatFromDB(message.bodyFormat));
+		protoMessage.set_message(u8(structuredChatLegacyHtml(u8(message.bodyText), message.bodyFormat)));
+		for (const msdb::DBChatMessageAttachment &attachment : message.attachments) {
+			*protoMessage.add_attachments() = protoAssetRefFromDB(attachment);
 		}
-		server->sendMessage(recipient, response);
+		for (const msdb::DBChatMessageEmbed &embed : message.embeds) {
+			*protoMessage.add_embeds() = protoEmbedRefFromDB(embed);
+		}
+		appendProtoReactionAggregates(protoMessage.mutable_reactions(), message.reactions, viewerUserID);
+	}
+	protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
+	if (!deleted) {
+		protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
+	}
+	if (deleted) {
+		protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
 	}
 
-	MumbleProto::ChatMessage protoChatMessageFromDB(const ::msdb::DBChatMessage &message, MumbleProto::ChatScope scope,
-													 unsigned int scopeID,
-													 const std::optional< std::string > &resolvedAuthorName = std::nullopt,
-													 std::optional< unsigned int > viewerUserID = std::nullopt,
-													 const std::optional< ChatReplyPreview > &replyPreview = std::nullopt) {
-		const bool deleted = message.deletedAt > std::chrono::system_clock::time_point();
-		MumbleProto::ChatMessage protoMessage;
-		protoMessage.set_scope(scope);
-		protoMessage.set_scope_id(scopeID);
-		protoMessage.set_thread_id(message.threadID);
-		protoMessage.set_message_id(message.messageID);
-		if (message.authorSession) {
-			protoMessage.set_actor(message.authorSession.value());
-		}
-		if (message.authorUserID) {
-			protoMessage.set_actor_user_id(message.authorUserID.value());
-		}
-		if (resolvedAuthorName && !resolvedAuthorName->empty()) {
-			protoMessage.set_actor_name(*resolvedAuthorName);
-		}
-		if (!deleted && message.replyToMessageID) {
-			protoMessage.set_reply_to_message_id(message.replyToMessageID.value());
-		}
-		if (!deleted && replyPreview) {
-			if (replyPreview->actorName && !replyPreview->actorName->empty()) {
-				protoMessage.set_reply_actor_name(replyPreview->actorName.value());
-			}
-			if (replyPreview->snippet && !replyPreview->snippet->empty()) {
-				protoMessage.set_reply_snippet(replyPreview->snippet.value());
-			}
-		}
-		if (deleted) {
-			protoMessage.set_message(std::string());
-		} else {
-			protoMessage.set_body_text(message.bodyText);
-			protoMessage.set_body_format(protoBodyFormatFromDB(message.bodyFormat));
-			protoMessage.set_message(u8(structuredChatLegacyHtml(u8(message.bodyText), message.bodyFormat)));
-			for (const msdb::DBChatMessageAttachment &attachment : message.attachments) {
-				*protoMessage.add_attachments() = protoAssetRefFromDB(attachment);
-			}
-			for (const msdb::DBChatMessageEmbed &embed : message.embeds) {
-				*protoMessage.add_embeds() = protoEmbedRefFromDB(embed);
-			}
-			appendProtoReactionAggregates(protoMessage.mutable_reactions(), message.reactions, viewerUserID);
-		}
-		protoMessage.set_created_at(::msdb::toEpochSeconds(message.createdAt));
-		if (!deleted) {
-			protoMessage.set_edited_at(::msdb::toEpochSeconds(message.editedAt));
-		}
-		if (deleted) {
-			protoMessage.set_deleted_at(::msdb::toEpochSeconds(message.deletedAt));
-		}
+	return protoMessage;
+}
 
-		return protoMessage;
+MumbleProto::ChatReactionState protoReactionStateForMessage(const ::msdb::DBChatMessage &message,
+															MumbleProto::ChatScope scope, unsigned int scopeID,
+															std::optional< unsigned int > viewerUserID) {
+	MumbleProto::ChatReactionState state;
+	state.set_scope(scope);
+	state.set_scope_id(scopeID);
+	state.set_thread_id(message.threadID);
+	state.set_message_id(message.messageID);
+	appendProtoReactionAggregates(state.mutable_reactions(), message.reactions, viewerUserID);
+	return state;
+}
+
+MumbleProto::ChatReadStateUpdate protoReadStateFromDB(const ::msdb::DBChatReadState &readState,
+													  MumbleProto::ChatScope scope, unsigned int scopeID) {
+	MumbleProto::ChatReadStateUpdate protoUpdate;
+	protoUpdate.set_scope(scope);
+	protoUpdate.set_scope_id(scopeID);
+	protoUpdate.set_thread_id(readState.threadID);
+	protoUpdate.set_user_id(readState.userID);
+	protoUpdate.set_last_read_message_id(readState.lastReadMessageID);
+	protoUpdate.set_updated_at(::msdb::toEpochSeconds(readState.updatedAt));
+
+	return protoUpdate;
+}
+
+MumbleProto::TextMessage legacyTextMessageFromPersistent(const MumbleProto::ChatMessage &message) {
+	MumbleProto::TextMessage legacyMessage;
+	if (message.has_actor()) {
+		legacyMessage.set_actor(message.actor());
+	}
+	const QString bodyText = message.has_body_text() ? u8(message.body_text()) : u8(message.message());
+	const MumbleProto::ChatBodyFormat bodyFormat =
+		message.has_body_format() ? message.body_format() : MumbleProto::ChatBodyFormatPlainText;
+	legacyMessage.set_message(u8(structuredChatLegacyHtml(bodyText, dbBodyFormatFromProto(bodyFormat))));
+
+	switch (message.has_scope() ? message.scope() : MumbleProto::Channel) {
+		case MumbleProto::Channel:
+			legacyMessage.add_channel_id(message.has_scope_id() ? message.scope_id() : Mumble::ROOT_CHANNEL_ID);
+			break;
+		case MumbleProto::ServerGlobal:
+			legacyMessage.add_tree_id(Mumble::ROOT_CHANNEL_ID);
+			break;
+		case MumbleProto::Aggregate:
+		case MumbleProto::TextChannel:
+			break;
 	}
 
-	MumbleProto::ChatReactionState protoReactionStateForMessage(const ::msdb::DBChatMessage &message,
-																MumbleProto::ChatScope scope, unsigned int scopeID,
-																std::optional< unsigned int > viewerUserID) {
-		MumbleProto::ChatReactionState state;
-		state.set_scope(scope);
-		state.set_scope_id(scopeID);
-		state.set_thread_id(message.threadID);
-		state.set_message_id(message.messageID);
-		appendProtoReactionAggregates(state.mutable_reactions(), message.reactions, viewerUserID);
-		return state;
+	return legacyMessage;
+}
+
+void sendPersistentChatTextDenied(Server *server, ServerUser *user, const QString &reason) {
+	if (!server || !user) {
+		return;
 	}
 
-	MumbleProto::ChatReadStateUpdate protoReadStateFromDB(const ::msdb::DBChatReadState &readState,
-														   MumbleProto::ChatScope scope, unsigned int scopeID) {
-		MumbleProto::ChatReadStateUpdate protoUpdate;
-		protoUpdate.set_scope(scope);
-		protoUpdate.set_scope_id(scopeID);
-		protoUpdate.set_thread_id(readState.threadID);
-		protoUpdate.set_user_id(readState.userID);
-		protoUpdate.set_last_read_message_id(readState.lastReadMessageID);
-		protoUpdate.set_updated_at(::msdb::toEpochSeconds(readState.updatedAt));
-
-		return protoUpdate;
-	}
-
-	MumbleProto::TextMessage legacyTextMessageFromPersistent(const MumbleProto::ChatMessage &message) {
-		MumbleProto::TextMessage legacyMessage;
-		if (message.has_actor()) {
-			legacyMessage.set_actor(message.actor());
-		}
-		const QString bodyText = message.has_body_text() ? u8(message.body_text()) : u8(message.message());
-		const MumbleProto::ChatBodyFormat bodyFormat =
-			message.has_body_format() ? message.body_format() : MumbleProto::ChatBodyFormatPlainText;
-		legacyMessage.set_message(u8(structuredChatLegacyHtml(
-			bodyText, dbBodyFormatFromProto(bodyFormat))));
-
-		switch (message.has_scope() ? message.scope() : MumbleProto::Channel) {
-			case MumbleProto::Channel:
-				legacyMessage.add_channel_id(message.has_scope_id() ? message.scope_id() : Mumble::ROOT_CHANNEL_ID);
-				break;
-			case MumbleProto::ServerGlobal:
-				legacyMessage.add_tree_id(Mumble::ROOT_CHANNEL_ID);
-				break;
-			case MumbleProto::Aggregate:
-			case MumbleProto::TextChannel:
-				break;
-		}
-
-		return legacyMessage;
-	}
-
-	void sendPersistentChatTextDenied(Server *server, ServerUser *user, const QString &reason) {
-		if (!server || !user) {
-			return;
-		}
-
-		MumbleProto::PermissionDenied denied;
-		denied.set_session(user->uiSession);
-		denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
-		denied.set_reason(u8(reason));
-		server->sendMessage(user, denied);
-	}
+	MumbleProto::PermissionDenied denied;
+	denied.set_session(user->uiSession);
+	denied.set_type(MumbleProto::PermissionDenied_DenyType_Text);
+	denied.set_reason(u8(reason));
+	server->sendMessage(user, denied);
+}
 } // namespace
 
 void Server::sendPersistentChatUnsupported(ServerUser *uSource) {
@@ -1138,7 +1126,7 @@ void Server::sendTextChannelSync(ServerUser *uSource) {
 	QMutexLocker qml(&qmCache);
 
 	MumbleProto::TextChannelSync sync;
-	std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+	std::vector<::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
 	std::sort(textChannels.begin(), textChannels.end(), sortTextChannelsForPresentation);
 	const std::optional< unsigned int > configuredDefaultTextChannel =
 		configuredDefaultTextChannelID(m_dbWrapper, iServerNum);
@@ -1176,27 +1164,28 @@ void Server::sendTextChannelSync(ServerUser *uSource) {
 	sendMessage(uSource, sync);
 }
 
-void Server::persistAndBroadcastChatMessage(
-	ServerUser *uSource, const QString &bodyText, ::msdb::ChatMessageBodyFormat bodyFormat,
-	MumbleProto::ChatScope scope, unsigned int scopeID, Channel *permissionChannel, ::msdb::ChatThreadScope dbScope,
-	const std::vector< ::msdb::DBChatMessageAttachment > &attachments,
-	std::optional< unsigned int > replyToMessageID, const QSet< ServerUser * > &legacyFallbackRecipients) {
+void Server::persistAndBroadcastChatMessage(ServerUser *uSource, const QString &bodyText,
+											::msdb::ChatMessageBodyFormat bodyFormat, MumbleProto::ChatScope scope,
+											unsigned int scopeID, Channel *permissionChannel,
+											::msdb::ChatThreadScope dbScope,
+											const std::vector<::msdb::DBChatMessageAttachment > &attachments,
+											std::optional< unsigned int > replyToMessageID,
+											const QSet< ServerUser * > &legacyFallbackRecipients) {
 	const std::optional< unsigned int > authorUserID = persistedUserID(uSource);
 	const std::optional< std::string > authorName =
 		uSource->qsName.isEmpty() ? std::nullopt : std::optional< std::string >(u8(uSource->qsName));
-	const std::string scopeKey                       = chatScopeKey(scope, scopeID);
+	const std::string scopeKey = chatScopeKey(scope, scopeID);
 	if (scopeKey.empty()) {
 		return;
 	}
 
-	::msdb::DBChatThread thread =
-		m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
+	::msdb::DBChatThread thread = m_dbWrapper.ensureChatThread(iServerNum, dbScope, scopeKey, authorUserID);
 	::msdb::DBChatMessage storedMessage =
 		m_dbWrapper.addChatMessage(iServerNum, thread.threadID, u8(bodyText), bodyFormat, attachments, replyToMessageID,
 								   authorUserID, uSource->uiSession, authorName);
 
 	const auto now = std::chrono::system_clock::now();
-	std::vector< ::msdb::DBChatMessageEmbed > initialEmbeds;
+	std::vector<::msdb::DBChatMessageEmbed > initialEmbeds;
 	if (bChatPreviewFetchEnabled) {
 		QSet< QString > seenUrls;
 		const QList< QUrl > previewUrls = extractPreviewableUrls(bodyText);
@@ -1209,9 +1198,9 @@ void Server::persistAndBroadcastChatMessage(
 
 			::msdb::DBChatMessageEmbed embed(iServerNum, storedMessage.messageID);
 			embed.urlHash      = u8(QString::fromLatin1(
-								   QCryptographicHash::hash(canonicalUrl.toUtf8(), QCryptographicHash::Sha256).toHex()));
+                QCryptographicHash::hash(canonicalUrl.toUtf8(), QCryptographicHash::Sha256).toHex()));
 			embed.canonicalUrl = u8(canonicalUrl);
-			embed.status       =
+			embed.status =
 				isSafePreviewUrl(previewUrl) ? ::msdb::ChatEmbedStatus::Pending : ::msdb::ChatEmbedStatus::Blocked;
 			embed.errorCode = embed.status == ::msdb::ChatEmbedStatus::Blocked ? "blocked_target" : "";
 			embed.fetchedAt = now;
@@ -1284,7 +1273,7 @@ void Server::persistAndBroadcastChatMessage(
 		m_dbWrapper.setChatReadState(readState);
 
 		if (clientSupportsPersistentChat(uSource)) {
-			std::optional< ::msdb::DBChatReadState > persistedReadState =
+			std::optional<::msdb::DBChatReadState > persistedReadState =
 				m_dbWrapper.getChatReadState(iServerNum, thread.threadID, authorUserID.value());
 			if (persistedReadState) {
 				sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
@@ -1307,13 +1296,13 @@ void Server::applyChatEmbedFetchResult(unsigned int threadID, unsigned int messa
 									   const ::msdb::DBChatMessageEmbed &embed) {
 	QMutexLocker qml(&qmCache);
 
-	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, messageID);
+	std::optional<::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, messageID);
 	if (!message || message->deletedAt > std::chrono::system_clock::time_point()) {
 		return;
 	}
 
-	std::vector< ::msdb::DBChatMessageEmbed > embeds = m_dbWrapper.getChatMessageEmbeds(iServerNum, messageID);
-	bool replaced                                      = false;
+	std::vector<::msdb::DBChatMessageEmbed > embeds = m_dbWrapper.getChatMessageEmbeds(iServerNum, messageID);
+	bool replaced                                   = false;
 	for (auto &currentEmbed : embeds) {
 		if (currentEmbed.urlHash == embed.urlHash) {
 			currentEmbed = embed;
@@ -1386,7 +1375,8 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 		return m_dbWrapper.addChatAsset(asset).assetID;
 	};
 
-	const auto finish = [this, threadID, messageID, scope, scopeID, permissionChannelID](::msdb::DBChatMessageEmbed embed) {
+	const auto finish = [this, threadID, messageID, scope, scopeID,
+						 permissionChannelID](::msdb::DBChatMessageEmbed embed) {
 		embed.fetchedAt = std::chrono::system_clock::now();
 		QMetaObject::invokeMethod(
 			this,
@@ -1414,7 +1404,7 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 		}
 	};
 
-	auto embedState      = std::make_shared< ::msdb::DBChatMessageEmbed >(initialEmbed);
+	auto embedState      = std::make_shared<::msdb::DBChatMessageEmbed >(initialEmbed);
 	auto pageTitle       = std::make_shared< QString >();
 	auto pageDescription = std::make_shared< QString >();
 	auto pageSiteName    = std::make_shared< QString >();
@@ -1444,146 +1434,146 @@ void Server::scheduleChatEmbedFetch(unsigned int threadID, unsigned int messageI
 		request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
 		QNetworkReply *reply = qnamNetwork->get(request);
 		reply->setReadBufferSize(CHAT_PREVIEW_MAX_IMAGE_BYTES);
-		connect(reply, &QNetworkReply::finished, this,
-				[this, reply, hostKey, fetchImage, embedState, pageTitle, pageDescription, pageSiteName,
-				 persistPreviewImage, finish, updateHostCount, redirectCount]() mutable {
-					updateHostCount(hostKey, -1);
-					const QVariant redirectTarget = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
-					const QString contentType =
-						reply->header(QNetworkRequest::ContentTypeHeader).toString().section(';', 0, 0).trimmed().toLower();
-					const QByteArray bytes = reply->readAll();
-					const bool success     = reply->error() == QNetworkReply::NoError;
-					const QUrl sourceUrl   = reply->request().url();
-					reply->deleteLater();
+		connect(
+			reply, &QNetworkReply::finished, this,
+			[this, reply, hostKey, fetchImage, embedState, pageTitle, pageDescription, pageSiteName,
+			 persistPreviewImage, finish, updateHostCount, redirectCount]() mutable {
+				updateHostCount(hostKey, -1);
+				const QVariant redirectTarget = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
+				const QString contentType =
+					reply->header(QNetworkRequest::ContentTypeHeader).toString().section(';', 0, 0).trimmed().toLower();
+				const QByteArray bytes = reply->readAll();
+				const bool success     = reply->error() == QNetworkReply::NoError;
+				const QUrl sourceUrl   = reply->request().url();
+				reply->deleteLater();
 
-					if (redirectTarget.isValid()) {
-						(*fetchImage)(sourceUrl.resolved(redirectTarget.toUrl()), redirectCount + 1);
-						return;
-					}
+				if (redirectTarget.isValid()) {
+					(*fetchImage)(sourceUrl.resolved(redirectTarget.toUrl()), redirectCount + 1);
+					return;
+				}
 
-					embedState->title       = u8(*pageTitle);
-					embedState->description = u8(*pageDescription);
-					embedState->siteName    = u8(*pageSiteName);
+				embedState->title       = u8(*pageTitle);
+				embedState->description = u8(*pageDescription);
+				embedState->siteName    = u8(*pageSiteName);
 
-					if (!success || bytes.size() > CHAT_PREVIEW_MAX_IMAGE_BYTES
-						|| (!contentType.startsWith(QLatin1String("image/")) && !contentType.isEmpty())) {
-						embedState->status    = ::msdb::ChatEmbedStatus::Ready;
-						embedState->errorCode = success ? "" : "image_fetch_failed";
-						finish(*embedState);
-						return;
-					}
-
-					if (const auto thumbnail = sanitizeChatImageBytes(bytes, true); thumbnail) {
-						embedState->previewAssetID = persistPreviewImage(*thumbnail);
-					}
-
+				if (!success || bytes.size() > CHAT_PREVIEW_MAX_IMAGE_BYTES
+					|| (!contentType.startsWith(QLatin1String("image/")) && !contentType.isEmpty())) {
 					embedState->status    = ::msdb::ChatEmbedStatus::Ready;
-					embedState->errorCode = "";
+					embedState->errorCode = success ? "" : "image_fetch_failed";
 					finish(*embedState);
-				});
+					return;
+				}
+
+				if (const auto thumbnail = sanitizeChatImageBytes(bytes, true); thumbnail) {
+					embedState->previewAssetID = persistPreviewImage(*thumbnail);
+				}
+
+				embedState->status    = ::msdb::ChatEmbedStatus::Ready;
+				embedState->errorCode = "";
+				finish(*embedState);
+			});
 	};
 
 	auto fetchPage = std::make_shared< std::function< void(QUrl, unsigned int) > >();
-	*fetchPage = [this, fetchPage, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, finish,
-				  updateHostCount](QUrl pageUrl, unsigned int redirectCount) mutable {
-		if (redirectCount > CHAT_PREVIEW_MAX_REDIRECTS || !isSafePreviewUrl(pageUrl)) {
-			embedState->status    = ::msdb::ChatEmbedStatus::Blocked;
-			embedState->errorCode = "blocked_target";
-			finish(*embedState);
-			return;
-		}
+	*fetchPage     = [this, fetchPage, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, finish,
+                  updateHostCount](QUrl pageUrl, unsigned int redirectCount) mutable {
+        if (redirectCount > CHAT_PREVIEW_MAX_REDIRECTS || !isSafePreviewUrl(pageUrl)) {
+            embedState->status    = ::msdb::ChatEmbedStatus::Blocked;
+            embedState->errorCode = "blocked_target";
+            finish(*embedState);
+            return;
+        }
 
-		const QString hostKey = pageUrl.host().trimmed().toLower();
-		if (qhChatPreviewFetchesByHost.value(hostKey, 0) >= CHAT_PREVIEW_MAX_CONCURRENT_HOST) {
-			embedState->status    = ::msdb::ChatEmbedStatus::Failed;
-			embedState->errorCode = "host_busy";
-			finish(*embedState);
-			return;
-		}
+        const QString hostKey = pageUrl.host().trimmed().toLower();
+        if (qhChatPreviewFetchesByHost.value(hostKey, 0) >= CHAT_PREVIEW_MAX_CONCURRENT_HOST) {
+            embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+            embedState->errorCode = "host_busy";
+            finish(*embedState);
+            return;
+        }
 
-		updateHostCount(hostKey, +1);
-		QNetworkRequest request(pageUrl);
-		prepareChatPreviewRequest(request);
-		request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
-		request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
-		QNetworkReply *reply = qnamNetwork->get(request);
-		reply->setReadBufferSize(CHAT_PREVIEW_MAX_PAGE_BYTES);
-		connect(reply, &QNetworkReply::finished, this,
-				[this, reply, fetchPage, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, finish,
-				 updateHostCount, hostKey, redirectCount]() mutable {
-					updateHostCount(hostKey, -1);
-					const QVariant redirectTarget = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
-					const QString contentType =
-						reply->header(QNetworkRequest::ContentTypeHeader).toString().section(';', 0, 0).trimmed().toLower();
-					const QByteArray bytes = reply->readAll();
-					const bool success     = reply->error() == QNetworkReply::NoError;
-					const QUrl sourceUrl   = reply->request().url();
-					reply->deleteLater();
+        updateHostCount(hostKey, +1);
+        QNetworkRequest request(pageUrl);
+        prepareChatPreviewRequest(request);
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+        request.setTransferTimeout(CHAT_PREVIEW_TIMEOUT_MSEC);
+        QNetworkReply *reply = qnamNetwork->get(request);
+        reply->setReadBufferSize(CHAT_PREVIEW_MAX_PAGE_BYTES);
+        connect(
+            reply, &QNetworkReply::finished, this,
+            [this, reply, fetchPage, fetchImage, embedState, pageTitle, pageDescription, pageSiteName, finish,
+             updateHostCount, hostKey, redirectCount]() mutable {
+                updateHostCount(hostKey, -1);
+                const QVariant redirectTarget = reply->attribute(QNetworkRequest::RedirectionTargetAttribute);
+                const QString contentType =
+                    reply->header(QNetworkRequest::ContentTypeHeader).toString().section(';', 0, 0).trimmed().toLower();
+                const QByteArray bytes = reply->readAll();
+                const bool success     = reply->error() == QNetworkReply::NoError;
+                const QUrl sourceUrl   = reply->request().url();
+                reply->deleteLater();
 
-					if (redirectTarget.isValid()) {
-						(*fetchPage)(sourceUrl.resolved(redirectTarget.toUrl()), redirectCount + 1);
-						return;
-					}
+                if (redirectTarget.isValid()) {
+                    (*fetchPage)(sourceUrl.resolved(redirectTarget.toUrl()), redirectCount + 1);
+                    return;
+                }
 
-					if (!success || bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
-						if (!success) {
-							embedState->status    = ::msdb::ChatEmbedStatus::Failed;
-							embedState->errorCode = "fetch_failed";
-							finish(*embedState);
-							return;
-						}
-					}
+                if (!success || bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
+                    if (!success) {
+                        embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+                        embedState->errorCode = "fetch_failed";
+                        finish(*embedState);
+                        return;
+                    }
+                }
 
-					if (contentType.startsWith(QLatin1String("image/")) || isDirectImageUrl(sourceUrl)) {
-						if (bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
-							embedState->status    = ::msdb::ChatEmbedStatus::Failed;
-							embedState->errorCode = "fetch_failed";
-							finish(*embedState);
-							return;
-						}
-						*pageTitle       = QFileInfo(sourceUrl.path()).fileName();
-						*pageDescription = QObject::tr("Direct image preview");
-						*pageSiteName    = sourceUrl.host();
-						(*fetchImage)(sourceUrl, 0);
-						return;
-					}
+                if (contentType.startsWith(QLatin1String("image/")) || isDirectImageUrl(sourceUrl)) {
+                    if (bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES) {
+                        embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+                        embedState->errorCode = "fetch_failed";
+                        finish(*embedState);
+                        return;
+                    }
+                    *pageTitle       = QFileInfo(sourceUrl.path()).fileName();
+                    *pageDescription = QObject::tr("Direct image preview");
+                    *pageSiteName    = sourceUrl.host();
+                    (*fetchImage)(sourceUrl, 0);
+                    return;
+                }
 
-					if (!previewContentTypeLooksHtml(contentType)) {
-						embedState->status    = ::msdb::ChatEmbedStatus::Failed;
-						embedState->errorCode = "unsupported_content_type";
-						finish(*embedState);
-						return;
-					}
+                if (!previewContentTypeLooksHtml(contentType)) {
+                    embedState->status    = ::msdb::ChatEmbedStatus::Failed;
+                    embedState->errorCode = "unsupported_content_type";
+                    finish(*embedState);
+                    return;
+                }
 
-					// Large SPA responses often keep the useful preview tags near the start of <head>.
-					// Parse the prefix we have instead of discarding the preview solely due to size.
-					const QByteArray htmlBytes =
-						bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES ? bytes.left(CHAT_PREVIEW_MAX_PAGE_BYTES) : bytes;
-					const QString html                     = QString::fromUtf8(htmlBytes);
-					const QHash< QString, QString > metaTags = extractMetaTags(html);
-					*pageTitle =
-						metaTags.value(QLatin1String("og:title"),
-									   metaTags.value(QLatin1String("twitter:title"), extractHtmlTitle(html)));
-					*pageDescription =
-						metaTags.value(QLatin1String("og:description"),
-									   metaTags.value(QLatin1String("twitter:description"),
-													  metaTags.value(QLatin1String("description"))));
-					*pageSiteName = metaTags.value(QLatin1String("og:site_name"), sourceUrl.host());
+                // Large SPA responses often keep the useful preview tags near the start of <head>.
+                // Parse the prefix we have instead of discarding the preview solely due to size.
+                const QByteArray htmlBytes =
+                    bytes.size() > CHAT_PREVIEW_MAX_PAGE_BYTES ? bytes.left(CHAT_PREVIEW_MAX_PAGE_BYTES) : bytes;
+                const QString html                       = QString::fromUtf8(htmlBytes);
+                const QHash< QString, QString > metaTags = extractMetaTags(html);
+                *pageTitle                               = metaTags.value(QLatin1String("og:title"),
+                                            metaTags.value(QLatin1String("twitter:title"), extractHtmlTitle(html)));
+                *pageDescription                         = metaTags.value(
+                    QLatin1String("og:description"),
+                    metaTags.value(QLatin1String("twitter:description"), metaTags.value(QLatin1String("description"))));
+                *pageSiteName = metaTags.value(QLatin1String("og:site_name"), sourceUrl.host());
 
-					embedState->title       = u8(pageTitle->isEmpty() ? sourceUrl.host() : *pageTitle);
-					embedState->description = u8(*pageDescription);
-					embedState->siteName    = u8(pageSiteName->isEmpty() ? sourceUrl.host() : *pageSiteName);
+                embedState->title       = u8(pageTitle->isEmpty() ? sourceUrl.host() : *pageTitle);
+                embedState->description = u8(*pageDescription);
+                embedState->siteName    = u8(pageSiteName->isEmpty() ? sourceUrl.host() : *pageSiteName);
 
-					const QString imageUrlString = previewImageMetaTag(metaTags);
-					if (imageUrlString.isEmpty()) {
-						embedState->status    = ::msdb::ChatEmbedStatus::Ready;
-						embedState->errorCode = "";
-						finish(*embedState);
-						return;
-					}
+                const QString imageUrlString = previewImageMetaTag(metaTags);
+                if (imageUrlString.isEmpty()) {
+                    embedState->status    = ::msdb::ChatEmbedStatus::Ready;
+                    embedState->errorCode = "";
+                    finish(*embedState);
+                    return;
+                }
 
-					(*fetchImage)(sourceUrl.resolved(QUrl(imageUrlString)), 0);
-				});
+                (*fetchImage)(sourceUrl.resolved(QUrl(imageUrlString)), 0);
+            });
 	};
 
 	(*fetchPage)(QUrl(QString::fromStdString(initialEmbed.canonicalUrl)), 0);
@@ -3257,11 +3247,10 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 			? std::optional< unsigned int >(msg.reply_to_message_id())
 			: std::nullopt;
 
-	MumbleProto::ChatScope scope =
-		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	MumbleProto::ChatScope scope = msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
-	Channel *permissionChannel = nullptr;
+	Channel *permissionChannel      = nullptr;
 	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
@@ -3277,7 +3266,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		case MumbleProto::Aggregate:
 			return;
 		case MumbleProto::TextChannel: {
-			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			std::optional<::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
 			if (!textChannel) {
 				return;
 			}
@@ -3315,7 +3304,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		return;
 	}
 
-	const std::optional< ::msdb::DBChatThread > existingThread =
+	const std::optional<::msdb::DBChatThread > existingThread =
 		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
 	if (replyToMessageID) {
 		if (!existingThread) {
@@ -3323,7 +3312,7 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 			return;
 		}
 
-		const std::optional< ::msdb::DBChatMessage > replyTarget =
+		const std::optional<::msdb::DBChatMessage > replyTarget =
 			m_dbWrapper.getChatMessage(iServerNum, replyToMessageID.value());
 		if (!replyTarget) {
 			sendPersistentChatTextDenied(this, uSource, tr("The selected reply target no longer exists."));
@@ -3360,25 +3349,23 @@ void Server::msgChatSend(ServerUser *uSource, MumbleProto::ChatSend &msg) {
 		}
 
 		const msdb::DBChatAsset asset = m_dbWrapper.getChatAsset(iServerNum, assetID);
-		const bool ownedBySender =
-			(asset.ownerSession && asset.ownerSession.value() == uSource->uiSession)
-			|| (asset.ownerUserID && uSource->iId >= 0
-				&& asset.ownerUserID.value() == static_cast< unsigned int >(uSource->iId));
+		const bool ownedBySender      = (asset.ownerSession && asset.ownerSession.value() == uSource->uiSession)
+								   || (asset.ownerUserID && uSource->iId >= 0
+									   && asset.ownerUserID.value() == static_cast< unsigned int >(uSource->iId));
 		if (!ownedBySender && !canAccessChatAsset(uSource, assetID)) {
 			continue;
 		}
 
 		msdb::DBChatMessageAttachment attachment(iServerNum, 0, assetID);
-		attachment.displayOrder = static_cast< unsigned int >(attachments.size());
-		attachment.filename     = std::string();
-		attachment.mime         = asset.mime;
-		attachment.byteSize     = asset.byteSize;
-		attachment.kind         = asset.kind;
-		attachment.width        = asset.width;
-		attachment.height       = asset.height;
-		attachment.durationMs   = asset.durationMs;
-		attachment.inlineSafe   =
-			isInlineSafeAsset(asset.kind, QString::fromStdString(asset.mime), true);
+		attachment.displayOrder   = static_cast< unsigned int >(attachments.size());
+		attachment.filename       = std::string();
+		attachment.mime           = asset.mime;
+		attachment.byteSize       = asset.byteSize;
+		attachment.kind           = asset.kind;
+		attachment.width          = asset.width;
+		attachment.height         = asset.height;
+		attachment.durationMs     = asset.durationMs;
+		attachment.inlineSafe     = isInlineSafeAsset(asset.kind, QString::fromStdString(asset.mime), true);
 		attachment.previewAssetID = asset.previewAssetID;
 		attachments.push_back(std::move(attachment));
 	}
@@ -3406,7 +3393,7 @@ void Server::msgChatMessageDelete(ServerUser *uSource, MumbleProto::ChatMessageD
 		return;
 	}
 
-	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
+	std::optional<::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
 	if (!message) {
 		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
 		return;
@@ -3451,7 +3438,7 @@ void Server::msgChatMessageDelete(ServerUser *uSource, MumbleProto::ChatMessageD
 		return;
 	}
 
-	std::optional< ::msdb::DBChatMessage > deletedMessage =
+	std::optional<::msdb::DBChatMessage > deletedMessage =
 		m_dbWrapper.deleteChatMessage(iServerNum, message->messageID);
 	if (!deletedMessage) {
 		return;
@@ -3507,11 +3494,10 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 		inferPersistentChatSupport(uSource);
 	}
 
-	MumbleProto::ChatScope scope =
-		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	MumbleProto::ChatScope scope = msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
-	Channel *permissionChannel = nullptr;
+	Channel *permissionChannel      = nullptr;
 	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
@@ -3527,7 +3513,7 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 		case MumbleProto::Aggregate:
 			break;
 		case MumbleProto::TextChannel: {
-			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			std::optional<::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
 			if (!textChannel) {
 				return;
 			}
@@ -3540,12 +3526,11 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 			return;
 	}
 
-	const unsigned int limit       = msg.has_limit() ? std::clamp(msg.limit(), 1U, 100U) : 50U;
-	const unsigned int startOffset = msg.has_start_offset() ? msg.start_offset() : 0;
-	const std::optional< unsigned int > beforeMessageID =
-		msg.has_before_message_id() && msg.before_message_id() > 0
-			? std::optional< unsigned int >(msg.before_message_id())
-			: std::nullopt;
+	const unsigned int limit                            = msg.has_limit() ? std::clamp(msg.limit(), 1U, 100U) : 50U;
+	const unsigned int startOffset                      = msg.has_start_offset() ? msg.start_offset() : 0;
+	const std::optional< unsigned int > beforeMessageID = msg.has_before_message_id() && msg.before_message_id() > 0
+															  ? std::optional< unsigned int >(msg.before_message_id())
+															  : std::nullopt;
 
 	MumbleProto::ChatHistoryResponse response;
 	response.set_scope(scope);
@@ -3636,7 +3621,7 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 					resolveReplyPreview(m_dbWrapper, iServerNum, entry.message, resolvedAuthorName);
 				*response.add_messages() =
 					protoChatMessageFromDB(entry.message, entry.scope, entry.scopeID, resolvedAuthorName(entry.message),
-										  persistedUserID(uSource), replyPreview);
+										   persistedUserID(uSource), replyPreview);
 			}
 		}
 
@@ -3653,9 +3638,8 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 		return;
 	}
 
-	const std::string scopeKey = chatScopeKey(scope, scopeID);
-	std::optional< ::msdb::DBChatThread > thread =
-		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	const std::string scopeKey                  = chatScopeKey(scope, scopeID);
+	std::optional<::msdb::DBChatThread > thread = m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
 	if (!thread) {
 		sendMessage(uSource, response);
 		return;
@@ -3663,11 +3647,10 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 
 	response.set_thread_id(thread->threadID);
 
-	std::vector< ::msdb::DBChatMessage > messages =
-		beforeMessageID ? m_dbWrapper.getChatMessagesBefore(iServerNum, thread->threadID, beforeMessageID.value(),
-															limit + 1)
-						: m_dbWrapper.getChatMessages(iServerNum, thread->threadID, startOffset,
-													 static_cast< int >(limit + 1));
+	std::vector<::msdb::DBChatMessage > messages =
+		beforeMessageID
+			? m_dbWrapper.getChatMessagesBefore(iServerNum, thread->threadID, beforeMessageID.value(), limit + 1)
+			: m_dbWrapper.getChatMessages(iServerNum, thread->threadID, startOffset, static_cast< int >(limit + 1));
 	if (messages.size() > limit) {
 		messages.erase(messages.begin());
 		response.set_has_more(true);
@@ -3681,14 +3664,13 @@ void Server::msgChatHistoryRequest(ServerUser *uSource, MumbleProto::ChatHistory
 	for (const ::msdb::DBChatMessage &currentMessage : messages) {
 		const std::optional< ChatReplyPreview > replyPreview =
 			resolveReplyPreview(m_dbWrapper, iServerNum, currentMessage, resolvedAuthorName);
-		*response.add_messages() =
-			protoChatMessageFromDB(currentMessage, scope, scopeID, resolvedAuthorName(currentMessage),
-								  persistedUserID(uSource), replyPreview);
+		*response.add_messages() = protoChatMessageFromDB(
+			currentMessage, scope, scopeID, resolvedAuthorName(currentMessage), persistedUserID(uSource), replyPreview);
 	}
 
 	const std::optional< unsigned int > userID = persistedUserID(uSource);
 	if (userID) {
-		std::optional< ::msdb::DBChatReadState > readState =
+		std::optional<::msdb::DBChatReadState > readState =
 			m_dbWrapper.getChatReadState(iServerNum, thread->threadID, userID.value());
 		if (readState) {
 			response.set_last_read_message_id(readState->lastReadMessageID);
@@ -3718,11 +3700,10 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 		return;
 	}
 
-	MumbleProto::ChatScope scope =
-		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	MumbleProto::ChatScope scope = msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
-	Channel *permissionChannel = nullptr;
+	Channel *permissionChannel      = nullptr;
 	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
@@ -3738,7 +3719,7 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 		case MumbleProto::Aggregate:
 			return;
 		case MumbleProto::TextChannel: {
-			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			std::optional<::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
 			if (!textChannel) {
 				return;
 			}
@@ -3771,9 +3752,8 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 		return;
 	}
 
-	const std::string scopeKey = chatScopeKey(scope, scopeID);
-	std::optional< ::msdb::DBChatThread > thread =
-		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	const std::string scopeKey                  = chatScopeKey(scope, scopeID);
+	std::optional<::msdb::DBChatThread > thread = m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
 	if (!thread) {
 		return;
 	}
@@ -3784,7 +3764,7 @@ void Server::msgChatReadStateUpdate(ServerUser *uSource, MumbleProto::ChatReadSt
 
 	m_dbWrapper.setChatReadState(readState);
 
-	std::optional< ::msdb::DBChatReadState > persistedReadState =
+	std::optional<::msdb::DBChatReadState > persistedReadState =
 		m_dbWrapper.getChatReadState(iServerNum, thread->threadID, userID.value());
 	if (persistedReadState) {
 		sendMessage(uSource, protoReadStateFromDB(*persistedReadState, scope, scopeID));
@@ -3815,8 +3795,7 @@ void Server::msgChatAssetUploadInit(ServerUser *uSource, MumbleProto::ChatAssetU
 		return;
 	}
 
-	msdb::ChatAssetKind kind =
-		dbAssetKindFromProto(msg.has_kind() ? msg.kind() : MumbleProto::ChatAssetKindUnknown);
+	msdb::ChatAssetKind kind = dbAssetKindFromProto(msg.has_kind() ? msg.kind() : MumbleProto::ChatAssetKindUnknown);
 	if (kind == msdb::ChatAssetKind::Unknown) {
 		kind = inferredAssetKind(mime);
 	}
@@ -3850,9 +3829,8 @@ void Server::msgChatAssetUploadInit(ServerUser *uSource, MumbleProto::ChatAssetU
 	upload.requestInline    = msg.has_request_inline() && msg.request_inline();
 	upload.expectedByteSize = msg.byte_size();
 	upload.tempFilePath =
-		QDir(chatAssetIncomingRootPath()).absoluteFilePath(QStringLiteral("%1-%2.part")
-															   .arg(upload.ownerSession)
-															   .arg(upload.uploadID));
+		QDir(chatAssetIncomingRootPath())
+			.absoluteFilePath(QStringLiteral("%1-%2.part").arg(upload.ownerSession).arg(upload.uploadID));
 
 	QFile tempFile(upload.tempFilePath);
 	if (tempFile.exists() && !tempFile.remove()) {
@@ -4007,9 +3985,9 @@ void Server::msgChatAssetUploadCommit(ServerUser *uSource, MumbleProto::ChatAsse
 	}
 	upload.sha256 = computedHash;
 
-	QByteArray storedBytes = fileBytes;
-	QString storedMime     = upload.mime;
-	unsigned int storedWidth = 0;
+	QByteArray storedBytes    = fileBytes;
+	QString storedMime        = upload.mime;
+	unsigned int storedWidth  = 0;
 	unsigned int storedHeight = 0;
 	std::optional< SanitizedChatImage > previewThumbnail;
 	if (upload.kind == msdb::ChatAssetKind::Image && isSanitizableImageMime(upload.mime)) {
@@ -4019,18 +3997,18 @@ void Server::msgChatAssetUploadCommit(ServerUser *uSource, MumbleProto::ChatAsse
 			return;
 		}
 
-		storedBytes   = sanitizedImage->bytes;
-		storedMime    = sanitizedImage->mime;
-		storedWidth   = sanitizedImage->width;
-		storedHeight  = sanitizedImage->height;
+		storedBytes      = sanitizedImage->bytes;
+		storedMime       = sanitizedImage->mime;
+		storedWidth      = sanitizedImage->width;
+		storedHeight     = sanitizedImage->height;
 		previewThumbnail = sanitizeChatImageBytes(storedBytes, true);
 	}
 
 	const QString storedHash =
 		QString::fromLatin1(QCryptographicHash::hash(storedBytes, QCryptographicHash::Sha256).toHex());
-	const QString storageKey  = chatAssetStorageKey(0, storedHash);
-	const QString objectPath  = chatAssetAbsolutePath(storageKey);
-	const QString objectDir   = QFileInfo(objectPath).absolutePath();
+	const QString storageKey = chatAssetStorageKey(0, storedHash);
+	const QString objectPath = chatAssetAbsolutePath(storageKey);
+	const QString objectDir  = QFileInfo(objectPath).absolutePath();
 	QDir rootDir;
 	if (!rootDir.mkpath(objectDir)) {
 		reject(QStringLiteral("Failed to create final asset storage directory."));
@@ -4136,7 +4114,7 @@ void Server::msgChatAssetRequest(ServerUser *uSource, MumbleProto::ChatAssetRequ
 		return;
 	}
 
-	const quint64 offset = msg.has_offset() ? msg.offset() : 0;
+	const quint64 offset         = msg.has_offset() ? msg.offset() : 0;
 	const quint32 requestedBytes = msg.has_max_bytes() ? msg.max_bytes() : 65536U;
 	const quint32 maxBytes       = std::clamp(requestedBytes, 1024U, 262144U);
 	if (offset > static_cast< quint64 >(assetFile.size())) {
@@ -4186,8 +4164,7 @@ void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactio
 	const std::optional< unsigned int > actorUserID = persistedUserID(uSource);
 	if (!actorUserID) {
 		sendPersistentChatTextDenied(
-			this, uSource,
-			tr("Persisted reactions currently require a registered user identity on this server."));
+			this, uSource, tr("Persisted reactions currently require a registered user identity on this server."));
 		return;
 	}
 
@@ -4200,11 +4177,10 @@ void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactio
 		return;
 	}
 
-	MumbleProto::ChatScope scope =
-		msg.has_scope() ? msg.scope() : MumbleProto::Channel;
+	MumbleProto::ChatScope scope = msg.has_scope() ? msg.scope() : MumbleProto::Channel;
 	unsigned int scopeID =
 		msg.has_scope_id() ? msg.scope_id() : (uSource->cChannel ? uSource->cChannel->iId : Mumble::ROOT_CHANNEL_ID);
-	Channel *permissionChannel = nullptr;
+	Channel *permissionChannel      = nullptr;
 	::msdb::ChatThreadScope dbScope = ::msdb::ChatThreadScope::Channel;
 
 	switch (scope) {
@@ -4220,7 +4196,7 @@ void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactio
 		case MumbleProto::Aggregate:
 			return;
 		case MumbleProto::TextChannel: {
-			std::optional< ::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
+			std::optional<::msdb::DBTextChannel > textChannel = m_dbWrapper.getTextChannel(iServerNum, scopeID);
 			if (!textChannel) {
 				return;
 			}
@@ -4252,8 +4228,7 @@ void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactio
 		return;
 	}
 
-	const std::optional< ::msdb::DBChatThread > thread =
-		m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
+	const std::optional<::msdb::DBChatThread > thread = m_dbWrapper.getChatThreadByScope(iServerNum, dbScope, scopeKey);
 	if (!thread) {
 		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
 		return;
@@ -4263,7 +4238,7 @@ void Server::msgChatReactionToggle(ServerUser *uSource, MumbleProto::ChatReactio
 		return;
 	}
 
-	std::optional< ::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
+	std::optional<::msdb::DBChatMessage > message = m_dbWrapper.getChatMessage(iServerNum, msg.message_id());
 	if (!message || message->threadID != thread->threadID) {
 		sendPersistentChatTextDenied(this, uSource, tr("That message is no longer available."));
 		return;
@@ -4329,7 +4304,7 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 		}
 	};
 	auto refreshStoredDefaultTextChannel = [this]() {
-		std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+		std::vector<::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
 		std::sort(textChannels.begin(), textChannels.end(), sortTextChannelsForPresentation);
 		const std::optional< unsigned int > configuredDefaultTextChannel =
 			configuredDefaultTextChannelID(m_dbWrapper, iServerNum);
@@ -4392,7 +4367,7 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 		return;
 	}
 
-	const QString description = channelInfo.has_description() ? u8(channelInfo.description()) : QString();
+	const QString description   = channelInfo.has_description() ? u8(channelInfo.description()) : QString();
 	const unsigned int position = channelInfo.has_position() ? channelInfo.position() : 0;
 
 	if (action == MumbleProto::TextChannelSync_Action_Create) {
@@ -4400,9 +4375,8 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 			m_dbWrapper.addTextChannel(iServerNum, u8(name), u8(description), aclChannelID, position);
 		const std::optional< unsigned int > configuredDefaultTextChannel =
 			configuredDefaultTextChannelID(m_dbWrapper, iServerNum);
-		const std::vector< ::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
-		if (!configuredDefaultTextChannel
-			|| !containsTextChannelID(textChannels, *configuredDefaultTextChannel)) {
+		const std::vector<::msdb::DBTextChannel > textChannels = m_dbWrapper.getTextChannels(iServerNum);
+		if (!configuredDefaultTextChannel || !containsTextChannelID(textChannels, *configuredDefaultTextChannel)) {
 			storeDefaultTextChannelID(m_dbWrapper, iServerNum, createdTextChannel.textChannelID);
 		}
 		broadcastTextChannelSync();
@@ -4413,7 +4387,8 @@ void Server::msgTextChannelSync(ServerUser *uSource, MumbleProto::TextChannelSyn
 		return;
 	}
 
-	std::optional< ::msdb::DBTextChannel > existing = m_dbWrapper.getTextChannel(iServerNum, msg.target_text_channel_id());
+	std::optional<::msdb::DBTextChannel > existing =
+		m_dbWrapper.getTextChannel(iServerNum, msg.target_text_channel_id());
 	if (!existing) {
 		return;
 	}
@@ -4834,21 +4809,18 @@ void Server::msgVersion(ServerUser *uSource, MumbleProto::Version &msg) {
 
 	RATELIMIT(uSource);
 
-	uSource->m_version = MumbleProto::getVersion(msg);
+	uSource->m_version               = MumbleProto::getVersion(msg);
 	uSource->bSupportsPersistentChat = msg.has_supports_persistent_chat() && msg.supports_persistent_chat();
 	uSource->bSupportsScreenShareSignaling =
 		msg.has_supports_screen_share_signaling() && msg.supports_screen_share_signaling();
 	uSource->bSupportsScreenShareCapture =
 		msg.has_supports_screen_share_capture() && msg.supports_screen_share_capture();
-	uSource->bSupportsScreenShareView =
-		msg.has_supports_screen_share_view() && msg.supports_screen_share_view();
+	uSource->bSupportsScreenShareView     = msg.has_supports_screen_share_view() && msg.supports_screen_share_view();
 	uSource->qlSupportedScreenShareCodecs = screenShareCodecListFromVersion(msg);
-	uSource->uiMaxScreenShareWidth = Mumble::ScreenShare::sanitizeLimit(
-		msg.has_max_screen_share_width() ? msg.max_screen_share_width() : 0, 0,
-		Mumble::ScreenShare::HARD_MAX_WIDTH);
+	uSource->uiMaxScreenShareWidth        = Mumble::ScreenShare::sanitizeLimit(
+        msg.has_max_screen_share_width() ? msg.max_screen_share_width() : 0, 0, Mumble::ScreenShare::HARD_MAX_WIDTH);
 	uSource->uiMaxScreenShareHeight = Mumble::ScreenShare::sanitizeLimit(
-		msg.has_max_screen_share_height() ? msg.max_screen_share_height() : 0, 0,
-		Mumble::ScreenShare::HARD_MAX_HEIGHT);
+		msg.has_max_screen_share_height() ? msg.max_screen_share_height() : 0, 0, Mumble::ScreenShare::HARD_MAX_HEIGHT);
 	uSource->uiMaxScreenShareFps = Mumble::ScreenShare::sanitizeLimit(
 		msg.has_max_screen_share_fps() ? msg.max_screen_share_fps() : 0, 0, Mumble::ScreenShare::HARD_MAX_FPS);
 	if (msg.has_release()) {
@@ -4868,14 +4840,15 @@ void Server::msgVersion(ServerUser *uSource, MumbleProto::Version &msg) {
 					 .arg(uSource->qsOSVersion)
 					 .arg(uSource->qsRelease));
 	if (uSource->bSupportsScreenShareSignaling) {
-		screenShareDiagnosticLog(QStringLiteral("Client %1 advertised screen-share support capture=%2 view=%3 codecs=%4 max=%5x%6@%7")
-									 .arg(uSource->uiSession)
-									 .arg(uSource->bSupportsScreenShareCapture)
-									 .arg(uSource->bSupportsScreenShareView)
-									 .arg(Mumble::ScreenShare::codecPreferenceString(uSource->qlSupportedScreenShareCodecs))
-									 .arg(uSource->uiMaxScreenShareWidth)
-									 .arg(uSource->uiMaxScreenShareHeight)
-									 .arg(uSource->uiMaxScreenShareFps));
+		screenShareDiagnosticLog(
+			QStringLiteral("Client %1 advertised screen-share support capture=%2 view=%3 codecs=%4 max=%5x%6@%7")
+				.arg(uSource->uiSession)
+				.arg(uSource->bSupportsScreenShareCapture)
+				.arg(uSource->bSupportsScreenShareView)
+				.arg(Mumble::ScreenShare::codecPreferenceString(uSource->qlSupportedScreenShareCodecs))
+				.arg(uSource->uiMaxScreenShareWidth)
+				.arg(uSource->uiMaxScreenShareHeight)
+				.arg(uSource->uiMaxScreenShareFps));
 	}
 }
 
@@ -5207,7 +5180,8 @@ void Server::msgServerConfig(ServerUser *uSource, MumbleProto::ServerConfig &msg
 		applyConfig(key, value ? QLatin1String("true") : QLatin1String("false"));
 	};
 	auto applyPositiveIntConfig = [&applyConfig](const char *key, unsigned int value) {
-		const unsigned int cappedValue = std::min(value, static_cast< unsigned int >(std::numeric_limits< int >::max()));
+		const unsigned int cappedValue =
+			std::min(value, static_cast< unsigned int >(std::numeric_limits< int >::max()));
 		applyConfig(key, cappedValue > 0 ? QString::number(cappedValue) : QString());
 	};
 
@@ -5359,15 +5333,13 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 		return;
 	}
 
-	const MumbleProto::ScreenShareScope scope =
-		msg.has_scope() ? msg.scope() : MumbleProto::ScreenShareScopeChannel;
+	const MumbleProto::ScreenShareScope scope = msg.has_scope() ? msg.scope() : MumbleProto::ScreenShareScopeChannel;
 	if (scope != MumbleProto::ScreenShareScopeChannel) {
 		deny(QStringLiteral("Only channel-scoped screen sharing is supported in this build."));
 		return;
 	}
 
-	Channel *scopeChannel =
-		msg.has_scope_id() ? screenShareScopeChannel(scope, msg.scope_id()) : uSource->cChannel;
+	Channel *scopeChannel = msg.has_scope_id() ? screenShareScopeChannel(scope, msg.scope_id()) : uSource->cChannel;
 	if (!scopeChannel || scopeChannel != uSource->cChannel) {
 		deny(QStringLiteral("Screen shares can only be published in the publisher's current channel."));
 		return;
@@ -5394,15 +5366,20 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 		requestedCodecs = uSource->qlSupportedScreenShareCodecs;
 	}
 	requestedCodecs = Mumble::ScreenShare::sanitizeCodecList(requestedCodecs);
+	const MumbleProto::ScreenShareRelayTransport relayTransport =
+		Mumble::ScreenShare::relayTransportFromUrl(qsScreenShareRelayUrl);
+	const QList< int > preferredCodecs = Mumble::ScreenShare::isWebRtcRelayTransport(relayTransport)
+											 ? Mumble::ScreenShare::webRtcRelayCodecPreferenceList()
+											 : qlPreferredScreenShareCodecs;
 	const MumbleProto::ScreenShareCodec codec =
-		Mumble::ScreenShare::selectPreferredCodec(qlPreferredScreenShareCodecs, requestedCodecs);
+		Mumble::ScreenShare::selectPreferredCodec(preferredCodecs, requestedCodecs);
 	if (codec == MumbleProto::ScreenShareCodecUnknown) {
 		deny(QStringLiteral("No compatible screen-share codec could be negotiated."));
 		return;
 	}
 
 	QList< int > codecFallbackOrder;
-	for (const int preferredCodec : qlPreferredScreenShareCodecs) {
+	for (const int preferredCodec : preferredCodecs) {
 		if (requestedCodecs.contains(preferredCodec)) {
 			codecFallbackOrder.append(preferredCodec);
 		}
@@ -5414,35 +5391,34 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 	}
 
 	ScreenShareStream stream;
-	stream.qsStreamID    = QUuid::createUuid().toString(QUuid::WithoutBraces);
-	stream.uiOwnerSession = uSource->uiSession;
-	stream.scope          = scope;
-	stream.uiScopeID      = scopeChannel->iId;
-	stream.qsRelayRoomID  =
-		QStringLiteral("screen-share-%1-%2").arg(iServerNum).arg(stream.qsStreamID);
-	stream.qsRelayUrl       = qsScreenShareRelayUrl;
-	stream.qsRelaySessionID = QUuid::createUuid().toString(QUuid::WithoutBraces);
+	stream.qsStreamID          = QUuid::createUuid().toString(QUuid::WithoutBraces);
+	stream.uiOwnerSession      = uSource->uiSession;
+	stream.scope               = scope;
+	stream.uiScopeID           = scopeChannel->iId;
+	stream.qsRelayRoomID       = QStringLiteral("screen-share-%1-%2").arg(iServerNum).arg(stream.qsStreamID);
+	stream.qsRelayUrl          = qsScreenShareRelayUrl;
+	stream.qsRelaySessionID    = QUuid::createUuid().toString(QUuid::WithoutBraces);
 	stream.qsRelayPublishToken = randomMessageRelayCredential();
 	stream.qsRelayViewToken    = randomMessageRelayCredential();
 	stream.uiRelayTokenExpiresAt =
 		static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch()) + MESSAGE_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
-	stream.relayTransport = Mumble::ScreenShare::relayTransportFromUrl(stream.qsRelayUrl);
-	stream.uiCreatedAt = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
-	stream.state       = MumbleProto::ScreenShareLifecycleStateActive;
-	stream.codec       = codec;
+	stream.relayTransport       = relayTransport;
+	stream.uiCreatedAt          = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
+	stream.state                = MumbleProto::ScreenShareLifecycleStateActive;
+	stream.codec                = codec;
 	stream.qlCodecFallbackOrder = codecFallbackOrder;
-	stream.uiWidth = Mumble::ScreenShare::negotiateLimit(
-		msg.has_requested_width() ? msg.requested_width() : 0, uSource->uiMaxScreenShareWidth, uiScreenShareMaxWidth,
-		Mumble::ScreenShare::DEFAULT_MAX_WIDTH, Mumble::ScreenShare::HARD_MAX_WIDTH);
+	stream.uiWidth              = Mumble::ScreenShare::negotiateLimit(
+        msg.has_requested_width() ? msg.requested_width() : 0, uSource->uiMaxScreenShareWidth, uiScreenShareMaxWidth,
+        Mumble::ScreenShare::DEFAULT_MAX_WIDTH, Mumble::ScreenShare::HARD_MAX_WIDTH);
 	stream.uiHeight = Mumble::ScreenShare::negotiateLimit(
 		msg.has_requested_height() ? msg.requested_height() : 0, uSource->uiMaxScreenShareHeight,
 		uiScreenShareMaxHeight, Mumble::ScreenShare::DEFAULT_MAX_HEIGHT, Mumble::ScreenShare::HARD_MAX_HEIGHT);
 	stream.uiFps = Mumble::ScreenShare::negotiateLimit(
 		msg.has_requested_fps() ? msg.requested_fps() : 0, uSource->uiMaxScreenShareFps, uiScreenShareMaxFps,
 		Mumble::ScreenShare::DEFAULT_MAX_FPS, Mumble::ScreenShare::HARD_MAX_FPS);
-	stream.uiBitrateKbps = Mumble::ScreenShare::sanitizeBitrateKbps(
-		msg.has_requested_bitrate_kbps() ? msg.requested_bitrate_kbps() : 0, stream.codec, stream.uiWidth,
-		stream.uiHeight, stream.uiFps);
+	stream.uiBitrateKbps =
+		Mumble::ScreenShare::sanitizeBitrateKbps(msg.has_requested_bitrate_kbps() ? msg.requested_bitrate_kbps() : 0,
+												 stream.codec, stream.uiWidth, stream.uiHeight, stream.uiFps);
 
 	qhScreenShareStreams.insert(stream.qsStreamID, stream);
 	qhScreenShareStreamByOwnerSession.insert(stream.uiOwnerSession, stream.qsStreamID);
@@ -5450,23 +5426,26 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 
 	ScreenShareStream &storedStream = qhScreenShareStreams[stream.qsStreamID];
 	sendScreenShareStateToAudience(storedStream);
-	screenShareDiagnosticLog(QStringLiteral("Created stream %1 owner=%2 channel=%3 codec=%4 size=%5x%6@%7 bitrate=%8 relay=%9")
+	screenShareDiagnosticLog(QStringLiteral("Created stream %1 owner=%2 channel=%3 codec=%4 requested_codecs=%5 "
+											"preferred_codecs=%6 size=%7x%8@%9 bitrate=%10 relay=%11")
 								 .arg(storedStream.qsStreamID)
 								 .arg(storedStream.uiOwnerSession)
 								 .arg(storedStream.uiScopeID)
 								 .arg(Mumble::ScreenShare::codecToConfigToken(storedStream.codec))
+								 .arg(Mumble::ScreenShare::codecPreferenceString(requestedCodecs))
+								 .arg(Mumble::ScreenShare::codecPreferenceString(preferredCodecs))
 								 .arg(storedStream.uiWidth)
 								 .arg(storedStream.uiHeight)
 								 .arg(storedStream.uiFps)
 								 .arg(storedStream.uiBitrateKbps)
 								 .arg(Mumble::ScreenShare::relayTransportToConfigToken(storedStream.relayTransport)));
 	log(uSource, QString::fromLatin1("Started screen share %1 (%2 %3x%4@%5 %6 kbps)")
-					   .arg(storedStream.qsStreamID)
-					   .arg(Mumble::ScreenShare::codecToConfigToken(storedStream.codec))
-					   .arg(storedStream.uiWidth)
-					   .arg(storedStream.uiHeight)
-					   .arg(storedStream.uiFps)
-					   .arg(storedStream.uiBitrateKbps));
+					 .arg(storedStream.qsStreamID)
+					 .arg(Mumble::ScreenShare::codecToConfigToken(storedStream.codec))
+					 .arg(storedStream.uiWidth)
+					 .arg(storedStream.uiHeight)
+					 .arg(storedStream.uiFps)
+					 .arg(storedStream.uiBitrateKbps));
 }
 
 void Server::msgScreenShareState(ServerUser *, MumbleProto::ScreenShareState &) {
@@ -5664,10 +5643,11 @@ void Server::msgScreenShareStop(ServerUser *uSource, MumbleProto::ScreenShareSto
 		return;
 	}
 
-	screenShareDiagnosticLog(QStringLiteral("Stopping stream %1 by owner %2 reason=%3")
-								 .arg(streamID)
-								 .arg(uSource->uiSession)
-								 .arg(msg.has_reason() ? u8(msg.reason()) : QStringLiteral("Screen share stopped by publisher")));
+	screenShareDiagnosticLog(
+		QStringLiteral("Stopping stream %1 by owner %2 reason=%3")
+			.arg(streamID)
+			.arg(uSource->uiSession)
+			.arg(msg.has_reason() ? u8(msg.reason()) : QStringLiteral("Screen share stopped by publisher")));
 	stopScreenShare(streamID, uSource->uiSession, MumbleProto::ScreenShareLifecycleStateStopped,
 					msg.has_reason() ? u8(msg.reason()) : QStringLiteral("Screen share stopped by publisher"));
 }

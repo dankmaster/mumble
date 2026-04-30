@@ -18,6 +18,7 @@ namespace ScreenShare {
 	bool isValidCodec(const MumbleProto::ScreenShareCodec codec) {
 		switch (codec) {
 			case MumbleProto::ScreenShareCodecH264:
+			case MumbleProto::ScreenShareCodecVP8:
 			case MumbleProto::ScreenShareCodecVP9:
 			case MumbleProto::ScreenShareCodecAV1:
 				return true;
@@ -31,6 +32,8 @@ namespace ScreenShare {
 		switch (codec) {
 			case MumbleProto::ScreenShareCodecH264:
 				return QStringLiteral("h264");
+			case MumbleProto::ScreenShareCodecVP8:
+				return QStringLiteral("vp8");
 			case MumbleProto::ScreenShareCodecVP9:
 				return QStringLiteral("vp9");
 			case MumbleProto::ScreenShareCodecAV1:
@@ -44,8 +47,18 @@ namespace ScreenShare {
 	QList< int > defaultCodecPreferenceList() {
 		return { static_cast< int >(MumbleProto::ScreenShareCodecH264),
 				 static_cast< int >(MumbleProto::ScreenShareCodecAV1),
+				 static_cast< int >(MumbleProto::ScreenShareCodecVP9),
+				 static_cast< int >(MumbleProto::ScreenShareCodecVP8) };
+	}
+
+	QList< int > webRtcRelayCodecPreferenceList() {
+		return { static_cast< int >(MumbleProto::ScreenShareCodecVP8),
+				 static_cast< int >(MumbleProto::ScreenShareCodecH264),
+				 static_cast< int >(MumbleProto::ScreenShareCodecAV1),
 				 static_cast< int >(MumbleProto::ScreenShareCodecVP9) };
 	}
+
+	QList< int > browserWebRtcCodecPreferenceList() { return { static_cast< int >(MumbleProto::ScreenShareCodecVP8) }; }
 
 	QList< int > sanitizeCodecList(const QList< int > &codecs) {
 		QList< int > sanitized;
@@ -69,6 +82,8 @@ namespace ScreenShare {
 			const QString token = rawToken.trimmed().toLower();
 			if (token == QLatin1String("h264")) {
 				parsedCodecs.append(static_cast< int >(MumbleProto::ScreenShareCodecH264));
+			} else if (token == QLatin1String("vp8")) {
+				parsedCodecs.append(static_cast< int >(MumbleProto::ScreenShareCodecVP8));
 			} else if (token == QLatin1String("vp9")) {
 				parsedCodecs.append(static_cast< int >(MumbleProto::ScreenShareCodecVP9));
 			} else if (token == QLatin1String("av1")) {
@@ -144,6 +159,9 @@ namespace ScreenShare {
 			case MumbleProto::ScreenShareCodecAV1:
 				bitrateFactor *= 0.7;
 				break;
+			case MumbleProto::ScreenShareCodecVP8:
+				bitrateFactor *= 1.05;
+				break;
 			case MumbleProto::ScreenShareCodecVP9:
 				bitrateFactor *= 0.8;
 				break;
@@ -212,6 +230,10 @@ namespace ScreenShare {
 
 	bool isDirectRelayTransport(const MumbleProto::ScreenShareRelayTransport relayTransport) {
 		return relayTransport == MumbleProto::ScreenShareRelayTransportDirect;
+	}
+
+	bool isWebRtcRelayTransport(const MumbleProto::ScreenShareRelayTransport relayTransport) {
+		return relayTransport == MumbleProto::ScreenShareRelayTransportWebRTC;
 	}
 
 	QString normalizeRelayUrl(const QString &relayUrl) {
