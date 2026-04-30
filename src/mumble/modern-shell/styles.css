@@ -1489,6 +1489,11 @@ textarea:focus-visible {
 	height: 22px;
 }
 
+.reaction-picker-toggle svg {
+	width: 14px;
+	height: 14px;
+}
+
 .bubble-toolbar-button:hover,
 .bubble-toolbar-button:focus-visible,
 .bubble-toolbar-button.is-active {

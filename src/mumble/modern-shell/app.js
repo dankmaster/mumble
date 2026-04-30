@@ -14,6 +14,7 @@
 	let unreadDetachedMessages = 0;
 	let selfMenuOpen = false;
 	let openReactionPickerMessageId = null;
+	let reactionPickerScrollClosePausedUntil = 0;
 	let keepMessageListPinnedToBottom = true;
 	let pendingBottomPinFrames = 0;
 	let pendingBottomPinHandle = 0;
@@ -41,6 +42,7 @@
 	const imageViewerMinHeight = 220;
 	const imageViewerViewportMargin = 12;
 	const compactRailBreakpointPx = 940;
+	const reactionPickerScrollCloseGraceMs = 220;
 
 	const refs = {
 		appShell: document.querySelector(".app-shell"),
@@ -2442,14 +2444,19 @@
 				reactionButton.className = "icon-button bubble-toolbar-button bubble-toolbar-icon reaction-picker-toggle"
 					+ (openReactionPickerMessageId === message.messageId ? " is-active" : "");
 				reactionButton.innerHTML =
-					"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"5\"></circle><path d=\"M12 4v3\"></path><path d=\"M12 17v3\"></path><path d=\"M4 12h3\"></path><path d=\"M17 12h3\"></path></svg>";
+					"<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M22 11v1a10 10 0 1 1-9-10\"></path><path d=\"M8 14s1.5 2 4 2 4-2 4-2\"></path><path d=\"M9 9h.01\"></path><path d=\"M15 9h.01\"></path><path d=\"M16 5h6\"></path><path d=\"M19 2v6\"></path></svg>";
 				reactionButton.title = "Add reaction";
 				reactionButton.setAttribute("aria-label", "Add reaction");
 				reactionButton.addEventListener("click", function(event) {
 					event.preventDefault();
 					event.stopPropagation();
-					openReactionPickerMessageId =
-						openReactionPickerMessageId === message.messageId ? null : message.messageId;
+					const willOpen = openReactionPickerMessageId !== message.messageId;
+					openReactionPickerMessageId = willOpen ? message.messageId : null;
+					if (willOpen) {
+						pauseReactionPickerScrollClose();
+					} else {
+						reactionPickerScrollClosePausedUntil = 0;
+					}
 					syncSnapshot();
 				});
 				toolbar.appendChild(reactionButton);
@@ -2761,6 +2768,20 @@
 			}
 		}
 		requestAnimationFrame(syncScrollState);
+	}
+
+	function monotonicNow() {
+		return window.performance && typeof window.performance.now === "function"
+			? window.performance.now()
+			: Date.now();
+	}
+
+	function pauseReactionPickerScrollClose() {
+		reactionPickerScrollClosePausedUntil = monotonicNow() + reactionPickerScrollCloseGraceMs;
+	}
+
+	function shouldKeepReactionPickerOpenOnScroll() {
+		return openReactionPickerMessageId !== null && monotonicNow() <= reactionPickerScrollClosePausedUntil;
 	}
 
 	function renderMessages(snapshot) {
@@ -3797,6 +3818,7 @@
 					enabled: true,
 					action: function() {
 						openReactionPickerMessageId = message.messageId;
+						pauseReactionPickerScrollClose();
 						syncSnapshot();
 					}
 				});
@@ -4112,12 +4134,14 @@
 			if (selfMenuOpen) {
 				hideSelfMenu();
 			}
-			const hadOpenReactionPicker = openReactionPickerMessageId !== null;
-			if (hadOpenReactionPicker) {
+			const shouldCloseReactionPicker =
+				openReactionPickerMessageId !== null && !shouldKeepReactionPickerOpenOnScroll();
+			if (shouldCloseReactionPicker) {
 				openReactionPickerMessageId = null;
+				reactionPickerScrollClosePausedUntil = 0;
 			}
 			syncScrollState();
-			if (hadOpenReactionPicker) {
+			if (shouldCloseReactionPicker) {
 				syncSnapshot();
 			}
 		});
