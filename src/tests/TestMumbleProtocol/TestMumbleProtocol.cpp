@@ -260,6 +260,97 @@ private slots:
 		do_test_audio< Mumble::Protocol::Role::Server, Mumble::Protocol::Role::Client >();
 	}
 
+	void test_audio_oversized_packet_does_not_reuse_prepared_state() {
+		using namespace Mumble::Protocol;
+
+		for (Version::full_t version : { Version::fromComponents(1, 3, 0), PROTOBUF_INTRODUCTION_VERSION }) {
+			UDPAudioEncoder< Role::Server > encoder(version);
+			UDPDecoder< Role::Client > decoder(version);
+
+			std::string payloadData = "valid payload";
+			AudioData data;
+			data.payload                = { reinterpret_cast< const byte * >(payloadData.data()), payloadData.size() };
+			data.frameNumber            = 12;
+			data.senderSession          = 42;
+			data.targetOrContext        = AudioContext::NORMAL;
+			data.usedCodec              = AudioCodec::Opus;
+			data.containsPositionalData = true;
+			data.position               = { 3, 2, 1 };
+
+			auto encodedData = encoder.encodeAudioPacket(data);
+			QVERIFY(!encodedData.empty());
+			QVERIFY(decoder.decode(encodedData));
+			QCOMPARE(decoder.getAudioData(), data);
+
+			std::string oversizedPayload(MAX_UDP_PACKET_SIZE, 'x');
+			data.payload = { reinterpret_cast< const byte * >(oversizedPayload.data()), oversizedPayload.size() };
+			data.frameNumber++;
+
+			encodedData = encoder.encodeAudioPacket(data);
+			QVERIFY2(encodedData.empty(), "Oversized audio packet reused stale prepared encoder state");
+
+			data.payload = { reinterpret_cast< const byte * >(payloadData.data()), payloadData.size() };
+			data.frameNumber++;
+
+			encodedData = encoder.encodeAudioPacket(data);
+			QVERIFY(!encodedData.empty());
+			QVERIFY(decoder.decode(encodedData));
+			QCOMPARE(decoder.getAudioData(), data);
+		}
+	}
+
+	void test_audio_mixed_client_versions_recover_after_oversized_packet() {
+		using namespace Mumble::Protocol;
+
+		constexpr Version::full_t legacyVersion   = Version::fromComponents(1, 3, 0);
+		constexpr Version::full_t protobufVersion = PROTOBUF_INTRODUCTION_VERSION;
+
+		UDPAudioEncoder< Role::Server > encoder(protobufVersion);
+		UDPDecoder< Role::Client > legacyDecoder(legacyVersion);
+		UDPDecoder< Role::Client > protobufDecoder(protobufVersion);
+
+		std::string payloadData = "valid payload";
+		AudioData data;
+		data.payload                = { reinterpret_cast< const byte * >(payloadData.data()), payloadData.size() };
+		data.frameNumber            = 24;
+		data.senderSession          = 42;
+		data.targetOrContext        = AudioContext::NORMAL;
+		data.usedCodec              = AudioCodec::Opus;
+		data.containsPositionalData = true;
+		data.position               = { 3, 2, 1 };
+
+		auto encodedData = encoder.encodeAudioPacket(data);
+		QVERIFY(!encodedData.empty());
+		QVERIFY(protobufDecoder.decode(encodedData));
+		QCOMPARE(protobufDecoder.getAudioData(), data);
+
+		std::string oversizedPayload(MAX_UDP_PACKET_SIZE, 'x');
+		data.payload = { reinterpret_cast< const byte * >(oversizedPayload.data()), oversizedPayload.size() };
+		data.frameNumber++;
+
+		encodedData = encoder.encodeAudioPacket(data);
+		QVERIFY2(encodedData.empty(), "Oversized protobuf audio packet reused stale encoder state");
+
+		encoder.setProtocolVersion(legacyVersion);
+		encodedData = encoder.encodeAudioPacket(data);
+		QVERIFY2(encodedData.empty(), "Oversized legacy audio packet reused stale protobuf encoder state");
+
+		data.payload = { reinterpret_cast< const byte * >(payloadData.data()), payloadData.size() };
+		data.frameNumber++;
+
+		encodedData = encoder.encodeAudioPacket(data);
+		QVERIFY(!encodedData.empty());
+		QVERIFY(legacyDecoder.decode(encodedData));
+		QCOMPARE(legacyDecoder.getAudioData(), data);
+
+		data.frameNumber++;
+		encoder.setProtocolVersion(protobufVersion);
+		encodedData = encoder.encodeAudioPacket(data);
+		QVERIFY(!encodedData.empty());
+		QVERIFY(protobufDecoder.decode(encodedData));
+		QCOMPARE(protobufDecoder.getAudioData(), data);
+	}
+
 	void test_preEncode_audio_context() {
 		Mumble::Protocol::TestAudioEncoder< Mumble::Protocol::Role::Server > encoder;
 
