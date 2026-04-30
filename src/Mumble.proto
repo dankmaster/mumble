@@ -611,6 +611,7 @@ enum ScreenShareCodec {
 	ScreenShareCodecH264 = 1;
 	ScreenShareCodecVP9 = 2;
 	ScreenShareCodecAV1 = 3;
+	ScreenShareCodecVP8 = 4;
 }
 
 enum ScreenShareScope {

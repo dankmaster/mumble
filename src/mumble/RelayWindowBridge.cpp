@@ -22,10 +22,10 @@ void RelayWindowBridge::requestClose(const QString &reason) {
 	emit closeRequested(reason.trimmed());
 }
 
-void RelayWindowBridge::reportStats(const QString &summary) {
+void RelayWindowBridge::reportStats(const QString &summary, const QString &actualCodec) {
 	const QString trimmedSummary = summary.trimmed();
 	if (!trimmedSummary.isEmpty()) {
-		emit statsReported(trimmedSummary);
+		emit statsReported(trimmedSummary, actualCodec.trimmed());
 	}
 }
 

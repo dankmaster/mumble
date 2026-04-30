@@ -39,6 +39,7 @@ public:
 		bool av1MfAvailable        = false;
 		bool av1QsvAvailable       = false;
 		bool libSvtAv1Available    = false;
+		bool libVpxVp8Available    = false;
 		bool libVpxVp9Available    = false;
 		bool fileProtocolAvailable = false;
 		bool rtmpProtocolAvailable = false;

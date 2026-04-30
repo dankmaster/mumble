@@ -5394,15 +5394,20 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 		requestedCodecs = uSource->qlSupportedScreenShareCodecs;
 	}
 	requestedCodecs = Mumble::ScreenShare::sanitizeCodecList(requestedCodecs);
+	const MumbleProto::ScreenShareRelayTransport relayTransport =
+		Mumble::ScreenShare::relayTransportFromUrl(qsScreenShareRelayUrl);
+	const QList< int > preferredCodecs = Mumble::ScreenShare::isWebRtcRelayTransport(relayTransport)
+											 ? Mumble::ScreenShare::webRtcRelayCodecPreferenceList()
+											 : qlPreferredScreenShareCodecs;
 	const MumbleProto::ScreenShareCodec codec =
-		Mumble::ScreenShare::selectPreferredCodec(qlPreferredScreenShareCodecs, requestedCodecs);
+		Mumble::ScreenShare::selectPreferredCodec(preferredCodecs, requestedCodecs);
 	if (codec == MumbleProto::ScreenShareCodecUnknown) {
 		deny(QStringLiteral("No compatible screen-share codec could be negotiated."));
 		return;
 	}
 
 	QList< int > codecFallbackOrder;
-	for (const int preferredCodec : qlPreferredScreenShareCodecs) {
+	for (const int preferredCodec : preferredCodecs) {
 		if (requestedCodecs.contains(preferredCodec)) {
 			codecFallbackOrder.append(preferredCodec);
 		}
@@ -5426,7 +5431,7 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 	stream.qsRelayViewToken    = randomMessageRelayCredential();
 	stream.uiRelayTokenExpiresAt =
 		static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch()) + MESSAGE_SCREEN_SHARE_RELAY_TOKEN_LIFETIME_MSEC;
-	stream.relayTransport = Mumble::ScreenShare::relayTransportFromUrl(stream.qsRelayUrl);
+	stream.relayTransport = relayTransport;
 	stream.uiCreatedAt = static_cast< quint64 >(QDateTime::currentMSecsSinceEpoch());
 	stream.state       = MumbleProto::ScreenShareLifecycleStateActive;
 	stream.codec       = codec;
@@ -5450,11 +5455,14 @@ void Server::msgScreenShareCreate(ServerUser *uSource, MumbleProto::ScreenShareC
 
 	ScreenShareStream &storedStream = qhScreenShareStreams[stream.qsStreamID];
 	sendScreenShareStateToAudience(storedStream);
-	screenShareDiagnosticLog(QStringLiteral("Created stream %1 owner=%2 channel=%3 codec=%4 size=%5x%6@%7 bitrate=%8 relay=%9")
+	screenShareDiagnosticLog(QStringLiteral("Created stream %1 owner=%2 channel=%3 codec=%4 requested_codecs=%5 "
+											"preferred_codecs=%6 size=%7x%8@%9 bitrate=%10 relay=%11")
 								 .arg(storedStream.qsStreamID)
 								 .arg(storedStream.uiOwnerSession)
 								 .arg(storedStream.uiScopeID)
 								 .arg(Mumble::ScreenShare::codecToConfigToken(storedStream.codec))
+								 .arg(Mumble::ScreenShare::codecPreferenceString(requestedCodecs))
+								 .arg(Mumble::ScreenShare::codecPreferenceString(preferredCodecs))
 								 .arg(storedStream.uiWidth)
 								 .arg(storedStream.uiHeight)
 								 .arg(storedStream.uiFps)

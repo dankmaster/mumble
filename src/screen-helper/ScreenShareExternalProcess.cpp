@@ -243,6 +243,7 @@ QString browserLaunchUrl(const QJsonObject &plan, QString *errorMessage, QString
 	appendQuery(QStringLiteral("stream_id"), plan.value(QStringLiteral("stream_id")).toString());
 	appendQuery(QStringLiteral("relay_role"), plan.value(QStringLiteral("relay_role_token")).toString());
 	appendQuery(QStringLiteral("codec"), plan.value(QStringLiteral("codec_token")).toString());
+	appendQuery(QStringLiteral("requested_codec"), plan.value(QStringLiteral("requested_codec_token")).toString());
 	appendQuery(QStringLiteral("transport"), plan.value(QStringLiteral("relay_transport_token")).toString());
 	appendQuery(QStringLiteral("width"), QString::number(qMax(0, plan.value(QStringLiteral("width")).toInt())));
 	appendQuery(QStringLiteral("height"), QString::number(qMax(0, plan.value(QStringLiteral("height")).toInt())));
@@ -407,6 +408,11 @@ QStringList candidateBackendOrder(const ScreenShareExternalProcess::RuntimeSuppo
 			}
 			if (support.libSvtAv1Available) {
 				appendUnique(QStringLiteral("libsvtav1-av1"));
+			}
+			break;
+		case MumbleProto::ScreenShareCodecVP8:
+			if (support.libVpxVp8Available) {
+				appendUnique(QStringLiteral("libvpx-vp8"));
 			}
 			break;
 		case MumbleProto::ScreenShareCodecVP9:
@@ -768,6 +774,21 @@ bool appendEncoderArguments(const ScreenShareExternalProcess::RuntimeSupport &su
 				return true;
 			}
 			break;
+		case MumbleProto::ScreenShareCodecVP8:
+			if (support.libVpxVp8Available) {
+				appendRateControl(QStringLiteral("libvpx"));
+				arguments->append(QStringLiteral("-deadline"));
+				arguments->append(QStringLiteral("realtime"));
+				arguments->append(QStringLiteral("-cpu-used"));
+				arguments->append(QStringLiteral("6"));
+				arguments->append(QStringLiteral("-lag-in-frames"));
+				arguments->append(QStringLiteral("0"));
+				if (selectedEncoder) {
+					*selectedEncoder = QStringLiteral("libvpx");
+				}
+				return true;
+			}
+			break;
 		case MumbleProto::ScreenShareCodecVP9:
 			if (support.libVpxVp9Available) {
 				appendRateControl(QStringLiteral("libvpx-vp9"));
@@ -906,6 +927,7 @@ ScreenShareExternalProcess::RuntimeSupport ScreenShareExternalProcess::probeRunt
 		support.av1MfAvailable         = encoders.contains(QLatin1String("av1_mf"));
 		support.av1QsvAvailable        = encoders.contains(QLatin1String("av1_qsv"));
 		support.libSvtAv1Available     = encoders.contains(QLatin1String("libsvtav1"));
+		support.libVpxVp8Available     = encoders.contains(QLatin1String("libvpx"));
 		support.libVpxVp9Available     = encoders.contains(QLatin1String("libvpx-vp9"));
 		support.fileProtocolAvailable  = protocols.contains(QLatin1String("file"));
 		support.rtmpProtocolAvailable  = protocols.contains(QLatin1String("rtmp"));
@@ -940,6 +962,7 @@ QJsonObject ScreenShareExternalProcess::runtimeSupportToJson(const RuntimeSuppor
 	payload.insert(QStringLiteral("av1_mf_available"), support.av1MfAvailable);
 	payload.insert(QStringLiteral("av1_qsv_available"), support.av1QsvAvailable);
 	payload.insert(QStringLiteral("libsvtav1_available"), support.libSvtAv1Available);
+	payload.insert(QStringLiteral("libvpx_vp8_available"), support.libVpxVp8Available);
 	payload.insert(QStringLiteral("libvpx_vp9_available"), support.libVpxVp9Available);
 	payload.insert(QStringLiteral("file_protocol_available"), support.fileProtocolAvailable);
 	payload.insert(QStringLiteral("rtmp_protocol_available"), support.rtmpProtocolAvailable);

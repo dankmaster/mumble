@@ -62,7 +62,10 @@
 		statsTimer: null,
 		statsLastSamples: {},
 		statsLastBridgeAt: 0,
-		statsUnavailableLogged: false
+		statsUnavailableLogged: false,
+		actualCodec: "",
+		actualCodecLogged: false,
+		codecMismatchLogged: false
 	};
 	scrubLaunchSecrets();
 
@@ -422,6 +425,55 @@
 		return parts.join(" / ");
 	}
 
+	function formatCodecMetadata() {
+		const parts = [
+			"requested " + configuredCodecDisplayName(config.requestedCodec),
+			"session " + configuredCodecDisplayName(config.codec)
+		];
+		if (state.actualCodec) {
+			parts.push("actual " + observedCodecDisplayName(state.actualCodec));
+		}
+		parts.push(config.width + "x" + config.height + " @ " + config.fps + "fps");
+		parts.push(config.bitrateKbps + " kbps");
+		return parts.join(" / ");
+	}
+
+	function observeActualCodec(summary) {
+		if (!summary || !summary.codec) {
+			return;
+		}
+
+		const actualCodec = normalizeObservedCodec(summary.codec);
+		if (!actualCodec) {
+			return;
+		}
+
+		state.actualCodec = actualCodec;
+		renderStaticMetadata();
+
+		const requestedCodec = normalizeCodec(config.requestedCodec);
+		const negotiatedCodec = normalizeCodec(config.codec);
+		if (!state.actualCodecLogged) {
+			log("Relay actual WebRTC codec: " + observedCodecDisplayName(actualCodec) + ".");
+			notifyBridge("reportStats", "actual_codec=" + observedCodecDisplayName(actualCodec)
+				+ " requested_codec=" + configuredCodecDisplayName(requestedCodec)
+				+ " negotiated_codec=" + configuredCodecDisplayName(negotiatedCodec),
+				observedCodecDisplayName(actualCodec));
+			state.actualCodecLogged = true;
+		}
+
+		if (!state.codecMismatchLogged && actualCodec !== requestedCodec) {
+			log("Relay codec mismatch: requested " + configuredCodecDisplayName(requestedCodec)
+				+ ", negotiated " + configuredCodecDisplayName(negotiatedCodec)
+				+ ", actual " + observedCodecDisplayName(actualCodec) + ".", "warn");
+			notifyBridge("reportStats", "codec_mismatch requested_codec=" + configuredCodecDisplayName(requestedCodec)
+				+ " negotiated_codec=" + configuredCodecDisplayName(negotiatedCodec)
+				+ " actual_codec=" + observedCodecDisplayName(actualCodec),
+				observedCodecDisplayName(actualCodec));
+			state.codecMismatchLogged = true;
+		}
+	}
+
 	async function sampleStats() {
 		if (!state.currentStatsTrack) {
 			if (refs.metaStats) {
@@ -437,6 +489,7 @@
 			}
 			if (!state.statsUnavailableLogged) {
 				log("WebRTC track stats are not exposed by this relay runtime.", "warn");
+				notifyBridge("reportStats", "stats_unavailable reason=track_stats_not_exposed", "");
 				state.statsUnavailableLogged = true;
 			}
 			return;
@@ -446,6 +499,7 @@
 			const report = await provider.getStats();
 			const summary = summarizeStatsReport(report, state.currentStatsLocal);
 			const summaryText = formatStatsSummary(summary);
+			observeActualCodec(summary);
 			if (refs.metaStats) {
 				setText(refs.metaStats, summaryText);
 			}
@@ -454,7 +508,7 @@
 			if (summary && now - state.statsLastBridgeAt >= STATS_BRIDGE_INTERVAL_MSEC) {
 				state.statsLastBridgeAt = now;
 				log("Relay stats: " + summaryText + ".");
-				notifyBridge("reportStats", summaryText);
+				notifyBridge("reportStats", summaryText, state.actualCodec ? observedCodecDisplayName(state.actualCodec) : "");
 			}
 		} catch (error) {
 			if (refs.metaStats) {
@@ -462,6 +516,7 @@
 			}
 			if (!state.statsUnavailableLogged) {
 				log("Unable to collect relay stats: " + describeError(error), "warn");
+				notifyBridge("reportStats", "stats_unavailable reason=" + describeError(error), "");
 				state.statsUnavailableLogged = true;
 			}
 		}
@@ -557,12 +612,31 @@
 	function normalizeCodec(value) {
 		switch (normalizeToken(value, "")) {
 			case "h264":
+			case "vp8":
 			case "vp9":
 			case "av1":
 				return normalizeToken(value, "");
 			default:
-				return "h264";
+				return "vp8";
 		}
+	}
+
+	function normalizeObservedCodec(value) {
+		const token = String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+		if (token === "h264" || token === "vp8" || token === "vp9" || token === "av1") {
+			return token;
+		}
+		return "";
+	}
+
+	function configuredCodecDisplayName(value) {
+		const token = normalizeCodec(value);
+		return token ? token.toUpperCase() : "UNKNOWN";
+	}
+
+	function observedCodecDisplayName(value) {
+		const token = normalizeObservedCodec(value);
+		return token ? token.toUpperCase() : "UNKNOWN";
 	}
 
 	function parsePositiveInteger(value, fallback) {
@@ -584,6 +658,9 @@
 		switch (codec) {
 			case "av1":
 				targetKbps *= 0.7;
+				break;
+			case "vp8":
+				targetKbps *= 1.05;
 				break;
 			case "vp9":
 				targetKbps *= 0.8;
@@ -652,6 +729,7 @@
 		const relayUrl = (params.get("relay_url") || "").trim();
 		const relayRole = normalizeToken(params.get("relay_role"), "viewer");
 		const codec = normalizeCodec(params.get("codec"));
+		const requestedCodec = normalizeCodec(params.get("requested_codec") || params.get("codec"));
 		const width = clampInteger(parsePositiveInteger(params.get("width"), DEFAULT_SCREEN_SHARE_WIDTH), 1, MAX_IN_APP_RELAY_WIDTH);
 		const height = clampInteger(parsePositiveInteger(params.get("height"), DEFAULT_SCREEN_SHARE_HEIGHT), 1, MAX_IN_APP_RELAY_HEIGHT);
 		const fps = clampInteger(parsePositiveInteger(params.get("fps"), DEFAULT_SCREEN_SHARE_FPS), 1, MAX_IN_APP_RELAY_FPS);
@@ -665,6 +743,7 @@
 			relayRole: relayRole === "publisher" ? "publisher" : "viewer",
 			transport: normalizeToken(params.get("transport"), "webrtc"),
 			codec,
+			requestedCodec,
 			width,
 			height,
 			fps,
@@ -674,6 +753,20 @@
 			surfaceSwitching: parseIncludeExclude(params.get("surface_switching"), "include"),
 			selfBrowserSurface: parseIncludeExclude(params.get("self_browser_surface"), "exclude")
 		};
+	}
+
+	function missingRelayConfigFields() {
+		const fields = [];
+		if (!config.wsRelayUrl) {
+			fields.push("relay_url");
+		}
+		if (!config.relayRoomId) {
+			fields.push("relay_room_id");
+		}
+		if (!config.relayToken) {
+			fields.push("relay_token");
+		}
+		return fields;
 	}
 
 	function normalizeSourceToken(value) {
@@ -1043,6 +1136,7 @@
 		return {
 			source: livekit && livekit.Track && livekit.Track.Source ? livekit.Track.Source.ScreenShare : undefined,
 			simulcast: false,
+			backupCodec: false,
 			videoCodec: config.codec,
 			degradationPreference: "maintain-framerate",
 			screenShareEncoding: {
@@ -1057,6 +1151,7 @@
 		const publishDefaults = {
 			degradationPreference: "maintain-framerate",
 			simulcast: false,
+			backupCodec: false,
 			videoCodec: config.codec,
 			screenShareEncoding: {
 				maxBitrate: config.bitrateKbps * 1000,
@@ -1206,8 +1301,9 @@
 			return state.connectPromise;
 		}
 
-		if (!config.wsRelayUrl || !config.relayToken || !config.relayRoomId) {
-			throw new Error("Missing relay_url, relay_token, or relay_room_id.");
+		const missingFields = missingRelayConfigFields();
+		if (missingFields.length > 0) {
+			throw new Error("Missing relay session field(s): " + missingFields.join(", ") + ".");
 		}
 
 		if (!state.room) {
@@ -1229,7 +1325,8 @@
 			state.isConnected = false;
 			state.connectPromise = null;
 			setPill(refs.connectionPill, "error", "danger");
-			log("Unable to connect to relay: " + error.message, "error");
+			log("Unable to connect to relay at " + (config.wsRelayUrl || "missing endpoint") + ": "
+				+ describeError(error), "error");
 			throw error;
 		});
 
@@ -1268,9 +1365,9 @@
 				return;
 			}
 
-			log("Unable to start screen sharing: " + error.message, "error");
+			log("Unable to start screen sharing: " + describeError(error), "error");
 			showEmpty("Share did not start", "The browser did not grant or keep screen-capture permission.");
-			requestFallback("The in-app relay window could not start screen sharing.");
+			requestFallback("The in-app relay window could not start screen sharing: " + describeError(error));
 		}
 	}
 
@@ -1325,8 +1422,7 @@
 		setText(refs.metaStream, config.streamId || "unknown");
 		setText(refs.metaRoom, config.relayRoomId || "unknown");
 		setText(refs.metaRelay, config.wsRelayUrl || "unknown");
-		setText(refs.metaCodec, config.codec.toUpperCase() + " / " + config.width + "x" + config.height + " @ "
-			+ config.fps + "fps / " + config.bitrateKbps + " kbps");
+		setText(refs.metaCodec, formatCodecMetadata());
 	}
 
 	function renderShell() {
@@ -1360,7 +1456,9 @@
 		log("Relay role: " + config.relayRole + ".");
 		log("Relay transport: " + config.transport + ".");
 		log("Relay endpoint: " + (config.relayUrl || "missing") + ".");
-		log("Relay media profile: " + config.codec.toUpperCase() + " " + config.width + "x" + config.height
+		log("Relay requested codec: " + configuredCodecDisplayName(config.requestedCodec) + ".");
+		log("Relay negotiated session codec: " + configuredCodecDisplayName(config.codec) + ".");
+		log("Relay media profile: " + configuredCodecDisplayName(config.codec) + " " + config.width + "x" + config.height
 			+ " @ " + config.fps + "fps, " + config.bitrateKbps + " kbps, single low-latency stream.");
 		if (state.isPublisher && config.captureAudio) {
 			log("Screen-share audio capture is enabled for compatible browser sources.");
@@ -1374,11 +1472,13 @@
 			return;
 		}
 
-		if (!config.wsRelayUrl || !config.relayToken || !config.relayRoomId) {
+		const missingFields = missingRelayConfigFields();
+		if (missingFields.length > 0) {
 			setPill(refs.connectionPill, "error", "danger");
 			setHint("Relay session metadata is incomplete.");
-			log("Missing relay_url, relay_room_id, or relay_token in the helper launch query.", "error");
-			requestFallback("Relay session metadata is incomplete.");
+			showEmpty("Relay launch incomplete", "Mumble did not provide the relay session details needed to connect.");
+			log("Missing relay launch field(s): " + missingFields.join(", ") + ".", "error");
+			requestFallback("Relay session metadata is incomplete: " + missingFields.join(", "));
 			return;
 		}
 
@@ -1403,7 +1503,7 @@
 			await ensureConnected();
 		} catch (error) {
 			showEmpty("Relay connection failed", "The window could not connect to the configured WebRTC relay.");
-			requestFallback("The in-app relay window could not connect to the relay server.");
+			requestFallback("The in-app relay window could not connect to the relay server: " + describeError(error));
 			return;
 		}
 	}

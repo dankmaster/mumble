@@ -179,6 +179,16 @@ namespace {
 											  : QStringLiteral("ffmpeg libsvtav1 encoder is unavailable");
 		backends.append(svtav1);
 
+		EncoderBackend vp8;
+		vp8.backendID   = QStringLiteral("libvpx-vp8");
+		vp8.displayName = QStringLiteral("libvpx VP8");
+		vp8.codecs      = { static_cast< int >(MumbleProto::ScreenShareCodecVP8) };
+		vp8.hardware    = false;
+		vp8.available   = runtimeSupport.libVpxVp8Available;
+		vp8.detail      = vp8.available ? QStringLiteral("ffmpeg libvpx VP8 software encoder is available")
+										: QStringLiteral("ffmpeg libvpx VP8 encoder is unavailable");
+		backends.append(vp8);
+
 		EncoderBackend vp9;
 		vp9.backendID   = QStringLiteral("libvpx-vp9");
 		vp9.displayName = QStringLiteral("libvpx-vp9");
@@ -315,6 +325,11 @@ namespace {
 			warnings.append(warning);
 		}
 		const QString relayScheme = QUrl(relayUrl).scheme().toLower();
+		const QList< int > codecFallbackOrder =
+			Mumble::ScreenShare::IPC::codecListFromJson(payload.value(QStringLiteral("codec_fallback_order")));
+		const MumbleProto::ScreenShareCodec requestedCodec =
+			codecFallbackOrder.isEmpty() ? codec
+										 : static_cast< MumbleProto::ScreenShareCodec >(codecFallbackOrder.first());
 
 		QJsonObject planPayload;
 		planPayload.insert(QStringLiteral("stream_id"), streamID);
@@ -341,6 +356,8 @@ namespace {
 		planPayload.insert(QStringLiteral("capture_backend"), capabilities.captureBackend);
 		planPayload.insert(QStringLiteral("codec"), static_cast< int >(codec));
 		planPayload.insert(QStringLiteral("codec_token"), Mumble::ScreenShare::codecToConfigToken(codec));
+		planPayload.insert(QStringLiteral("requested_codec_token"),
+						   Mumble::ScreenShare::codecToConfigToken(requestedCodec));
 		planPayload.insert(QStringLiteral("width"), static_cast< int >(width));
 		planPayload.insert(QStringLiteral("height"), static_cast< int >(height));
 		planPayload.insert(QStringLiteral("fps"), static_cast< int >(fps));
