@@ -219,7 +219,8 @@ bool AudioInputRegistrar::isMicrophoneAccessDeniedByOS() {
 }
 
 AudioInput::AudioInput()
-	: opusBuffer(static_cast< std::size_t >(clampFramesPerPacket(Global::get().s.iFramesPerPacket) * (SAMPLE_RATE / 100))) {
+	: opusBuffer(
+		static_cast< std::size_t >(clampFramesPerPacket(Global::get().s.iFramesPerPacket) * (SAMPLE_RATE / 100))) {
 	bDebugDumpInput         = Global::get().bDebugDumpInput;
 	resync.bDebugPrintQueue = Global::get().bDebugPrintQueue;
 	if (bDebugDumpInput) {
@@ -679,7 +680,13 @@ int AudioInput::packetDurationMsForFrames(int frames) {
 
 int AudioInput::opusMaxAudioBitrateForFrames(int frames) {
 	const int packetDurationMs = packetDurationMsForFrames(frames);
-	const int packetCap = static_cast< int >((1275 * 8 * 1000) / packetDurationMs);
+	// Keep room for the largest server-to-client voice wrapper so packets from this client remain relayable to
+	// both legacy and protobuf clients.
+	constexpr int maxAudioPacketOverhead = 64;
+	static_assert(Mumble::Protocol::MAX_UDP_PACKET_SIZE > maxAudioPacketOverhead);
+	const int maxPayloadBytes =
+		std::min(1275, static_cast< int >(Mumble::Protocol::MAX_UDP_PACKET_SIZE) - maxAudioPacketOverhead);
+	const int packetCap = static_cast< int >((maxPayloadBytes * 8 * 1000) / packetDurationMs);
 
 	return std::min(packetCap, 510000);
 }
@@ -705,10 +712,9 @@ void AudioInput::adjustBandwidth(int bitspersec, int &bitrate, int &frames, bool
 	bitrate       = Global::get().s.iQuality;
 	allowLowDelay = Global::get().s.bAllowLowDelay;
 
-	const int maxBitrate = maxAudioBitrateForConfiguration(bitspersec, frames,
-														   Global::get().s.experimentalHighBitrateEnabled,
-														   Global::get().s.bTransmitPosition,
-														   NetworkConfig::TcpModeEnabled());
+	const int maxBitrate =
+		maxAudioBitrateForConfiguration(bitspersec, frames, Global::get().s.experimentalHighBitrateEnabled,
+										Global::get().s.bTransmitPosition, NetworkConfig::TcpModeEnabled());
 
 	bitrate = std::clamp(bitrate, 8000, maxBitrate);
 }
@@ -750,7 +756,7 @@ void AudioInput::setMaxBandwidth(int bitspersec) {
 }
 
 int AudioInput::getNetworkBandwidth(int bitrate, int frames) {
-	frames = clampFramesPerPacket(frames);
+	frames       = clampFramesPerPacket(frames);
 	int overhead = 20 + 8 + 4 + 1 + 2 + (Global::get().s.bTransmitPosition ? 12 : 0)
 				   + (NetworkConfig::TcpModeEnabled() ? 12 : 0) + frames;
 	overhead *= (800 / frames);
@@ -786,8 +792,7 @@ void AudioInput::resetAudioProcessor() {
 
 	if (iEchoChannels > 0) {
 		const bool requestedWebRTCAec = (Global::get().s.echoOption == EchoCancelOptionID::WEBRTC_AEC);
-		const bool useWebRTCAec       =
-			requestedWebRTCAec && m_webrtcEchoCanceller && m_webrtcEchoCanceller->isReady();
+		const bool useWebRTCAec       = requestedWebRTCAec && m_webrtcEchoCanceller && m_webrtcEchoCanceller->isReady();
 
 		if (m_webrtcEchoCanceller) {
 			m_webrtcEchoCanceller->reset();
@@ -839,7 +844,7 @@ bool AudioInput::selectCodec() {
 }
 
 void AudioInput::selectNoiseCancel() {
-	noiseCancel = Global::get().s.noiseCancelMode;
+	noiseCancel                                      = Global::get().s.noiseCancelMode;
 	const Mumble::SpeechCleanup::Selection selection = currentInputSpeechCleanupSelection();
 	const Settings::SpeechCleanupBackend backend     = selection.backend;
 
@@ -850,8 +855,7 @@ void AudioInput::selectNoiseCancel() {
 
 	if (noiseCancel == Settings::NoiseCancelRNN || noiseCancel == Settings::NoiseCancelBoth) {
 		if (!Mumble::SpeechCleanup::isBackendAvailable(backend)) {
-			qInfo("AudioInput: Ignoring request to enable %s: %s",
-				  Mumble::SpeechCleanup::backendDisplayName(backend),
+			qInfo("AudioInput: Ignoring request to enable %s: %s", Mumble::SpeechCleanup::backendDisplayName(backend),
 				  qUtf8Printable(Mumble::SpeechCleanup::unavailableReason(backend)));
 			noiseCancel = Settings::NoiseCancelSpeex;
 		}
@@ -948,7 +952,7 @@ void AudioInput::encodeAudioFrame(AudioChunk chunk) {
 	if (chunk.speaker && Global::get().s.echoOption == EchoCancelOptionID::WEBRTC_AEC && m_webrtcEchoCanceller
 		&& m_webrtcEchoCanceller->isReady()
 		&& m_webrtcEchoCanceller->processCaptureFrame(chunk.mic, psClean, chunk.speaker, iFrameSize,
-													 bEchoMulti ? iEchoChannels : 1)) {
+													  bEchoMulti ? iEchoChannels : 1)) {
 		psSource = psClean;
 	} else if (sesEcho && chunk.speaker) {
 		speex_echo_cancellation(sesEcho, chunk.mic, chunk.speaker, psClean);
@@ -964,8 +968,7 @@ void AudioInput::encodeAudioFrame(AudioChunk chunk) {
 			cleanupFrame[i] = static_cast< float >(psSource[i]) / 32768.0f;
 		}
 
-		m_speechCleanupProcessor->processInPlace(cleanupFrame.data(),
-												 static_cast< unsigned int >(cleanupFrame.size()));
+		m_speechCleanupProcessor->processInPlace(cleanupFrame.data(), static_cast< unsigned int >(cleanupFrame.size()));
 
 		for (unsigned int i = 0; i < cleanupFrame.size(); ++i) {
 			psSource[i] = clampFloatSample(cleanupFrame[i] * 32768.0f);
@@ -1270,7 +1273,9 @@ void AudioInput::flushCheck(const QByteArray &frame, bool terminator, std::int32
 		// Encode audio frame and send out
 		std::span< const Mumble::Protocol::byte > encodedAudioPacket = m_udpEncoder.encodeAudioPacket(audioData);
 
-		sendAudioFrame(encodedAudioPacket);
+		if (!encodedAudioPacket.empty()) {
+			sendAudioFrame(encodedAudioPacket);
+		}
 	}
 
 	qlFrames.clear();

@@ -92,7 +92,6 @@ namespace Protocol {
 			serializedSize = static_cast< std::size_t >(message.GetCachedSize());
 		}
 
-		assert(serializedSize + offset <= maxAllowedSize);
 		if (serializedSize + offset > maxAllowedSize) {
 			// In non-Debug builds above assertion will not fire, thus we have to explicitly catch
 			// this issue here
@@ -101,6 +100,7 @@ namespace Protocol {
 
 			return std::nullopt;
 		}
+		assert(serializedSize + offset <= maxAllowedSize);
 		std::vector< byte > temp(serializedSize);
 		bool success = message.SerializePartialToArray(temp.data(), static_cast< int >(serializedSize));
 		if (!success) {
@@ -171,6 +171,8 @@ namespace Protocol {
 
 	template< Role role > void UDPAudioEncoder< role >::prepareAudioPacket_legacy(const AudioData &data) {
 		m_byteBuffer.resize(MAX_UDP_PACKET_SIZE);
+		m_staticPartSize      = 0;
+		m_positionalAudioSize = 0;
 
 		byte type = 0;
 		switch (data.usedCodec) {
@@ -239,6 +241,11 @@ namespace Protocol {
 	std::span< const byte > UDPAudioEncoder< role >::updateAudioPacket_legacy(const AudioData &data) {
 		m_byteBuffer.resize(MAX_UDP_PACKET_SIZE);
 
+		if (m_staticPartSize == 0) {
+			qWarning("MumbleProtocol: Can't update a legacy packet that hasn't been prepared yet");
+			return {};
+		}
+
 		// The 5 least significant bits are where the target is supposed to be encoded
 		if (data.targetOrContext >= (1 << 5)) {
 			// Invalid target - this can easily happen when activating PTT before being connected to a server
@@ -255,7 +262,7 @@ namespace Protocol {
 
 
 	template< Role role > void UDPAudioEncoder< role >::addPositionalData_legacy(const AudioData &data) {
-		if (data.containsPositionalData) {
+		if (data.containsPositionalData && m_staticPartSize != 0) {
 			assert(m_byteBuffer.size() >= m_staticPartSize);
 			PacketDataStream stream(m_byteBuffer.data() + m_staticPartSize,
 									static_cast< unsigned int >(m_byteBuffer.size() - m_staticPartSize));
@@ -280,7 +287,11 @@ namespace Protocol {
 		// if the encoding is different, we automatically fall back to the legacy package format.
 		if (data.usedCodec != AudioCodec::Opus) {
 			prepareAudioPacket_legacy(data);
+			return;
 		}
+
+		m_staticPartSize      = 0;
+		m_positionalAudioSize = 0;
 
 		// Note that we are partitioning the audio packet into two segments: a "fixed" part and a "variable" part.
 		// The former contains all fields of the audio data that do not depend on where the audio is sent, whereas
@@ -399,7 +410,7 @@ namespace Protocol {
 
 
 	template< Role role > void UDPAudioEncoder< role >::addPositionalData_protobuf(const AudioData &data) {
-		if (data.containsPositionalData) {
+		if (data.containsPositionalData && m_staticPartSize != 0) {
 			m_audioMessage.Clear();
 
 			for (unsigned int i = 0; i < 3; ++i) {

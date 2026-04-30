@@ -25,8 +25,8 @@
 #include "PacketDataStream.h"
 #include "ProtoUtils.h"
 #include "RichTextEditor.h"
-#include "ScreenShareHelperClient.h"
 #include "SSL.h"
+#include "ScreenShareHelperClient.h"
 #include "ServerResolver.h"
 #include "ServerResolverRecord.h"
 #include "User.h"
@@ -71,52 +71,52 @@ int ServerHandler::nextConnectionID = -1;
 QMutex ServerHandler::nextConnectionIDMutex;
 
 namespace {
-	bool connectTraceEnabled() {
-		static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
-		return enabled;
+bool connectTraceEnabled() {
+	static const bool enabled = qEnvironmentVariableIntValue("MUMBLE_CONNECT_TRACE") != 0;
+	return enabled;
+}
+
+void appendServerHandlerTrace(const QString &message) {
+	if (!connectTraceEnabled()) {
+		return;
 	}
 
-	void appendServerHandlerTrace(const QString &message) {
-		if (!connectTraceEnabled()) {
-			return;
-		}
-
-		QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
-		if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
-			return;
-		}
-
-		const QByteArray line = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8() + " SH "
-								+ message.toUtf8() + '\n';
-		traceFile.write(line);
-		traceFile.flush();
+	QFile traceFile(Global::get().qdBasePath.filePath(QLatin1String("shared-modern-connect-trace.log")));
+	if (!traceFile.open(QIODevice::Append | QIODevice::Text)) {
+		return;
 	}
 
-	QString utf8Hex(const QString &value) {
-		return QString::fromLatin1(value.toUtf8().toHex());
+	const QByteArray line =
+		QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs).toUtf8() + " SH " + message.toUtf8() + '\n';
+	traceFile.write(line);
+	traceFile.flush();
+}
+
+QString utf8Hex(const QString &value) {
+	return QString::fromLatin1(value.toUtf8().toHex());
+}
+
+QString codePointList(const QString &value) {
+	QStringList codePoints;
+	const QList< uint > unicode = value.toUcs4();
+	codePoints.reserve(unicode.size());
+	for (uint codePoint : unicode) {
+		codePoints << QString::fromLatin1("U+%1").arg(codePoint, 0, 16);
 	}
 
-	QString codePointList(const QString &value) {
-		QStringList codePoints;
-		const QList< uint > unicode = value.toUcs4();
-		codePoints.reserve(unicode.size());
-		for (uint codePoint : unicode) {
-			codePoints << QString::fromLatin1("U+%1").arg(codePoint, 0, 16);
-		}
+	return codePoints.join(QLatin1Char(','));
+}
 
-		return codePoints.join(QLatin1Char(','));
+QString sslErrorsSummary(const QList< QSslError > &errors) {
+	QStringList summaries;
+	summaries.reserve(errors.size());
+	for (const QSslError &error : errors) {
+		summaries << QString::fromLatin1("%1:%2").arg(QString::number(static_cast< int >(error.error())),
+													  error.errorString());
 	}
 
-	QString sslErrorsSummary(const QList< QSslError > &errors) {
-		QStringList summaries;
-		summaries.reserve(errors.size());
-		for (const QSslError &error : errors) {
-			summaries << QString::fromLatin1("%1:%2")
-							 .arg(QString::number(static_cast< int >(error.error())), error.errorString());
-		}
-
-		return summaries.join(QLatin1String(" | "));
-	}
+	return summaries.join(QLatin1String(" | "));
+}
 } // namespace
 
 ServerHandlerMessageEvent::ServerHandlerMessageEvent(const QByteArray &msg, Mumble::Protocol::TCPMessageType type,
@@ -369,6 +369,10 @@ void ServerHandler::handleVoicePacket(const Mumble::Protocol::AudioData &audioDa
 }
 
 void ServerHandler::sendMessage(const unsigned char *data, int len, bool force) {
+	if (len <= 0) {
+		return;
+	}
+
 	static std::vector< unsigned char > crypto;
 	crypto.resize(static_cast< std::size_t >(len + 4));
 
@@ -607,13 +611,12 @@ void ServerHandler::setSslErrors(const QList< QSslError > &errors) {
 	qscCert                      = connection->peerCertificateChain();
 	QList< QSslError > newErrors = errors;
 	const QString actualDigest =
-		qscCert.isEmpty() ? QString()
-						  : QString::fromLatin1(qscCert.at(0).digest(QCryptographicHash::Sha1).toHex());
+		qscCert.isEmpty() ? QString() : QString::fromLatin1(qscCert.at(0).digest(QCryptographicHash::Sha1).toHex());
 	const QString storedDigest = database->getDigest(qsHostName, usPort);
 	appendServerHandlerTrace(QStringLiteral("setSslErrors host=%1 port=%2 certs=%3 stored_digest=%4 actual_digest=%5 "
 											"errors=%6")
-								 .arg(qsHostName, QString::number(usPort), QString::number(qscCert.size()), storedDigest,
-									  actualDigest, sslErrorsSummary(errors)));
+								 .arg(qsHostName, QString::number(usPort), QString::number(qscCert.size()),
+									  storedDigest, actualDigest, sslErrorsSummary(errors)));
 
 #ifdef Q_OS_WIN
 	bool bRevalidate = false;
@@ -651,8 +654,8 @@ void ServerHandler::setSslErrors(const QList< QSslError > &errors) {
 		appendServerHandlerTrace(QStringLiteral("setSslErrors proceed-anyway reason=stored-digest-match"));
 		connection->proceedAnyway();
 	} else {
-		appendServerHandlerTrace(QStringLiteral("setSslErrors store-errors remaining=%1")
-									 .arg(sslErrorsSummary(newErrors)));
+		appendServerHandlerTrace(
+			QStringLiteral("setSslErrors store-errors remaining=%1").arg(sslErrorsSummary(newErrors)));
 		qlErrors = newErrors;
 	}
 }
@@ -879,10 +882,11 @@ void ServerHandler::serverConnectionConnected() {
 		const QSslCertificate &qsc = qscCert.first();
 		qbaDigest                  = sha1(qsc.publicKey().toDer());
 		bUdp                       = database->getUdp(qbaDigest);
-		appendServerHandlerTrace(QStringLiteral("serverConnectionConnected host=%1 port=%2 cert_digest=%3 pubkey_digest=%4")
-									 .arg(qsHostName, QString::number(usPort),
-										  QString::fromLatin1(qsc.digest(QCryptographicHash::Sha1).toHex()),
-										  QString::fromLatin1(qbaDigest.toHex())));
+		appendServerHandlerTrace(
+			QStringLiteral("serverConnectionConnected host=%1 port=%2 cert_digest=%3 pubkey_digest=%4")
+				.arg(qsHostName, QString::number(usPort),
+					 QString::fromLatin1(qsc.digest(QCryptographicHash::Sha1).toHex()),
+					 QString::fromLatin1(qbaDigest.toHex())));
 	} else {
 		// Shouldn't reach this
 		qCritical("Server must have a certificate. Dropping connection");
@@ -894,8 +898,8 @@ void ServerHandler::serverConnectionConnected() {
 
 	MumbleProto::Version mpv;
 	const QString advertisedRelease = Global::get().s.qsAdvertisedReleaseOverride.trimmed().isEmpty()
-										 ? Version::getRelease()
-										 : Global::get().s.qsAdvertisedReleaseOverride.trimmed();
+										  ? Version::getRelease()
+										  : Global::get().s.qsAdvertisedReleaseOverride.trimmed();
 	mpv.set_release(u8(advertisedRelease));
 	MumbleProto::setVersion(mpv, Version::get());
 	mpv.set_supports_persistent_chat(true);
