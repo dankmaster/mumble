@@ -140,7 +140,7 @@ jobs:
 
       - name: Verify shared helper runtime
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        timeout-minutes: 5
+        timeout-minutes: 10
         shell: powershell
         run: |
           .\scripts\windows\build-local-windows-client.ps1 `

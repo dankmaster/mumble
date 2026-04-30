@@ -162,44 +162,87 @@ function Invoke-ProcessWithTimeout {
 		[int]$TimeoutSeconds = 180
 	)
 
-	$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-	$startInfo.FileName = $FilePath
-	$startInfo.UseShellExecute = $false
-	$startInfo.RedirectStandardOutput = $true
-	$startInfo.RedirectStandardError = $true
-	$startInfo.CreateNoWindow = $true
+	function ConvertTo-CmdQuotedArgument {
+		param(
+			[Parameter(Mandatory = $true)]
+			[string]$Value
+		)
 
-	$escapedArguments = foreach ($argument in $Arguments) {
-		if ($argument -notmatch '[\s"]') {
-			$argument
-		} else {
-			$escapedArgument = $argument -replace '(\\*)"', '$1$1\"'
-			$escapedArgument = $escapedArgument -replace '(\\+)$', '$1$1'
-			'"' + $escapedArgument + '"'
-		}
+		return '"' + ($Value -replace '"', '\"') + '"'
 	}
-	$startInfo.Arguments = $escapedArguments -join ' '
+
+	$tempRoot = if (-not [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
+		$env:RUNNER_TEMP
+	} else {
+		[System.IO.Path]::GetTempPath()
+	}
+	New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+
+	$outputToken = [Guid]::NewGuid().ToString("N")
+	$stdoutPath = Join-Path $tempRoot "$outputToken.stdout.log"
+	$stderrPath = Join-Path $tempRoot "$outputToken.stderr.log"
+
+	$quotedArguments = foreach ($argument in $Arguments) {
+		ConvertTo-CmdQuotedArgument -Value $argument
+	}
+	$commandLine = @(
+		(ConvertTo-CmdQuotedArgument -Value $FilePath),
+		($quotedArguments -join ' '),
+		"1>",
+		(ConvertTo-CmdQuotedArgument -Value $stdoutPath),
+		"2>",
+		(ConvertTo-CmdQuotedArgument -Value $stderrPath)
+	) -join ' '
+
+	$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+	$startInfo.FileName = if (-not [string]::IsNullOrWhiteSpace($env:ComSpec)) {
+		$env:ComSpec
+	} else {
+		"cmd.exe"
+	}
+	$startInfo.Arguments = '/D /S /C "' + $commandLine + '"'
+	$startInfo.UseShellExecute = $false
+	$startInfo.RedirectStandardOutput = $false
+	$startInfo.RedirectStandardError = $false
+	$startInfo.CreateNoWindow = $true
 
 	$process = [System.Diagnostics.Process]::new()
 	$process.StartInfo = $startInfo
 
 	Write-Host "$Description timeout: $TimeoutSeconds seconds"
-	[void]$process.Start()
-	$stdoutTask = $process.StandardOutput.ReadToEndAsync()
-	$stderrTask = $process.StandardError.ReadToEndAsync()
 
-	if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-		& taskkill.exe /PID $process.Id /T /F *> $null
-		throw "$Description timed out after $TimeoutSeconds seconds."
-	}
+	try {
+		[void]$process.Start()
 
-	$stdout = $stdoutTask.GetAwaiter().GetResult()
-	$stderr = $stderrTask.GetAwaiter().GetResult()
+		if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+			& taskkill.exe /PID $process.Id /T /F *> $null
+			throw "$Description timed out after $TimeoutSeconds seconds."
+		}
 
-	return [PSCustomObject]@{
-		ExitCode = $process.ExitCode
-		StdOut   = $stdout
-		StdErr   = $stderr
+		$process.Refresh()
+		[string]$stdout = ""
+		[string]$stderr = ""
+		if (Test-Path -LiteralPath $stdoutPath) {
+			$content = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+			if ($null -ne $content) {
+				$stdout = $content
+			}
+		}
+		if (Test-Path -LiteralPath $stderrPath) {
+			$content = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+			if ($null -ne $content) {
+				$stderr = $content
+			}
+		}
+
+		return [PSCustomObject]@{
+			ExitCode = $process.ExitCode
+			StdOut   = $stdout
+			StdErr   = $stderr
+		}
+	} finally {
+		Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+		$process.Dispose()
 	}
 }
 
