@@ -25,12 +25,12 @@ private slots:
 };
 
 void TestScreenShare::parsesAndFormatsVp8CodecPreferences() {
-	const QList< int > codecs = Mumble::ScreenShare::parseCodecPreferenceString(QStringLiteral("vp8 h264,av1 vp9 vp8 nope"));
+	const QList< int > codecs =
+		Mumble::ScreenShare::parseCodecPreferenceString(QStringLiteral("vp8 h264,av1 vp9 vp8 nope"));
 
-	QCOMPARE(codecs, (QList< int >{ codecValue(MumbleProto::ScreenShareCodecVP8),
-									codecValue(MumbleProto::ScreenShareCodecH264),
-									codecValue(MumbleProto::ScreenShareCodecAV1),
-									codecValue(MumbleProto::ScreenShareCodecVP9) }));
+	QCOMPARE(codecs, (QList< int >{
+						 codecValue(MumbleProto::ScreenShareCodecVP8), codecValue(MumbleProto::ScreenShareCodecH264),
+						 codecValue(MumbleProto::ScreenShareCodecAV1), codecValue(MumbleProto::ScreenShareCodecVP9) }));
 	QCOMPARE(Mumble::ScreenShare::codecPreferenceString(codecs), QStringLiteral("vp8 h264 av1 vp9"));
 	QCOMPARE(Mumble::ScreenShare::codecToConfigToken(MumbleProto::ScreenShareCodecVP8), QStringLiteral("vp8"));
 	QVERIFY(Mumble::ScreenShare::isValidCodec(MumbleProto::ScreenShareCodecVP8));
@@ -47,24 +47,23 @@ void TestScreenShare::keepsDirectDefaultH264First() {
 void TestScreenShare::usesVp8ForBrowserWebRtcRuntime() {
 	QCOMPARE(Mumble::ScreenShare::browserWebRtcCodecPreferenceList(),
 			 (QList< int >{ codecValue(MumbleProto::ScreenShareCodecVP8) }));
-	QCOMPARE(Mumble::ScreenShare::webRtcRelayCodecPreferenceList(),
-			 (QList< int >{ codecValue(MumbleProto::ScreenShareCodecVP8),
-							 codecValue(MumbleProto::ScreenShareCodecH264),
-							 codecValue(MumbleProto::ScreenShareCodecAV1),
-							 codecValue(MumbleProto::ScreenShareCodecVP9) }));
+	QCOMPARE(
+		Mumble::ScreenShare::webRtcRelayCodecPreferenceList(),
+		(QList< int >{ codecValue(MumbleProto::ScreenShareCodecVP8), codecValue(MumbleProto::ScreenShareCodecH264),
+					   codecValue(MumbleProto::ScreenShareCodecAV1), codecValue(MumbleProto::ScreenShareCodecVP9) }));
 }
 
 void TestScreenShare::negotiatesWebRtcRelayWithLegacyFallback() {
 	const QList< int > webRtcPreferences = Mumble::ScreenShare::webRtcRelayCodecPreferenceList();
 
-	QCOMPARE(Mumble::ScreenShare::selectPreferredCodec(
-				 webRtcPreferences, { codecValue(MumbleProto::ScreenShareCodecVP8),
-									  codecValue(MumbleProto::ScreenShareCodecH264) }),
-			 MumbleProto::ScreenShareCodecVP8);
-	QCOMPARE(Mumble::ScreenShare::selectPreferredCodec(
-				 webRtcPreferences, { codecValue(MumbleProto::ScreenShareCodecH264),
-									  codecValue(MumbleProto::ScreenShareCodecAV1) }),
-			 MumbleProto::ScreenShareCodecH264);
+	QCOMPARE(
+		Mumble::ScreenShare::selectPreferredCodec(webRtcPreferences, { codecValue(MumbleProto::ScreenShareCodecVP8),
+																	   codecValue(MumbleProto::ScreenShareCodecH264) }),
+		MumbleProto::ScreenShareCodecVP8);
+	QCOMPARE(
+		Mumble::ScreenShare::selectPreferredCodec(webRtcPreferences, { codecValue(MumbleProto::ScreenShareCodecH264),
+																	   codecValue(MumbleProto::ScreenShareCodecAV1) }),
+		MumbleProto::ScreenShareCodecH264);
 }
 
 void TestScreenShare::recommendsVp8Bitrate() {

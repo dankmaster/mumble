@@ -341,17 +341,19 @@ void RelayWindowHost::handleBridgeStatsReported(const QString &summary, const QS
 		return;
 	}
 
-	const QString requestedCodec = m_session.codecFallbackOrder.isEmpty()
-									   ? Mumble::ScreenShare::codecToConfigToken(m_session.codec)
-									   : Mumble::ScreenShare::codecToConfigToken(
-											 static_cast< MumbleProto::ScreenShareCodec >(m_session.codecFallbackOrder.first()));
+	const QString requestedCodec =
+		m_session.codecFallbackOrder.isEmpty()
+			? Mumble::ScreenShare::codecToConfigToken(m_session.codec)
+			: Mumble::ScreenShare::codecToConfigToken(
+				static_cast< MumbleProto::ScreenShareCodec >(m_session.codecFallbackOrder.first()));
 	const QString negotiatedCodec = Mumble::ScreenShare::codecToConfigToken(m_session.codec);
 	qInfo().noquote() << QStringLiteral("RelayWindowHost: stream=%1 role=%2 requested_codec=%3 negotiated_codec=%4 "
 										"actual_codec=%5 stats=%6")
 							 .arg(m_session.streamID.isEmpty() ? QStringLiteral("-") : m_session.streamID, roleLabel(),
 								  requestedCodec.isEmpty() ? QStringLiteral("-") : requestedCodec,
 								  negotiatedCodec.isEmpty() ? QStringLiteral("-") : negotiatedCodec,
-								  actualCodec.trimmed().isEmpty() ? QStringLiteral("-") : actualCodec.trimmed(), summary);
+								  actualCodec.trimmed().isEmpty() ? QStringLiteral("-") : actualCodec.trimmed(),
+								  summary);
 }
 
 void RelayWindowHost::handleBootTimeout() {
@@ -426,9 +428,9 @@ void RelayWindowHost::requestFallbackOnce(const QString &reason) {
 	m_fallbackIssued = true;
 	if (Global::get().s.bScreenShareDiagnostics) {
 		qWarning().noquote() << QStringLiteral("RelayWindowHost: stream=%1 role=%2 fallback=%3")
-									 .arg(m_session.streamID.isEmpty() ? QStringLiteral("-") : m_session.streamID,
-										  roleLabel(), reason.trimmed().isEmpty() ? QStringLiteral("-")
-																				   : reason.trimmed());
+									.arg(m_session.streamID.isEmpty() ? QStringLiteral("-") : m_session.streamID,
+										 roleLabel(),
+										 reason.trimmed().isEmpty() ? QStringLiteral("-") : reason.trimmed());
 	}
 	emit fallbackRequested(reason);
 }

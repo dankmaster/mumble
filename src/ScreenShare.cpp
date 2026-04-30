@@ -58,9 +58,7 @@ namespace ScreenShare {
 				 static_cast< int >(MumbleProto::ScreenShareCodecVP9) };
 	}
 
-	QList< int > browserWebRtcCodecPreferenceList() {
-		return { static_cast< int >(MumbleProto::ScreenShareCodecVP8) };
-	}
+	QList< int > browserWebRtcCodecPreferenceList() { return { static_cast< int >(MumbleProto::ScreenShareCodecVP8) }; }
 
 	QList< int > sanitizeCodecList(const QList< int > &codecs) {
 		QList< int > sanitized;
